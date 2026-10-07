@@ -142,10 +142,10 @@ describe("ChatThreadList project hierarchy", () => {
 
     const projectRow = screen.getByRole("button", { name: "论文助手" }).parentElement!;
     expect(projectRow.children[1]).toContainElement(
-      screen.getByRole("button", { name: "在论文助手中新建聊天" }),
+      screen.getByRole("button", { name: "重命名论文助手" }),
     );
     expect(projectRow.children[2]).toContainElement(
-      screen.getByRole("button", { name: "重命名论文助手" }),
+      screen.getByRole("button", { name: "在论文助手中新建聊天" }),
     );
     expect(projectRow.children[3]).toHaveTextContent("1");
   });

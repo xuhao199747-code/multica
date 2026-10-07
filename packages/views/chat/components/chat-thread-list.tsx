@@ -594,17 +594,6 @@ export function ChatThreadList({
                 <FolderKanban className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate">{project.title}</span>
               </button>
-              {onStartProjectChat && (
-                <button
-                  type="button"
-                  aria-label={`在${project.title}中新建聊天`}
-                  title="新建聊天"
-                  onClick={() => onStartProjectChat(project.id)}
-                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
-                >
-                  <Plus className="size-4" />
-                </button>
-              )}
               {onRenameProject && (
                 <button
                   type="button"
@@ -614,6 +603,17 @@ export function ChatThreadList({
                   className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
                 >
                   <Pencil className="size-3.5" />
+                </button>
+              )}
+              {onStartProjectChat && (
+                <button
+                  type="button"
+                  aria-label={`在${project.title}中新建聊天`}
+                  title="新建聊天"
+                  onClick={() => onStartProjectChat(project.id)}
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
+                >
+                  <Plus className="size-4" />
                 </button>
               )}
               <span className="w-5 shrink-0 text-right text-micro text-muted-foreground">
