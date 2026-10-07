@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@multica/core/i18n/react";
-import type { Agent, ChatSession } from "@multica/core/types";
+import type { Agent, ChatSession, Project } from "@multica/core/types";
 import enChat from "../../locales/en/chat.json";
 import enIssues from "../../locales/en/issues.json";
 
@@ -92,8 +92,11 @@ function renderList(
   {
     onArchive = vi.fn(),
     onSelectSession = vi.fn(),
+    onStartProjectChat = vi.fn(),
+    onRenameProject = vi.fn(),
     renderedSessions = sessions,
     renderedAgents = [agent],
+    projects = [] as Project[],
   } = {},
 ) {
   render(
@@ -104,11 +107,38 @@ function renderList(
         activeSessionId={activeSessionId}
         onSelectSession={onSelectSession}
         onArchive={onArchive}
+        projects={projects}
+        onStartProjectChat={onStartProjectChat}
+        onRenameProject={onRenameProject}
       />
     </I18nProvider>,
   );
-  return { onArchive, onSelectSession };
+  return { onArchive, onSelectSession, onStartProjectChat, onRenameProject };
 }
+
+describe("ChatThreadList project hierarchy", () => {
+  it("groups project chats beneath the project and starts a fresh chat in that project", () => {
+    const project = {
+      id: "project-1",
+      title: "论文助手",
+      workspace_id: "ws-1",
+    } as Project;
+    const projectSession = makeSession({ id: "project-chat", title: "文献梳理", project_id: project.id });
+    const unassignedSession = makeSession({ id: "loose-chat", title: "随手问问", project_id: null });
+    const { onStartProjectChat, onRenameProject } = renderList(null, {
+      renderedSessions: [projectSession, unassignedSession],
+      projects: [project],
+    });
+
+    expect(screen.getByRole("button", { name: "论文助手" })).toBeInTheDocument();
+    expect(screen.getByText("文献梳理")).toBeInTheDocument();
+    expect(screen.getByText("随手问问")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "在论文助手中新建聊天" }));
+    expect(onStartProjectChat).toHaveBeenCalledWith("project-1");
+    fireEvent.click(screen.getByRole("button", { name: "重命名论文助手" }));
+    expect(onRenameProject).toHaveBeenCalledWith(project);
+  });
+});
 
 const ARCHIVE_LABEL = enChat.list.archive;
 

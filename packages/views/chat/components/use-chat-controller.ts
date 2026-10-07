@@ -743,6 +743,22 @@ export function useChatController(opts?: { isActive?: boolean }) {
     ],
   );
 
+  // Project chats are independent conversations. Selecting this entry never
+  // moves an existing transcript; it prepares a fresh draft that will create
+  // its own session in the selected project on first send.
+  const handleStartProjectChat = useCallback(
+    (projectId: string) => {
+      uiLogger.info("startProjectChat", {
+        projectId,
+        previousSessionId: activeSessionId,
+      });
+      setSelectedProjectId(projectId);
+      setActiveSession(null);
+      requestInputFocus();
+    },
+    [activeSessionId, setSelectedProjectId, setActiveSession, requestInputFocus],
+  );
+
   const handleSelectSession = useCallback(
     (session: { id: string; agent_id: string; project_id?: string | null }) => {
       // Sessions are bound 1:1 to an agent — picking a session from a
@@ -882,6 +898,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
     uploadEnabled,
     handleNewChat,
     handleStartNewChat,
+    handleStartProjectChat,
     handleSelectSession,
     handleProjectChange,
     advanceSelectionAfterArchive,

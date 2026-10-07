@@ -2,9 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
-import { ArrowLeft, MessageSquare } from "lucide-react";
+import { ArrowLeft, FolderPlus, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@multica/ui/components/ui/dialog";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -14,12 +23,13 @@ import { useIsCompact } from "@multica/ui/hooks/use-mobile";
 import { useRequiredWorkspaceSlug, useWorkspacePaths } from "@multica/core/paths";
 import { getCurrentSlug } from "@multica/core/platform";
 import { useChatStore } from "@multica/core/chat";
+import { useCreateProject, useUpdateProject } from "@multica/core/projects";
 import { chatQuickActionsPendingOptions } from "@multica/core/chat/queries";
 import { useRegenerateChatQuickActions } from "@multica/core/chat/mutations";
 import { useQuickActionsPendingTimeout } from "@multica/core/chat/use-quick-actions-pending-timeout";
 import { useQuickActionsFailureToast } from "./components/use-quick-actions-failure-toast";
 import { useQuery } from "@tanstack/react-query";
-import type { Agent, ChatSession } from "@multica/core/types";
+import type { Agent, ChatSession, Project } from "@multica/core/types";
 import { PageHeader } from "../layout/page-header";
 import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
@@ -29,7 +39,6 @@ import { ChatQueue } from "./components/chat-queue";
 import { ChatThreadList } from "./components/chat-thread-list";
 import { ChatSessionHeader } from "./components/chat-session-header";
 import { EmptyState } from "./components/chat-empty-state";
-import { NewChatButton } from "./components/new-chat-button";
 import { useChatController } from "./components/use-chat-controller";
 import { OfflineBanner } from "./components/offline-banner";
 import { NoAgentBanner } from "./components/no-agent-banner";
@@ -71,6 +80,8 @@ export function ChatPage() {
   const c = useChatController({
     isActive: isCurrentChatRoute && getCurrentSlug() === workspaceSlug,
   });
+  const createProject = useCreateProject();
+  const updateProject = useUpdateProject();
   const { data: quickActionsPending = null } = useQuery(
     chatQuickActionsPendingOptions(c.activeSessionId ?? ""),
   );
@@ -88,6 +99,9 @@ export function ChatPage() {
   // conversation pane is always mounted so it only needs to reset itself once a
   // real session takes over.
   const [composingNew, setComposingNew] = useState(false);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectTitle, setProjectTitle] = useState("");
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   useEffect(() => {
     // Read the LIVE store value for the same reason as the session sync
     // effects below: under StrictMode's double-invoke this effect replays
@@ -177,6 +191,45 @@ export function ChatPage() {
     setComposingNew(true);
   };
 
+  const startProjectChat = (projectId: string) => {
+    supersedeAgentIntent();
+    c.handleStartProjectChat(projectId);
+    setComposingNew(true);
+  };
+
+  const createNewProject = () => {
+    const title = projectTitle.trim();
+    if (!title) return;
+    if (editingProject) {
+      updateProject.mutate(
+        { id: editingProject.id, title },
+        {
+          onSuccess: () => {
+            setProjectDialogOpen(false);
+            setProjectTitle("");
+            setEditingProject(null);
+          },
+          onError: () => toast.error("重命名项目失败，请稍后重试"),
+        },
+      );
+      return;
+    }
+    createProject.mutate(
+      { title, status: "planned", priority: "none" },
+      {
+        onSuccess: () => {
+          setProjectDialogOpen(false);
+          setProjectTitle("");
+          setEditingProject(null);
+          // Keep creation and conversation creation separate: the new project
+          // appears in the tree first, then its + action starts a fresh chat.
+          // This preserves the explicit Project → Chat hierarchy.
+        },
+        onError: () => toast.error("创建项目失败，请稍后重试"),
+      },
+    );
+  };
+
   const changeProjectContext = (projectId: string | null) => {
     if (projectId === c.activeProjectId) return;
     c.handleProjectChange(projectId);
@@ -219,19 +272,67 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- consume when the URL param or the resolving agent list changes
   }, [isCurrentChatRoute, workspaceSlug, urlAgent, c.availableAgents, c.agentsSettled]);
 
-  const newChatButton = (
-    <NewChatButton
-      agents={c.availableAgents}
-      userId={c.user?.id}
-      onStart={startNewChat}
-      side="bottom"
-    />
-  );
-
   const listHeader = (
     <PageHeader>
       <h1 className="flex-1 text-body font-semibold">{t(($) => $.page.title)}</h1>
-      {newChatButton}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="新建项目"
+        title="新建项目"
+        onClick={() => {
+          setEditingProject(null);
+          setProjectTitle("");
+          setProjectDialogOpen(true);
+        }}
+      >
+        <FolderPlus className="size-4" />
+      </Button>
+      <Dialog
+        open={projectDialogOpen}
+        onOpenChange={(open) => {
+          setProjectDialogOpen(open);
+          if (!open) {
+            setProjectTitle("");
+            setEditingProject(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              createNewProject();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingProject ? "重命名项目" : "新建项目"}</DialogTitle>
+              <DialogDescription>
+                {editingProject ? "修改项目名称后，本地文件夹会在同步时随之更新。" : "项目用于归纳彼此独立的聊天记录。"}
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              autoFocus
+              className="mt-4"
+              value={projectTitle}
+              onChange={(event) => setProjectTitle(event.target.value)}
+              placeholder="项目名称"
+              aria-label="项目名称"
+            />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setProjectDialogOpen(false)}>
+                取消
+              </Button>
+              <Button
+                type="submit"
+                disabled={!projectTitle.trim() || createProject.isPending || updateProject.isPending}
+              >
+                {editingProject ? "保存" : "创建项目"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </PageHeader>
   );
 
@@ -243,6 +344,13 @@ export function ChatPage() {
         activeSessionId={c.activeSessionId}
         onSelectSession={handleSelect}
         onArchive={handleArchive}
+        projects={c.projects}
+        onStartProjectChat={startProjectChat}
+        onRenameProject={(project) => {
+          setEditingProject(project);
+          setProjectTitle(project.title);
+          setProjectDialogOpen(true);
+        }}
       />
     </div>
   );

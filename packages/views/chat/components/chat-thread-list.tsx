@@ -5,12 +5,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   ArchiveRestore,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
+  FolderKanban,
   Loader2,
+  Pencil,
   Pin,
   PinOff,
+  Plus,
   Square,
   Trash2,
 } from "lucide-react";
@@ -26,7 +30,7 @@ import {
   useSetChatSessionPinned,
 } from "@multica/core/chat/mutations";
 import { useChatStore } from "@multica/core/chat";
-import type { Agent, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
+import type { Agent, ChatSession, PendingChatTasksResponse, Project } from "@multica/core/types";
 import { ActorAvatar } from "../../common/actor-avatar";
 import {
   RowActionsMenu,
@@ -84,6 +88,9 @@ export function ChatThreadList({
   activeSessionId,
   onSelectSession,
   onArchive,
+  projects = [],
+  onStartProjectChat,
+  onRenameProject,
 }: {
   sessions: ChatSession[];
   agents: Agent[];
@@ -93,6 +100,10 @@ export function ChatThreadList({
   // aware (desktop advances to the next chat; mobile drops back to the list)
   // and routes through the shared controller — see ChatPage.handleArchive.
   onArchive: (session: ChatSession) => void;
+  /** Projects are first-class containers for independent chat histories. */
+  projects?: Project[];
+  onStartProjectChat?: (projectId: string) => void;
+  onRenameProject?: (project: Project) => void;
 }) {
   const { t } = useT("chat");
   const locale = useLocale();
@@ -127,6 +138,9 @@ export function ChatThreadList({
   // (last chat unarchived / deleted) so we never strand the user on an empty
   // archive.
   const [view, setView] = useState<"history" | "archived">("history");
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   useEffect(() => {
     if (view === "archived" && archivedSessions.length === 0) setView("history");
   }, [view, archivedSessions.length]);
@@ -514,7 +528,7 @@ export function ChatThreadList({
     </button>
   );
 
-  if (historySessions.length === 0) {
+  if (historySessions.length === 0 && projects.length === 0) {
     return (
       <>
         <div className="px-2 py-1.5 text-caption text-muted-foreground">
@@ -527,7 +541,73 @@ export function ChatThreadList({
 
   return (
     <>
-      {historySessions.map(renderRow)}
+      <div className="mb-1 px-2 pt-2 text-micro font-medium text-muted-foreground">项目</div>
+      {projects.map((project) => {
+        const projectSessions = historySessions.filter((session) => session.project_id === project.id);
+        const isCollapsed = collapsedProjectIds.has(project.id);
+        return (
+          <section key={project.id} className="mb-1">
+            <div className="group/project flex h-9 items-center gap-1 rounded-md px-1 hover:bg-accent/50">
+              <button
+                type="button"
+                aria-label={project.title}
+                aria-expanded={!isCollapsed}
+                onClick={() => {
+                  setCollapsedProjectIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(project.id)) next.delete(project.id);
+                    else next.add(project.id);
+                    return next;
+                  });
+                }}
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-caption font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", isCollapsed && "-rotate-90")} />
+                <FolderKanban className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{project.title}</span>
+                <span className="ml-auto shrink-0 text-micro text-muted-foreground">{projectSessions.length}</span>
+              </button>
+              {onStartProjectChat && (
+                <button
+                  type="button"
+                  aria-label={`在${project.title}中新建聊天`}
+                  title="新建聊天"
+                  onClick={() => onStartProjectChat(project.id)}
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
+                >
+                  <Plus className="size-4" />
+                </button>
+              )}
+              {onRenameProject && (
+                <button
+                  type="button"
+                  aria-label={`重命名${project.title}`}
+                  title="重命名项目"
+                  onClick={() => onRenameProject(project)}
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+            </div>
+            {!isCollapsed && (
+              <div className="ml-3 border-l border-border/70 pl-1">
+                {projectSessions.length > 0 ? projectSessions.map(renderRow) : (
+                  <p className="px-2 py-1.5 text-caption text-muted-foreground">暂无聊天</p>
+                )}
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {historySessions.some((session) => !session.project_id || !projects.some((project) => project.id === session.project_id)) && (
+        <>
+          <div className="mb-1 mt-3 px-2 text-micro font-medium text-muted-foreground">未归类</div>
+          {historySessions
+            .filter((session) => !session.project_id || !projects.some((project) => project.id === session.project_id))
+            .map(renderRow)}
+        </>
+      )}
       {archivedEntry}
     </>
   );
