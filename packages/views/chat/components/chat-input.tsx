@@ -26,8 +26,7 @@ import { createLogger } from "@multica/core/logger";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
 import type { MentionItem } from "../../editor/extensions/mention-suggestion";
 import type { Attachment, Project } from "@multica/core/types";
-import { ProjectPicker } from "../../projects/components/project-picker";
-import { ClearablePillButton } from "../../common/pill-button";
+import { PillButton } from "../../common/pill-button";
 import { useT } from "../../i18n";
 
 const logger = createLogger("chat.ui");
@@ -658,21 +657,13 @@ export function ChatInput({
                 !projectSelectionEnabled && "pointer-events-none opacity-60",
               )}
             >
-              <ProjectPicker
-                projectId={selectedProject.id}
-                onUpdate={(updates) => onProjectChange?.(updates.project_id ?? null)}
-                disabled={!projectSelectionEnabled}
-                triggerRender={
-                  <ClearablePillButton
-                    disabled={!projectSelectionEnabled}
-                    aria-label={t(($) => $.input.change_project_context)}
-                    title={t(($) => $.input.change_project_context)}
-                    onClear={() => onProjectChange?.(null)}
-                    clearLabel={t(($) => $.input.remove_project_context)}
-                    className="h-6 border-surface-border bg-surface-raised font-medium text-foreground"
-                  />
-                }
-              />
+              <PillButton
+                disabled
+                title={selectedProject.title}
+                className="h-6 border-surface-border bg-surface-raised font-medium text-foreground"
+              >
+                {selectedProject.title}
+              </PillButton>
             </div>
             {projectContextUnsupported && (
               <span className="inline-flex min-w-0 items-center gap-1 text-caption text-warning">

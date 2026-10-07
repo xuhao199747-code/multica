@@ -7,7 +7,7 @@ vi.mock("@multica/core/issue-statuses/hooks", () => ({
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@multica/core/api";
 import { renderWithI18n } from "../test/i18n";
-import { AppSidebar } from "./app-sidebar";
+import { AppSidebar, HIDDEN_NAV_KEYS } from "./app-sidebar";
 
 const { appForeground, chatSessions, chatStore, detail, deletePin, invitationApi, navigation, pins, sidebarState, summary, workspaces } = vi.hoisted(() => ({
   appForeground: { current: true },
@@ -289,6 +289,12 @@ describe("PinRow", () => {
     } finally {
       pins.current = originalPins;
     }
+  });
+});
+
+describe("focused sidebar mode", () => {
+  it("hides only the destinations shown in the user's compact navigation", () => {
+    expect(HIDDEN_NAV_KEYS).toEqual(["inbox", "myIssues", "issues", "projects", "autopilots"]);
   });
 });
 

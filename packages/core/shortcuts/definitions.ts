@@ -100,7 +100,8 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionDefinition[] = [
     defaultShortcut: createShortcutChord("E"),
     allowInEditable: false,
   },
-  { id: "send", category: "general", defaultShortcut: primary("Enter"), allowInEditable: true },
+  // Chat is an IM surface: Enter sends and Shift+Enter creates a paragraph.
+  { id: "send", category: "general", defaultShortcut: createShortcutChord("Enter"), allowInEditable: true },
   // Browser-style history navigation (Mod+[ / Mod+]). Neither bracket is
   // app-owned (PRIMARY_RESERVED_KEYS) nor browser-owned
   // (BROWSER_ONLY_PRIMARY_RESERVED_KEYS), so both are recordable on every

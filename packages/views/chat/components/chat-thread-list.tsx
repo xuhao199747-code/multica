@@ -28,6 +28,7 @@ import {
   useDeleteChatSession,
   useSetChatSessionArchived,
   useSetChatSessionPinned,
+  useSetChatSessionProject,
 } from "@multica/core/chat/mutations";
 import { useChatStore } from "@multica/core/chat";
 import type { Agent, ChatSession, PendingChatTasksResponse, Project } from "@multica/core/types";
@@ -151,8 +152,16 @@ export function ChatThreadList({
   const deleteSession = useDeleteChatSession();
   const setPinned = useSetChatSessionPinned();
   const setArchived = useSetChatSessionArchived();
+  const setSessionProject = useSetChatSessionProject();
   const setActiveSession = useChatStore((s) => s.setActiveSession);
   const queryClient = useQueryClient();
+  const [draggedSession, setDraggedSession] = useState<ChatSession | null>(null);
+
+  const moveDraggedSession = (projectId: string | null) => {
+    if (!draggedSession || draggedSession.project_id === projectId) return;
+    setSessionProject.mutate({ sessionId: draggedSession.id, projectId });
+    setDraggedSession(null);
+  };
 
   const { data: pending } = useQuery(pendingChatTasksOptions(wsId));
   const pendingTaskBySessionId = useMemo(
@@ -371,6 +380,15 @@ export function ChatThreadList({
           if (isConfirmingAction) return;
           handleRowActivationKey(e, () => onSelectSession(session));
         }}
+        draggable
+        onDragStart={(e) => {
+          setDraggedSession(session);
+          if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", session.id);
+          }
+        }}
+        onDragEnd={() => setDraggedSession(null)}
         className={cn(
           // Fixed height so nothing (hover actions, confirm prompts) can change
           // the row size and make the list jump. Content is vertically centered.
@@ -547,7 +565,17 @@ export function ChatThreadList({
         const isCollapsed = collapsedProjectIds.has(project.id);
         return (
           <section key={project.id} className="mb-1">
-            <div className="group/project flex h-9 items-center gap-1 rounded-md px-1 hover:bg-accent/50">
+            <div
+              aria-label={`将聊天移入${project.title}`}
+              onDragOver={(e) => {
+                if (draggedSession) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                moveDraggedSession(project.id);
+              }}
+              className="group/project flex h-9 items-center gap-1 rounded-md px-1 hover:bg-accent/50"
+            >
               <button
                 type="button"
                 aria-label={project.title}
@@ -565,7 +593,6 @@ export function ChatThreadList({
                 <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", isCollapsed && "-rotate-90")} />
                 <FolderKanban className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate">{project.title}</span>
-                <span className="ml-auto shrink-0 text-micro text-muted-foreground">{projectSessions.length}</span>
               </button>
               {onStartProjectChat && (
                 <button
@@ -589,6 +616,9 @@ export function ChatThreadList({
                   <Pencil className="size-3.5" />
                 </button>
               )}
+              <span className="w-5 shrink-0 text-right text-micro text-muted-foreground">
+                {projectSessions.length}
+              </span>
             </div>
             {!isCollapsed && (
               <div className="ml-3 border-l border-border/70 pl-1">
@@ -600,14 +630,25 @@ export function ChatThreadList({
           </section>
         );
       })}
-      {historySessions.some((session) => !session.project_id || !projects.some((project) => project.id === session.project_id)) && (
-        <>
-          <div className="mb-1 mt-3 px-2 text-micro font-medium text-muted-foreground">未归类</div>
-          {historySessions
-            .filter((session) => !session.project_id || !projects.some((project) => project.id === session.project_id))
-            .map(renderRow)}
-        </>
-      )}
+      <div
+        aria-label="将聊天移出项目"
+        onDragOver={(e) => {
+          if (draggedSession) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          moveDraggedSession(null);
+        }}
+        className="mt-3"
+      >
+        <div className="mb-1 px-2 text-micro font-medium text-muted-foreground">未归类</div>
+        {historySessions
+          .filter((session) => !session.project_id || !projects.some((project) => project.id === session.project_id))
+          .map(renderRow)}
+        {historySessions.every((session) => session.project_id && projects.some((project) => project.id === session.project_id)) && (
+          <p className="px-2 py-1.5 text-caption text-muted-foreground">拖到这里移出项目</p>
+        )}
+      </div>
       {archivedEntry}
     </>
   );

@@ -151,6 +151,10 @@ const personalNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   { key: "chat", labelKey: "chat" },
 ];
 
+/** This personal installation uses the project tree inside Chat as its sole navigation surface. */
+/** Entries explicitly shown in the user's compact sidebar screenshot. */
+export const HIDDEN_NAV_KEYS = ["inbox", "myIssues", "issues", "projects", "autopilots"] as const;
+
 const workNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   { key: "issues", labelKey: "issues" },
   { key: "projects", labelKey: "projects" },
@@ -745,7 +749,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
               </DropdownMenu>
             </SidebarMenuItem>
           </SidebarMenu>
-          <SidebarMenu>
+          <SidebarMenu className="hidden">
             {searchSlot && (
               <SidebarMenuItem>
                 {searchSlot}
@@ -779,7 +783,10 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                   const Icon = routeIconForPath(href);
                   const isActive = isNavActive(pathname, href);
                   return (
-                    <SidebarMenuItem key={item.key}>
+                    <SidebarMenuItem
+                      key={item.key}
+                      className={HIDDEN_NAV_KEYS.includes(item.key as (typeof HIDDEN_NAV_KEYS)[number]) ? "hidden" : undefined}
+                    >
                       <SidebarMenuButton
                         isActive={isActive}
                         render={<AppLink href={href} />}
@@ -858,7 +865,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             </Collapsible>
           )}
 
-          <SidebarGroup>
+          <SidebarGroup className="hidden">
             <SidebarGroupLabel>{t(($) => $.sidebar.work_group)}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu className="gap-0.5">

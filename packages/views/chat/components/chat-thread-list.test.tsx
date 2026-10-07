@@ -17,6 +17,7 @@ import enIssues from "../../locales/en/issues.json";
 
 const setActiveSession = vi.fn();
 const archiveMutate = vi.fn();
+const setSessionProjectMutate = vi.fn();
 
 vi.mock("../../common/actor-avatar", () => ({
   ActorAvatar: ({ actorId }: { actorId: string }) => (
@@ -45,6 +46,7 @@ vi.mock("@multica/core/chat/mutations", () => ({
   useDeleteChatSession: () => ({ mutate: vi.fn(), isPending: false }),
   useSetChatSessionPinned: () => ({ mutate: vi.fn(), isPending: false }),
   useSetChatSessionArchived: () => ({ mutate: archiveMutate, isPending: false }),
+  useSetChatSessionProject: () => ({ mutate: setSessionProjectMutate, isPending: false }),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -137,6 +139,30 @@ describe("ChatThreadList project hierarchy", () => {
     expect(onStartProjectChat).toHaveBeenCalledWith("project-1");
     fireEvent.click(screen.getByRole("button", { name: "重命名论文助手" }));
     expect(onRenameProject).toHaveBeenCalledWith(project);
+
+    const projectRow = screen.getByRole("button", { name: "论文助手" }).parentElement!;
+    expect(projectRow.children[1]).toContainElement(
+      screen.getByRole("button", { name: "在论文助手中新建聊天" }),
+    );
+    expect(projectRow.children[2]).toContainElement(
+      screen.getByRole("button", { name: "重命名论文助手" }),
+    );
+    expect(projectRow.children[3]).toHaveTextContent("1");
+  });
+
+  it("moves a chat between project containers only when it is dragged", () => {
+    const source = { id: "project-1", title: "论文助手", workspace_id: "ws-1" } as Project;
+    const target = { id: "project-2", title: "写作", workspace_id: "ws-1" } as Project;
+    const session = makeSession({ id: "project-chat", title: "文献梳理", project_id: source.id });
+    renderList(null, { renderedSessions: [session], projects: [source, target] });
+
+    fireEvent.dragStart(screen.getByText("文献梳理").closest("[tabindex]")!);
+    fireEvent.drop(screen.getByLabelText("将聊天移入写作"));
+
+    expect(setSessionProjectMutate).toHaveBeenCalledWith({
+      sessionId: "project-chat",
+      projectId: "project-2",
+    });
   });
 });
 

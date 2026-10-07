@@ -589,10 +589,7 @@ describe("ChatInput project context", () => {
         "Project description won't apply — this agent's daemon needs an upgrade",
       ),
     ).toBeInTheDocument();
-    // Soft gate: the warning must not lock the control.
-    expect(
-      screen.getByRole("button", { name: "Change project context" }),
-    ).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Change project context" })).not.toBeInTheDocument();
   });
 
   it("shows no daemon warning when support is current or unknown", () => {
@@ -609,7 +606,7 @@ describe("ChatInput project context", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders the selected project chip and forwards context changes", () => {
+  it("shows the selected project as a fixed context instead of offering removal", () => {
     const onProjectChange = vi.fn();
     renderInput({
       projects: [sampleProject],
@@ -617,26 +614,9 @@ describe("ChatInput project context", () => {
       onProjectChange,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Change project context" }));
-
-    expect(onProjectChange).toHaveBeenCalledWith(null);
-  });
-
-  it("allows removing project context while the agent is running", () => {
-    const onProjectChange = vi.fn();
-    renderInput({
-      projects: [sampleProject],
-      projectId: "project-alpha",
-      onProjectChange,
-      isRunning: true,
-    });
-
-    const projectControl = screen.getByRole("button", {
-      name: "Change project context",
-    });
-    expect(projectControl).not.toBeDisabled();
-    fireEvent.click(projectControl);
-    expect(onProjectChange).toHaveBeenCalledWith(null);
+    expect(screen.getByText("Project Alpha")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change project context" })).not.toBeInTheDocument();
+    expect(onProjectChange).not.toHaveBeenCalled();
   });
 
   it("swaps Stop for Queue Send when the running composer has content", async () => {
@@ -709,66 +689,6 @@ describe("ChatInput project context", () => {
     expect(screen.queryByRole("button", { name: "Queue message" })).not.toBeInTheDocument();
   });
 
-  it("locks the project control while a send is in flight so a mid-send switch cannot retarget the session", async () => {
-    // A brand-new chat creates its session row lazily during send, bound to
-    // the project selected at click time. If the user could switch project
-    // while that create is in flight, the session would be created against the
-    // old project while the UI already shows the new one — the agent would
-    // then receive a project/repo context the user no longer intends
-    // (MUL-5150). The control must stay locked for the whole send, not only
-    // once the agent is running.
-    let resolveSend: (accepted: boolean) => void;
-    const sendPromise = new Promise<boolean>((res) => {
-      resolveSend = res;
-    });
-    const onSend = vi.fn<ChatInputOnSend>(() => sendPromise);
-    const onProjectChange = vi.fn();
-    renderInput({
-      projects: [sampleProject],
-      projectId: "project-alpha",
-      onProjectChange,
-      onSend,
-    });
-
-    // Interactive before send starts.
-    expect(
-      screen.getByRole("button", { name: "Change project context" }),
-    ).not.toBeDisabled();
-
-    fireEvent.change(screen.getByTestId("editor"), {
-      target: { value: "slow network" },
-    });
-    let sendBtn: HTMLElement;
-    await waitFor(() => {
-      const buttons = screen.getAllByRole("button");
-      sendBtn = buttons[buttons.length - 1]!;
-      expect(sendBtn).not.toBeDisabled();
-    });
-    fireEvent.click(sendBtn!);
-
-    // Send pending → project control locked; a click cannot fire a change.
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Change project context" }),
-      ).toBeDisabled(),
-    );
-    // ChatInput also propagates the lock to the shared ProjectPicker so its
-    // internal clear button (a keyboard-reachable path the wrapper's
-    // pointer-events-none does not cover) is disabled too. The clear control's
-    // keyboard-inertness itself is covered against the real ProjectPicker in
-    // project-picker.test.tsx.
-    expect(
-      screen.getByRole("button", { name: "Change project context" }),
-    ).toHaveAttribute("data-project-picker-disabled", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Change project context" }));
-    expect(onProjectChange).not.toHaveBeenCalled();
-
-    // Resolve the pending send so the promise doesn't dangle past the test.
-    await act(async () => {
-      resolveSend!(true);
-      await sendPromise;
-    });
-  });
 });
 
 describe("ChatInput attachment wiring", () => {
