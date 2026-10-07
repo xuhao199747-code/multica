@@ -102,6 +102,7 @@ export function ChatPage() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [selectingAgentForProjectId, setSelectingAgentForProjectId] = useState<string | null>(null);
   useEffect(() => {
     // Read the LIVE store value for the same reason as the session sync
     // effects below: under StrictMode's double-invoke this effect replays
@@ -193,7 +194,16 @@ export function ChatPage() {
 
   const startProjectChat = (projectId: string) => {
     supersedeAgentIntent();
-    c.handleStartProjectChat(projectId);
+    setSelectingAgentForProjectId(projectId);
+  };
+
+  const startProjectChatWithAgent = (agent: Agent) => {
+    if (!selectingAgentForProjectId) return;
+    // Reuse the controller's two explicit state transitions: choose the
+    // agent first, then scope the fresh draft to this project.
+    c.handleStartNewChat(agent);
+    c.handleStartProjectChat(selectingAgentForProjectId);
+    setSelectingAgentForProjectId(null);
     setComposingNew(true);
   };
 
@@ -331,6 +341,42 @@ export function ChatPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={selectingAgentForProjectId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectingAgentForProjectId(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>选择智能体</DialogTitle>
+            <DialogDescription>选择后将在该项目内创建新聊天。</DialogDescription>
+          </DialogHeader>
+          <div className="mt-3 max-h-80 space-y-1 overflow-y-auto">
+            {c.availableAgents.length > 0 ? c.availableAgents.map((agent) => {
+              const runnable = !!agent.runtime_id;
+              return (
+                <Button
+                  key={agent.id}
+                  type="button"
+                  variant="ghost"
+                  disabled={!runnable}
+                  onClick={() => startProjectChatWithAgent(agent)}
+                  className="h-11 w-full justify-start gap-2 px-2"
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-caption font-medium">
+                    {agent.name.slice(0, 1)}
+                  </span>
+                  <span className="truncate">{agent.name}</span>
+                  {!runnable && <span className="ml-auto text-micro text-muted-foreground">需要运行环境</span>}
+                </Button>
+              );
+            }) : (
+              <p className="px-2 py-4 text-center text-caption text-muted-foreground">暂无可用智能体</p>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </PageHeader>
