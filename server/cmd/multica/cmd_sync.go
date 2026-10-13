@@ -15,7 +15,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var syncCmd = &cobra.Command{Use: "sync", Short: "Mirror browser chat transcripts to a local folder"}
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Mirror browser chat transcripts to a local folder",
+	Long:  "Mirror browser chat transcripts to a local folder. Deleted browser chats and projects are moved to the system Trash.",
+}
 var syncOnceCmd = &cobra.Command{Use: "once", Short: "Synchronize chats once", RunE: runSyncOnce}
 var syncStartCmd = &cobra.Command{Use: "start", Short: "Synchronize chats continuously", RunE: runSyncStart}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -12,6 +13,18 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/cli"
 )
+
+func TestSyncHelpExplainsTrashDeletion(t *testing.T) {
+	var out bytes.Buffer
+	syncCmd.SetArgs([]string{"--help"})
+	syncCmd.SetOut(&out)
+	if err := syncCmd.Execute(); err != nil {
+		t.Fatalf("syncCmd.Execute: %v", err)
+	}
+	if !strings.Contains(out.String(), "Deleted browser chats and projects are moved to the system Trash.") {
+		t.Fatalf("sync help does not explain Trash behavior: %s", out.String())
+	}
+}
 
 func newSyncTestClient(serverURL string) *cli.APIClient {
 	return cli.NewAPIClient(serverURL, "workspace-1", "test-token")
