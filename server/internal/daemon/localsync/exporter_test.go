@@ -1,11 +1,180 @@
 package localsync
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func newTrashRecordingExporter(root string) (*Exporter, *[]string) {
+	targets := []string{}
+	exporter := NewExporter(root)
+	exporter.moveToTrash = func(path string) error {
+		targets = append(targets, path)
+		return nil
+	}
+	return exporter, &targets
+}
+
+func newTrashMovingExporter(t *testing.T, root string) *Exporter {
+	t.Helper()
+	exporter := NewExporter(root)
+	trash := t.TempDir()
+	exporter.moveToTrash = func(path string) error {
+		return os.Rename(path, filepath.Join(trash, filepath.Base(path)))
+	}
+	return exporter
+}
+
+func TestDeleteMovesVerifiedChatDirectoryToTrash(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "project", ChatSessionID: "c", ChatTitle: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := e.find("p", "c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Delete("other", "c"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("mismatched metadata moved to Trash: %v", *targets)
+	}
+	if err := e.Delete("p", "c"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 1 || (*targets)[0] != chat {
+		t.Fatalf("Trash targets = %v, want [%s]", *targets, chat)
+	}
+}
+
+func TestPruneMovesMissingChatDirectoryToTrash(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "project", ChatSessionID: "gone", ChatTitle: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := e.find("p", "gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Prune(map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 1 || (*targets)[0] != chat {
+		t.Fatalf("Trash targets = %v, want [%s]", *targets, chat)
+	}
+}
+
+func TestPruneProjectsMovesCompleteDeletedProjectToTrash(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	project, err := e.EnsureProjectPath("gone", "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "agent-output.txt"), []byte("keep recoverable"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.PruneProjects(map[string]bool{}, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 1 || (*targets)[0] != project {
+		t.Fatalf("Trash targets = %v, want [%s]", *targets, project)
+	}
+}
+
+func TestTrashFailureLeavesChatDirectoryForRetry(t *testing.T) {
+	e := NewExporter(t.TempDir())
+	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "project", ChatSessionID: "c", ChatTitle: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := e.find("p", "c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("offline")
+	e.moveToTrash = func(string) error { return failure }
+	if err := e.Delete("p", "c"); !errors.Is(err, failure) {
+		t.Fatalf("Delete error = %v, want %v", err, failure)
+	}
+	if _, err := os.Stat(chat); err != nil {
+		t.Fatalf("chat unavailable for retry: %v", err)
+	}
+}
+
+func TestPruneProjectsKeepsDeletedProjectWithActiveChat(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	if err := e.Sync(Snapshot{ProjectID: "gone", ProjectTitle: "project", ChatSessionID: "active", ChatTitle: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.PruneProjects(map[string]bool{}, map[string]bool{"active": true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("project with active chat moved to Trash: %v", *targets)
+	}
+	if err := e.PruneProjects(map[string]bool{}, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(e.root, "project")
+	if len(*targets) != 1 || (*targets)[0] != project {
+		t.Fatalf("inactive project's Trash targets = %v, want [%s]", *targets, project)
+	}
+}
+
+func TestPruneProjectsPreservesUnownedAndMalformedProjects(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	for _, name := range []string{"unowned", "malformed", "empty-id"} {
+		dir := filepath.Join(e.root, name)
+		if err := os.Mkdir(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if name != "unowned" {
+			data := []byte("invalid")
+			if name == "empty-id" {
+				data = []byte(`{"project_id":""}`)
+			}
+			if err := os.WriteFile(filepath.Join(dir, projectMetadataFile), data, 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := e.PruneProjects(map[string]bool{}, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("unverified projects moved to Trash: %v", *targets)
+	}
+}
+
+func TestMovingChatTrashesEmptyOwnedProject(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "project", ChatSessionID: "c", ChatTitle: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Sync(Snapshot{ChatSessionID: "c", ChatTitle: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(e.root, "project")
+	if len(*targets) != 1 || (*targets)[0] != project {
+		t.Fatalf("empty project's Trash targets = %v, want [%s]", *targets, project)
+	}
+}
+
+func TestTrashRejectsRootAndOutsidePaths(t *testing.T) {
+	root := t.TempDir()
+	e, targets := newTrashRecordingExporter(root)
+	for _, path := range []string{root, filepath.Dir(root), filepath.Join(root, "..", "outside")} {
+		if err := e.trash(path); err == nil {
+			t.Fatalf("trash(%q) accepted path outside sync content", path)
+		}
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("rejected paths reached Trash adapter: %v", *targets)
+	}
+}
 
 func TestSyncCreatesProjectAndConversationTranscript(t *testing.T) {
 	root := t.TempDir()
@@ -42,7 +211,7 @@ func TestSyncCreatesProjectAndConversationTranscript(t *testing.T) {
 
 func TestSyncRenamesConversationAndDeleteOnlyMatchesMetadata(t *testing.T) {
 	root := t.TempDir()
-	e := NewExporter(root)
+	e := newTrashMovingExporter(t, root)
 	s := Snapshot{ProjectID: "p1", ProjectTitle: "项目", ChatSessionID: "c1", ChatTitle: "旧名"}
 	if err := e.Sync(s); err != nil {
 		t.Fatal(err)
@@ -67,7 +236,7 @@ func TestSyncRenamesConversationAndDeleteOnlyMatchesMetadata(t *testing.T) {
 }
 
 func TestPruneRemovesChatsNoLongerReturnedByBrowser(t *testing.T) {
-	e := NewExporter(t.TempDir())
+	e := newTrashMovingExporter(t, t.TempDir())
 	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "项目", ChatSessionID: "gone", ChatTitle: "会话"}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +249,7 @@ func TestPruneRemovesChatsNoLongerReturnedByBrowser(t *testing.T) {
 }
 
 func TestSyncMovesUnassignedChatToUncategorized(t *testing.T) {
-	e := NewExporter(t.TempDir())
+	e := newTrashMovingExporter(t, t.TempDir())
 	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "项目", ChatSessionID: "c", ChatTitle: "会话"}); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +323,7 @@ func TestSyncKeepsExistingConversationWhenRenameTargetCollides(t *testing.T) {
 }
 
 func TestMovingChatRemovesEmptyOldProjectFolder(t *testing.T) {
-	e := NewExporter(t.TempDir())
+	e := newTrashMovingExporter(t, t.TempDir())
 	if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "项目", ChatSessionID: "c", ChatTitle: "会话"}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,15 +358,15 @@ func TestEnsureProjectRenamesOwnedProjectDirectory(t *testing.T) {
 	}
 }
 
-func TestPruneProjectsRemovesOnlyEmptyOwnedDeletedProjects(t *testing.T) {
-	e := NewExporter(t.TempDir())
+func TestPruneProjectsRemovesOnlyOwnedDeletedProjects(t *testing.T) {
+	e := newTrashMovingExporter(t, t.TempDir())
 	if err := e.EnsureProject("gone", "已删除"); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.EnsureProject("keep", "保留"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.PruneProjects(map[string]bool{"keep": true}); err != nil {
+	if err := e.PruneProjects(map[string]bool{"keep": true}, map[string]bool{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(e.root, "已删除")); !os.IsNotExist(err) {
@@ -209,7 +378,7 @@ func TestPruneProjectsRemovesOnlyEmptyOwnedDeletedProjects(t *testing.T) {
 }
 
 func TestSyncMigratesLegacyIDDecoratedDirectoriesToReadableNames(t *testing.T) {
-	e := NewExporter(t.TempDir())
+	e := newTrashMovingExporter(t, t.TempDir())
 	legacy := filepath.Join(e.root, "项目--p", "旧名--c")
 	if err := os.MkdirAll(legacy, 0755); err != nil {
 		t.Fatal(err)

@@ -17,11 +17,16 @@ type Snapshot struct {
 	ChatSessionID, ChatTitle string
 	Messages                 []Message
 }
-type Exporter struct{ root string }
+type Exporter struct {
+	root        string
+	moveToTrash func(string) error
+}
 
 const projectMetadataFile = ".multica-project.json"
 
-func NewExporter(root string) *Exporter { return &Exporter{root: root} }
+func NewExporter(root string) *Exporter {
+	return &Exporter{root: root, moveToTrash: defaultMoveToTrash}
+}
 
 // EnsureProject mirrors an empty browser project before it has any chats.
 func (e *Exporter) EnsureProject(projectID, title string) error {
@@ -261,7 +266,7 @@ func (e *Exporter) Delete(projectID, chatID string) error {
 		return err
 	}
 	parent := filepath.Dir(dir)
-	if err := os.RemoveAll(dir); err != nil {
+	if err := e.trash(dir); err != nil {
 		return err
 	}
 	return e.removeEmptyParents(parent)
@@ -294,7 +299,7 @@ func (e *Exporter) Prune(active map[string]bool) error {
 		return err
 	}
 	for _, dir := range remove {
-		if err := os.RemoveAll(dir); err != nil {
+		if err := e.trash(dir); err != nil {
 			return err
 		}
 		if err := e.removeEmptyParents(filepath.Dir(dir)); err != nil {
@@ -304,9 +309,9 @@ func (e *Exporter) Prune(active map[string]bool) error {
 	return nil
 }
 
-// PruneProjects removes only empty, exporter-owned project directories that
-// no longer exist in the browser snapshot. Chats are moved before this runs.
-func (e *Exporter) PruneProjects(active map[string]bool) error {
+// PruneProjects moves complete exporter-owned projects absent from the browser
+// snapshot to Trash once they contain no active chats.
+func (e *Exporter) PruneProjects(active, activeChats map[string]bool) error {
 	entries, err := os.ReadDir(e.root)
 	if os.IsNotExist(err) {
 		return nil
@@ -329,17 +334,49 @@ func (e *Exporter) PruneProjects(active map[string]bool) error {
 		if json.Unmarshal(data, &metadata) != nil || metadata.ProjectID == "" || active[metadata.ProjectID] {
 			continue
 		}
-		children, readErr := os.ReadDir(dir)
-		if readErr != nil {
-			return readErr
-		}
-		if len(children) == 1 && children[0].Name() == projectMetadataFile {
-			if err := os.RemoveAll(dir); err != nil {
+		hasActiveChat := false
+		if err := filepath.WalkDir(dir, func(path string, child os.DirEntry, err error) error {
+			if err != nil || child.IsDir() || child.Name() != "metadata.json" {
 				return err
 			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			var chat struct {
+				ChatSessionID string `json:"chat_session_id"`
+			}
+			if json.Unmarshal(data, &chat) == nil && chat.ChatSessionID != "" && activeChats[chat.ChatSessionID] {
+				hasActiveChat = true
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if hasActiveChat {
+			continue
+		}
+		if err := e.trash(dir); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (e *Exporter) trash(path string) error {
+	root, err := filepath.Abs(e.root)
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to move path outside sync root to Trash: %s", target)
+	}
+	return e.moveToTrash(target)
 }
 
 // removeEmptyParents removes only empty directories below the configured root.
@@ -365,7 +402,7 @@ func (e *Exporter) removeEmptyParents(dir string) error {
 				return nil
 			}
 			if isNotEmpty(err) {
-				removed, cleanupErr := removeOwnedEmptyProject(current)
+				removed, cleanupErr := e.removeOwnedEmptyProject(current)
 				if cleanupErr != nil {
 					return cleanupErr
 				}
@@ -381,7 +418,7 @@ func (e *Exporter) removeEmptyParents(dir string) error {
 	}
 }
 
-func removeOwnedEmptyProject(dir string) (bool, error) {
+func (e *Exporter) removeOwnedEmptyProject(dir string) (bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false, err
@@ -399,7 +436,7 @@ func removeOwnedEmptyProject(dir string) (bool, error) {
 	if json.Unmarshal(data, &metadata) != nil || metadata.ProjectID == "" {
 		return false, nil
 	}
-	return true, os.RemoveAll(dir)
+	return true, e.trash(dir)
 }
 
 func isNotEmpty(err error) bool {

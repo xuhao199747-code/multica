@@ -133,7 +133,7 @@ func syncChats(cmd *cobra.Command, root string) error {
 	if err := e.Prune(active); err != nil {
 		return err
 	}
-	return e.PruneProjects(activeProjects)
+	return e.PruneProjects(activeProjects, active)
 }
 
 type syncProjectResource struct {
