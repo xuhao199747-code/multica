@@ -104,6 +104,107 @@ func TestTrashFailureLeavesChatDirectoryForRetry(t *testing.T) {
 	}
 }
 
+func TestPruneProjectsRetriesFailedEmptyParentCleanup(t *testing.T) {
+	for _, operation := range []string{"Delete", "Prune"} {
+		t.Run(operation, func(t *testing.T) {
+			root := t.TempDir()
+			e := NewExporter(root)
+			if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "project", ChatSessionID: "c", ChatTitle: "chat"}); err != nil {
+				t.Fatal(err)
+			}
+			project := filepath.Join(root, "project")
+			chat := filepath.Join(project, "chat")
+			trash := t.TempDir()
+			failure := errors.New("parent Trash unavailable")
+			e.moveToTrash = func(path string) error {
+				if path == project {
+					return failure
+				}
+				return os.Rename(path, filepath.Join(trash, filepath.Base(path)))
+			}
+			var err error
+			if operation == "Delete" {
+				err = e.Delete("p", "c")
+			} else {
+				err = e.Prune(map[string]bool{})
+			}
+			if !errors.Is(err, failure) {
+				t.Fatalf("cleanup error = %v, want %v", err, failure)
+			}
+			if _, err := os.Stat(chat); !os.IsNotExist(err) {
+				t.Fatalf("chat remains at source: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(project, projectMetadataFile)); err != nil {
+				t.Fatalf("failed parent cleanup lost metadata: %v", err)
+			}
+			// A new exporter and project reconciliation match the next sync cycle.
+			e = newTrashMovingExporter(t, root)
+			if err := e.EnsureProject("p", "project"); err != nil {
+				t.Fatal(err)
+			}
+			moveToTrash := e.moveToTrash
+			e.moveToTrash = func(string) error { return failure }
+			if err := e.PruneProjects(map[string]bool{"p": true}, map[string]bool{}); !errors.Is(err, failure) {
+				t.Fatalf("retry error = %v, want %v", err, failure)
+			}
+			if _, err := os.Stat(filepath.Join(project, projectMetadataFile)); err != nil {
+				t.Fatalf("failed retry lost parent metadata: %v", err)
+			}
+			e.moveToTrash = moveToTrash
+			if err := e.Prune(map[string]bool{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.PruneProjects(map[string]bool{"p": true}, map[string]bool{}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(project); !os.IsNotExist(err) {
+				t.Fatalf("retained metadata-only parent was not retried: %v", err)
+			}
+		})
+	}
+}
+
+func TestPruneProjectsKeepsActiveEmptyProjectWithoutPendingCleanup(t *testing.T) {
+	e, targets := newTrashRecordingExporter(t.TempDir())
+	if err := e.EnsureProject("p", "project"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.PruneProjects(map[string]bool{"p": true}, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*targets) != 0 {
+		t.Fatalf("active empty project moved to Trash: %v", *targets)
+	}
+}
+
+func TestPruneProjectsPendingCleanupPreservesActiveChatsAndUserFiles(t *testing.T) {
+	for _, content := range []string{"active chat", "user file"} {
+		t.Run(content, func(t *testing.T) {
+			e, targets := newTrashRecordingExporter(t.TempDir())
+			project, err := e.EnsureProjectPath("p", "project")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := writeJSONAtomically(filepath.Join(project, projectMetadataFile), projectMetadata{ProjectID: "p", CleanupPending: true}); err != nil {
+				t.Fatal(err)
+			}
+			if content == "active chat" {
+				if err := e.Sync(Snapshot{ProjectID: "p", ProjectTitle: "project", ChatSessionID: "c", ChatTitle: "chat"}); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(filepath.Join(project, "notes.txt"), []byte("keep"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.PruneProjects(map[string]bool{"p": true}, map[string]bool{"c": true}); err != nil {
+				t.Fatal(err)
+			}
+			if len(*targets) != 0 {
+				t.Fatalf("pending project with %s moved to Trash: %v", content, *targets)
+			}
+		})
+	}
+}
+
 func TestPruneProjectsKeepsDeletedProjectWithActiveChat(t *testing.T) {
 	e, targets := newTrashRecordingExporter(t.TempDir())
 	if err := e.Sync(Snapshot{ProjectID: "gone", ProjectTitle: "project", ChatSessionID: "active", ChatTitle: "chat"}); err != nil {

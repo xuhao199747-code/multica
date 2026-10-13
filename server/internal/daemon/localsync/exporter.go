@@ -24,6 +24,11 @@ type Exporter struct {
 
 const projectMetadataFile = ".multica-project.json"
 
+type projectMetadata struct {
+	ProjectID      string `json:"project_id"`
+	CleanupPending bool   `json:"cleanup_pending,omitempty"`
+}
+
 func NewExporter(root string) *Exporter {
 	return &Exporter{root: root, moveToTrash: defaultMoveToTrash}
 }
@@ -65,9 +70,17 @@ func (e *Exporter) ensureProject(projectID, title string) (string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	if err := writeJSONAtomically(filepath.Join(dir, projectMetadataFile), struct {
-		ProjectID string `json:"project_id"`
-	}{ProjectID: projectID}); err != nil {
+	metadata := projectMetadata{ProjectID: projectID}
+	if findErr == nil {
+		data, err := os.ReadFile(filepath.Join(dir, projectMetadataFile))
+		if err != nil {
+			return "", err
+		}
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			return "", err
+		}
+	}
+	if err := writeJSONAtomically(filepath.Join(dir, projectMetadataFile), metadata); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -310,7 +323,8 @@ func (e *Exporter) Prune(active map[string]bool) error {
 }
 
 // PruneProjects moves complete exporter-owned projects absent from the browser
-// snapshot to Trash once they contain no active chats.
+// snapshot to Trash once they contain no active chats. It also retries failed
+// metadata-only parent cleanup, including projects still in the snapshot.
 func (e *Exporter) PruneProjects(active, activeChats map[string]bool) error {
 	entries, err := os.ReadDir(e.root)
 	if os.IsNotExist(err) {
@@ -328,10 +342,16 @@ func (e *Exporter) PruneProjects(active, activeChats map[string]bool) error {
 		if readErr != nil {
 			continue
 		}
-		var metadata struct {
-			ProjectID string `json:"project_id"`
+		var metadata projectMetadata
+		if json.Unmarshal(data, &metadata) != nil || metadata.ProjectID == "" {
+			continue
 		}
-		if json.Unmarshal(data, &metadata) != nil || metadata.ProjectID == "" || active[metadata.ProjectID] {
+		if active[metadata.ProjectID] {
+			if metadata.CleanupPending {
+				if _, err := e.removeOwnedEmptyProject(dir); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		hasActiveChat := false
@@ -430,13 +450,18 @@ func (e *Exporter) removeOwnedEmptyProject(dir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var metadata struct {
-		ProjectID string `json:"project_id"`
-	}
+	var metadata projectMetadata
 	if json.Unmarshal(data, &metadata) != nil || metadata.ProjectID == "" {
 		return false, nil
 	}
-	return true, e.trash(dir)
+	if err := e.trash(dir); err != nil {
+		metadata.CleanupPending = true
+		if recordErr := writeJSONAtomically(filepath.Join(dir, projectMetadataFile), metadata); recordErr != nil {
+			return false, errors.Join(err, fmt.Errorf("record pending project cleanup: %w", recordErr))
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func isNotEmpty(err error) bool {

@@ -12,14 +12,16 @@ import (
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/spf13/cobra"
 )
 
 func TestSyncHelpExplainsTrashDeletion(t *testing.T) {
 	var out bytes.Buffer
-	syncCmd.SetArgs([]string{"--help"})
-	syncCmd.SetOut(&out)
-	if err := syncCmd.Execute(); err != nil {
-		t.Fatalf("syncCmd.Execute: %v", err)
+	cmd := &cobra.Command{Use: syncCmd.Use, Short: syncCmd.Short, Long: syncCmd.Long}
+	cmd.SetArgs([]string{"--help"})
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
 	}
 	if !strings.Contains(out.String(), "Deleted browser chats and projects are moved to the system Trash.") {
 		t.Fatalf("sync help does not explain Trash behavior: %s", out.String())
