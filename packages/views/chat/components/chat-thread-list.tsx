@@ -609,9 +609,7 @@ export function ChatThreadList({
               >
                 <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", isCollapsed && "-rotate-90")} />
                 <FolderKanban className="size-3.5 shrink-0 text-muted-foreground" />
-                {isRenaming ? (
-                  <span className="truncate">{project.title}</span>
-                ) : (
+                {!isRenaming && (
                   <span
                     className="truncate"
                     onDoubleClick={() => {
