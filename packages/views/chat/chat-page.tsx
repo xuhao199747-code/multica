@@ -119,7 +119,6 @@ export function ChatPage() {
   const [composingNew, setComposingNew] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [selectingAgentForProjectId, setSelectingAgentForProjectId] = useState<string | null>(null);
   useEffect(() => {
@@ -229,27 +228,12 @@ export function ChatPage() {
   const createNewProject = () => {
     const title = projectTitle.trim();
     if (!title) return;
-    if (editingProject) {
-      updateProject.mutate(
-        { id: editingProject.id, title },
-        {
-          onSuccess: () => {
-            setProjectDialogOpen(false);
-            setProjectTitle("");
-            setEditingProject(null);
-          },
-          onError: () => toast.error("重命名项目失败，请稍后重试"),
-        },
-      );
-      return;
-    }
     createProject.mutate(
       { title, status: "planned", priority: "none" },
       {
         onSuccess: () => {
           setProjectDialogOpen(false);
           setProjectTitle("");
-          setEditingProject(null);
           // Keep creation and conversation creation separate: the new project
           // appears in the tree first, then its + action starts a fresh chat.
           // This preserves the explicit Project → Chat hierarchy.
@@ -310,7 +294,6 @@ export function ChatPage() {
         aria-label="新建项目"
         title="新建项目"
         onClick={() => {
-          setEditingProject(null);
           setProjectTitle("");
           setProjectDialogOpen(true);
         }}
@@ -321,10 +304,7 @@ export function ChatPage() {
         open={projectDialogOpen}
         onOpenChange={(open) => {
           setProjectDialogOpen(open);
-          if (!open) {
-            setProjectTitle("");
-            setEditingProject(null);
-          }
+          if (!open) setProjectTitle("");
         }}
       >
         <DialogContent>
@@ -335,10 +315,8 @@ export function ChatPage() {
             }}
           >
             <DialogHeader>
-              <DialogTitle>{editingProject ? "重命名项目" : "新建项目"}</DialogTitle>
-              <DialogDescription>
-                {editingProject ? "修改项目名称后，本地文件夹会在同步时随之更新。" : "项目用于归纳彼此独立的聊天记录。"}
-              </DialogDescription>
+              <DialogTitle>新建项目</DialogTitle>
+              <DialogDescription>项目用于归纳彼此独立的聊天记录。</DialogDescription>
             </DialogHeader>
             <Input
               autoFocus
@@ -352,11 +330,8 @@ export function ChatPage() {
               <Button type="button" variant="outline" onClick={() => setProjectDialogOpen(false)}>
                 取消
               </Button>
-              <Button
-                type="submit"
-                disabled={!projectTitle.trim() || createProject.isPending || updateProject.isPending}
-              >
-                {editingProject ? "保存" : "创建项目"}
+              <Button type="submit" disabled={!projectTitle.trim() || createProject.isPending}>
+                创建项目
               </Button>
             </DialogFooter>
           </form>
@@ -443,10 +418,11 @@ export function ChatPage() {
         onArchive={handleArchive}
         projects={c.projects}
         onStartProjectChat={startProjectChat}
-        onRenameProject={(project) => {
-          setEditingProject(project);
-          setProjectTitle(project.title);
-          setProjectDialogOpen(true);
+        onRenameProject={(project, title) => {
+          updateProject.mutate(
+            { id: project.id, title },
+            { onError: () => toast.error("重命名项目失败，请稍后重试") },
+          );
         }}
         onDeleteProject={setDeletingProject}
       />
