@@ -121,7 +121,7 @@ function renderList(
 }
 
 describe("ChatThreadList project hierarchy", () => {
-  it("groups project chats beneath the project and starts a fresh chat in that project", () => {
+  it("groups project chats beneath the project and starts a fresh chat in that project", async () => {
     const project = {
       id: "project-1",
       title: "论文助手",
@@ -129,7 +129,7 @@ describe("ChatThreadList project hierarchy", () => {
     } as Project;
     const projectSession = makeSession({ id: "project-chat", title: "文献梳理", project_id: project.id });
     const unassignedSession = makeSession({ id: "loose-chat", title: "随手问问", project_id: null });
-    const { onStartProjectChat, onRenameProject } = renderList(null, {
+    const { onStartProjectChat } = renderList(null, {
       renderedSessions: [projectSession, unassignedSession],
       projects: [project],
     });
@@ -137,22 +137,42 @@ describe("ChatThreadList project hierarchy", () => {
     expect(screen.getByRole("button", { name: "论文助手" })).toBeInTheDocument();
     expect(screen.getByText("文献梳理")).toBeInTheDocument();
     expect(screen.getByText("随手问问")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "在论文助手中新建聊天" }));
-    expect(onStartProjectChat).toHaveBeenCalledWith("project-1");
-    fireEvent.click(screen.getByRole("button", { name: "重命名论文助手" }));
-    expect(onRenameProject).toHaveBeenCalledWith(project);
 
-    const projectRow = screen.getByRole("button", { name: "论文助手" }).parentElement!;
-    expect(projectRow.children[1]).toContainElement(
-      screen.getByRole("button", { name: "重命名论文助手" }),
-    );
-    expect(projectRow.children[3]).toContainElement(
-      screen.getByRole("button", { name: "在论文助手中新建聊天" }),
-    );
-    expect(projectRow.children[4]).toHaveTextContent("1");
+    // The per-project hover actions are collapsed into a ⋯ menu.
+    fireEvent.click(screen.getByRole("button", { name: "论文助手项目操作" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "新建聊天" }));
+    expect(onStartProjectChat).toHaveBeenCalledWith("project-1");
   });
 
-  it("delegates the project delete icon without toggling the project", () => {
+  it("renames a project inline via double-click or the ⋯ menu", async () => {
+    const project = {
+      id: "project-1",
+      title: "论文助手",
+      workspace_id: "ws-1",
+    } as Project;
+    const { onRenameProject } = renderList(null, { projects: [project] });
+
+    // Double-clicking the title swaps it for an inline editor; Enter commits.
+    fireEvent.doubleClick(screen.getByText("论文助手"));
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "毕业论文" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRenameProject).toHaveBeenCalledWith(project, "毕业论文");
+
+    // An empty submission cancels without delegating.
+    fireEvent.doubleClick(screen.getByText("论文助手"));
+    const emptyInput = screen.getByRole("textbox");
+    fireEvent.change(emptyInput, { target: { value: "   " } });
+    fireEvent.keyDown(emptyInput, { key: "Enter" });
+    expect(onRenameProject).toHaveBeenCalledTimes(1);
+
+    // The ⋯ menu's rename entry opens the same inline editor.
+    fireEvent.click(screen.getByRole("button", { name: "论文助手项目操作" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "重命名" }));
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
+  it("delegates the project delete action without toggling the project", async () => {
     const project = {
       id: "project-1",
       title: "论文助手",
@@ -160,7 +180,8 @@ describe("ChatThreadList project hierarchy", () => {
     } as Project;
     const { onDeleteProject } = renderList(null, { projects: [project] });
 
-    fireEvent.click(screen.getByRole("button", { name: "删除项目论文助手" }));
+    fireEvent.click(screen.getByRole("button", { name: "论文助手项目操作" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除项目" }));
 
     expect(onDeleteProject).toHaveBeenCalledWith(project);
     expect(screen.getByText("暂无聊天")).toBeInTheDocument();

@@ -11,6 +11,7 @@ import {
   Clock,
   FolderKanban,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
@@ -19,6 +20,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@multica/ui/components/ui/dropdown-menu";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { paths, useWorkspaceSlug } from "@multica/core/paths";
 import { useWorkspacePresenceMap } from "@multica/core/agents";
@@ -33,6 +41,7 @@ import {
 import { useChatStore } from "@multica/core/chat";
 import type { Agent, ChatSession, PendingChatTasksResponse, Project } from "@multica/core/types";
 import { ActorAvatar } from "../../common/actor-avatar";
+import { SessionRenameInput } from "./session-rename-input";
 import {
   RowActionsMenu,
   handleRowActivationKey,
@@ -105,7 +114,8 @@ export function ChatThreadList({
   /** Projects are first-class containers for independent chat histories. */
   projects?: Project[];
   onStartProjectChat?: (projectId: string) => void;
-  onRenameProject?: (project: Project) => void;
+  /** Inline rename commit (triggered by double-clicking the title or the ⋯ menu). */
+  onRenameProject?: (project: Project, title: string) => void;
   onDeleteProject?: (project: Project) => void;
 }) {
   const { t } = useT("chat");
@@ -144,6 +154,7 @@ export function ChatThreadList({
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   useEffect(() => {
     if (view === "archived" && archivedSessions.length === 0) setView("history");
   }, [view, archivedSessions.length]);
@@ -565,6 +576,7 @@ export function ChatThreadList({
       {projects.map((project) => {
         const projectSessions = historySessions.filter((session) => session.project_id === project.id);
         const isCollapsed = collapsedProjectIds.has(project.id);
+        const isRenaming = renamingProjectId === project.id;
         return (
           <section key={project.id} className="mb-1">
             <div
@@ -590,48 +602,77 @@ export function ChatThreadList({
                     return next;
                   });
                 }}
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-caption font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className={cn(
+                  "flex min-w-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-caption font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  isRenaming ? "shrink-0" : "flex-1",
+                )}
               >
                 <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", isCollapsed && "-rotate-90")} />
                 <FolderKanban className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{project.title}</span>
+                {isRenaming ? (
+                  <span className="truncate">{project.title}</span>
+                ) : (
+                  <span
+                    className="truncate"
+                    onDoubleClick={() => {
+                      if (onRenameProject) setRenamingProjectId(project.id);
+                    }}
+                  >
+                    {project.title}
+                  </span>
+                )}
               </button>
-              {onRenameProject && (
-                <button
-                  type="button"
-                  aria-label={`重命名${project.title}`}
-                  title="重命名项目"
-                  onClick={() => onRenameProject(project)}
-                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
-                >
-                  <Pencil className="size-3.5" />
-                </button>
+              {isRenaming && onRenameProject ? (
+                <div className="min-w-0 flex-1">
+                  <SessionRenameInput
+                    initialValue={project.title}
+                    onSubmit={(value) => {
+                      setRenamingProjectId(null);
+                      const title = value.trim();
+                      if (title && title !== project.title) onRenameProject(project, title);
+                    }}
+                    onCancel={() => setRenamingProjectId(null)}
+                  />
+                </div>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={`${project.title}项目操作`}
+                        title="项目操作"
+                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 data-popup-open:opacity-100 group-hover/project:opacity-100"
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" className="w-auto">
+                    {onStartProjectChat && (
+                      <DropdownMenuItem onClick={() => onStartProjectChat(project.id)}>
+                        <Plus className="size-4" />
+                        新建聊天
+                      </DropdownMenuItem>
+                    )}
+                    {onRenameProject && (
+                      <DropdownMenuItem onClick={() => setRenamingProjectId(project.id)}>
+                        <Pencil className="size-4" />
+                        重命名
+                      </DropdownMenuItem>
+                    )}
+                    {onDeleteProject && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem variant="destructive" onClick={() => onDeleteProject(project)}>
+                          <Trash2 className="size-4" />
+                          删除项目
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
-              {onDeleteProject && (
-                <button
-                  type="button"
-                  aria-label={`删除项目${project.title}`}
-                  title="删除项目"
-                  onClick={() => onDeleteProject(project)}
-                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover/project:opacity-100"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              )}
-              {onStartProjectChat && (
-                <button
-                  type="button"
-                  aria-label={`在${project.title}中新建聊天`}
-                  title="新建聊天"
-                  onClick={() => onStartProjectChat(project.id)}
-                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
-                >
-                  <Plus className="size-4" />
-                </button>
-              )}
-              <span className="w-5 shrink-0 text-right text-micro text-muted-foreground">
-                {projectSessions.length}
-              </span>
             </div>
             {!isCollapsed && (
               <div className="ml-3 border-l border-border/70 pl-1">
