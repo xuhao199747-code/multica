@@ -72,7 +72,9 @@ git add -A && git commit -m "feat: 一句话说明"   # 原子提交
 ## 4. 推送代码 SOP（代码往哪传）
 
 ```bash
-git push                              # 推到 origin（你的 fork）
+git push                              # 新功能分支（feat/xxx）：直接 push
+# 当前主工作分支（本地名 codex/... ≠ 远端名 local-baseline-20261015）用：
+git push origin HEAD:local-baseline-20261015
 # 网络抖动失败就重试；成功后 git ls-remote origin | grep <分支名> 确认
 ```
 
