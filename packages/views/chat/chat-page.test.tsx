@@ -550,13 +550,42 @@ describe("ChatPage responsive layout", () => {
 describe("ChatPage 新建项目：绑定本地文件夹", () => {
   const PICKED = { path: "/Users/dev/work/app", basename: "app" };
 
+  async function openProjectDialog() {
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+  }
+
+  function switchToFolderTab() {
+    fireEvent.click(screen.getByRole("button", { name: "绑定本地文件夹" }));
+  }
+
+  it("默认停留在直接新建页签：不显示文件夹表单，创建不带资源", async () => {
+    mockDesktopBridge();
+    await openProjectDialog();
+    // The folder form stays hidden until its tab is picked.
+    expect(screen.queryByLabelText("本地文件夹路径")).not.toBeInTheDocument();
+
+    fireEvent.change(await screen.findByLabelText("项目名称"), {
+      target: { value: "仅聊天" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(mockCreateProjectMutate).toHaveBeenCalledTimes(1));
+    expect(mockCreateProjectMutate.mock.calls[0]?.[0]).toEqual({
+      title: "仅聊天",
+      status: "planned",
+      priority: "none",
+      resources: undefined,
+    });
+  });
+
   it("桌面端选择已有文件夹后，随创建请求带上 local_directory 资源", async () => {
     mockDesktopBridge();
     mockPickDirectory.mockResolvedValue({ ok: true, ...PICKED });
     mockValidateLocalDirectory.mockResolvedValue({ ok: true, is_git_repo: true });
 
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    await openProjectDialog();
+    switchToFolderTab();
     fireEvent.click(await screen.findByRole("button", { name: "选择本地文件夹" }));
 
     // The folder basename prefills a title the user hasn't typed yet.
@@ -583,30 +612,12 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     });
   });
 
-  it("未选择文件夹时创建请求不带资源", async () => {
-    mockDesktopBridge();
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
-    fireEvent.change(await screen.findByLabelText("项目名称"), {
-      target: { value: "仅聊天" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
-
-    await waitFor(() => expect(mockCreateProjectMutate).toHaveBeenCalledTimes(1));
-    expect(mockCreateProjectMutate.mock.calls[0]?.[0]).toEqual({
-      title: "仅聊天",
-      status: "planned",
-      priority: "none",
-      resources: undefined,
-    });
-  });
-
   it("网页端输入路径并选定设备后，创建请求带上 local_directory 资源", async () => {
     mockRuntimeList.current = [
       { daemon_id: "daemon-9", name: "Mac Studio", custom_name: null, status: "online" },
     ];
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    await openProjectDialog();
+    switchToFolderTab();
     fireEvent.change(screen.getByLabelText("本地文件夹路径"), {
       target: { value: "/Users/mac/work/app" },
     });
@@ -633,9 +644,9 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     });
   });
 
-  it("网页端不显示桌面专属的文件夹选择按钮", () => {
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+  it("网页端文件夹页签里没有桌面专属的文件夹选择按钮", async () => {
+    await openProjectDialog();
+    switchToFolderTab();
 
     expect(screen.getByLabelText("本地文件夹路径")).toBeInTheDocument();
     expect(
@@ -643,9 +654,23 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("文件夹页签未填路径时提示并禁用创建", async () => {
+    mockRuntimeList.current = [
+      { daemon_id: "daemon-9", name: "Mac Studio", custom_name: null, status: "online" },
+    ];
+    await openProjectDialog();
+    switchToFolderTab();
+    fireEvent.change(await screen.findByLabelText("项目名称"), {
+      target: { value: "绑定但缺路径" },
+    });
+
+    expect(screen.getByText(/填写要绑定的文件夹绝对路径/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建项目" })).toBeDisabled();
+  });
+
   it("路径已填但没有可用设备时提示并禁用创建", async () => {
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    await openProjectDialog();
+    switchToFolderTab();
     fireEvent.change(screen.getByLabelText("本地文件夹路径"), {
       target: { value: "/Users/mac/work/app" },
     });
@@ -660,8 +685,8 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     mockRuntimeList.current = [
       { daemon_id: "daemon-9", name: "Mac Studio", custom_name: null, status: "online" },
     ];
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    await openProjectDialog();
+    switchToFolderTab();
     fireEvent.change(screen.getByLabelText("本地文件夹路径"), {
       target: { value: "Documents/app" },
     });
@@ -675,8 +700,8 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     mockPickDirectory.mockResolvedValue({ ok: true, ...PICKED });
     mockValidateLocalDirectory.mockResolvedValue({ ok: false, reason: "not_writable" });
 
-    renderPage("");
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    await openProjectDialog();
+    switchToFolderTab();
     fireEvent.click(await screen.findByRole("button", { name: "选择本地文件夹" }));
 
     expect(await screen.findByText("该文件夹不可用，请重新选择")).toBeInTheDocument();
