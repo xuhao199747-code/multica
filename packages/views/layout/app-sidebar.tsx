@@ -22,6 +22,7 @@ import { Layers,
   ChevronDown,
   ChevronRight,
   LogOut,
+  PanelLeftOpen,
   Plus,
   Check,
   SquarePen,
@@ -612,7 +613,11 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
 
   return (
       <Sidebar variant="inset">
-        {topSlot}
+        {/* The traffic-light spacer is dead space in the compact rail, where
+            there is no window chrome to clear. */}
+        {topSlot && (
+          <div className="group-data-[collapsible=icon]:hidden">{topSlot}</div>
+        )}
         {/* Workspace Switcher */}
         <SidebarHeader className={cn("py-3", headerClassName)} style={headerStyle}>
           <SidebarMenu>
@@ -747,7 +752,9 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
           </SidebarMenu>
           <SidebarMenu>
             {searchSlot && (
-              <SidebarMenuItem>
+              // The search trigger is a wide fake input — useless in the
+              // compact rail, where the whole row collapses to icon width.
+              <SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
                 {searchSlot}
               </SidebarMenuItem>
             )}
@@ -935,6 +942,16 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             <JoinDiscordCard />
             <HelpLauncher />
           </div>
+          {/* Compact-rail-only affordance (the rail is the only surface that
+              renders with data-collapsible=icon): opens the full sheet. */}
+          <button
+            type="button"
+            onClick={() => setOpenMobile(true)}
+            aria-label={t(($) => $.sidebar.expand_sidebar)}
+            className="hidden size-8 items-center justify-center rounded-md text-muted-foreground ring-sidebar-ring outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 group-data-[collapsible=icon]:flex"
+          >
+            <PanelLeftOpen className="size-4" />
+          </button>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>

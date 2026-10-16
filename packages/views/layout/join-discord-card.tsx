@@ -39,7 +39,7 @@ export function JoinDiscordCard() {
   if (dismissed) return null;
 
   return (
-    <div className="group/discord relative min-w-0 flex-1">
+    <div className="group/discord relative min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
       <a
         href={DISCORD_URL}
         target="_blank"
