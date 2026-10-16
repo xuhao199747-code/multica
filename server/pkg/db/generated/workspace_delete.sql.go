@@ -297,6 +297,9 @@ ws_vcs_prs AS MATERIALIZED (
 ws_vcs_connections AS MATERIALIZED (
     SELECT id FROM vcs_connection WHERE workspace_id = $1
 ),
+ws_specs AS MATERIALIZED (
+    SELECT id FROM spec WHERE workspace_id = $1
+),
 ws_channel_installations AS MATERIALIZED (
     SELECT id FROM channel_installation WHERE workspace_id = $1
 ),
@@ -357,6 +360,19 @@ deleted_issue_dependencies AS (
 deleted_issue_subscribers AS (
     DELETE FROM issue_subscriber
     WHERE issue_id IN (SELECT id FROM ws_issues)
+),
+deleted_spec_subscribers AS (
+    DELETE FROM spec_subscriber
+    WHERE spec_id IN (SELECT id FROM ws_specs)
+),
+deleted_spec_issues AS (
+    DELETE FROM spec_issue
+    WHERE spec_id IN (SELECT id FROM ws_specs)
+       OR issue_id IN (SELECT id FROM ws_issues)
+),
+deleted_spec_versions AS (
+    DELETE FROM spec_version
+    WHERE spec_id IN (SELECT id FROM ws_specs)
 ),
 deleted_issue_labels AS (
     DELETE FROM issue_to_label
@@ -605,6 +621,9 @@ deleted_runtimes AS (
 ),
 deleted_profiles AS (
     DELETE FROM runtime_profile WHERE runtime_profile.workspace_id = $1
+),
+deleted_specs AS (
+    DELETE FROM spec WHERE spec.workspace_id = $1
 )
 DELETE FROM project WHERE project.workspace_id = $1
 `

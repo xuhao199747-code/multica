@@ -1,0 +1,1 @@
+ALTER TABLE spec ADD CONSTRAINT spec_pkey PRIMARY KEY USING INDEX idx_spec_id;
