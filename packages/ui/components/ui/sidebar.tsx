@@ -317,27 +317,64 @@ function Sidebar({
 
   if (isCompact) {
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-        <SheetContent
-          dir={dir}
-          data-sidebar="sidebar"
-          data-slot="sidebar"
-          data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
-          }
-          side={side}
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
-          </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
-        </SheetContent>
-      </Sheet>
+      <>
+        {/* Below the compact breakpoint a closed sidebar used to mean no nav
+            on screen at all: the sheet is unmounted, the trigger is one small
+            icon in the page header. Keep a slim in-flow rail instead — icons
+            stay one tap from every primary destination, and the footer's
+            expand button (rendered by the app sidebar) opens the full sheet.
+            The rail reuses the icon-collapsible styles (`data-collapsible`
+            below drives the group-data selectors), with overrides that keep
+            section labels visible as tiny centered titles and let the content
+            scroll. It unmounts while the sheet is open so only one copy of
+            the tree is live. */}
+        {!openMobile && (
+          <div
+            data-slot="sidebar"
+            data-sidebar="compact-rail"
+            data-mobile="true"
+            data-state="collapsed"
+            data-collapsible="icon"
+            data-variant={variant}
+            data-side={side}
+            className="group flex w-(--sidebar-width-icon) shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:hidden [&_[data-slot='sidebar-rail']]:hidden"
+          >
+            <div
+              data-sidebar="sidebar"
+              className="flex size-full min-h-0 flex-col
+                [&_[data-slot='sidebar-content']]:overflow-y-auto!
+                [&_[data-slot='sidebar-group-label']]:mt-0!
+                [&_[data-slot='sidebar-group-label']]:justify-center!
+                [&_[data-slot='sidebar-group-label']]:px-1!
+                [&_[data-slot='sidebar-group-label']]:text-micro!
+                [&_[data-slot='sidebar-group-label']]:opacity-100!"
+            >
+              {children}
+            </div>
+          </div>
+        )}
+        <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+          <SheetContent
+            dir={dir}
+            data-sidebar="sidebar"
+            data-slot="sidebar"
+            data-mobile="true"
+            className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            style={
+              {
+                "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+              } as React.CSSProperties
+            }
+            side={side}
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Sidebar</SheetTitle>
+              <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            </SheetHeader>
+            <div className="flex h-full w-full flex-col">{children}</div>
+          </SheetContent>
+        </Sheet>
+      </>
     )
   }
 
