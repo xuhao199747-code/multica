@@ -232,13 +232,13 @@ export function AttachmentList({
 
   const images = standalone.filter((a) => standaloneAttachmentGroup(a) === "image");
   const files = standalone.filter((a) => standaloneAttachmentGroup(a) === "file");
-  const render = (a: Attachment) => {
+  const render = (a: Attachment, layout: "card" | "thumb") => {
     const version = versions?.get(a.id);
     return (
       <AttachmentRenderer
         key={a.id}
         attachment={{ kind: "record", attachment: a }}
-        layout="card"
+        layout={layout}
         badge={version ? <VersionBadge version={version} /> : undefined}
         editable={!!onRemove}
         onDelete={onRemove ? () => onRemove(a.id) : undefined}
@@ -246,19 +246,19 @@ export function AttachmentList({
     );
   };
 
-  // Every image shows at its full size, one under another, so it reads
-  // without opening (MUL-7736). Every other file — HTML too: an uploaded file
-  // is a deliverable to open, not part of the text — is a card in a grid, not
-  // a full-width row each.
+  // Images are fixed-height thumbnails in one wrapping row — the Codex-style
+  // grid (DAWE-2) that superseded the MUL-7736 full-size vertical stack.
+  // Every other file — HTML too: an uploaded file is a deliverable to open,
+  // not part of the text — is a card in a grid, not a full-width row each.
   return (
     <AttachmentDownloadProvider attachments={attachments}>
       <div className={cn("flex flex-col gap-2", className)}>
         {images.length > 0 && (
-          <div className="flex flex-col items-start gap-2">{images.map(render)}</div>
+          <div className="image-grid">{images.map((a) => render(a, "thumb"))}</div>
         )}
         {files.length > 0 && (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(min(15rem,100%),1fr))] gap-2">
-            {files.map(render)}
+            {files.map((a) => render(a, "card"))}
           </div>
         )}
       </div>

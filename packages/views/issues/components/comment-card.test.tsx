@@ -132,9 +132,10 @@ describe("AttachmentList — layout (MUL-7649)", () => {
     expect(screen.queryByTitle("Preview")).toBeNull();
   });
 
-  // MUL-7736: several screenshots used to shrink into one row of thumbnails,
-  // so reading any of them took a click. Each keeps its full size instead.
-  it("shows every image at full size, one under another", () => {
+  // DAWE-2: the MUL-7736 full-size vertical stack is gone. Images are
+  // fixed-height thumbnails in one shared wrapping row — the lightbox is how
+  // a frame is read at full size now.
+  it("shows every image as a thumbnail in the shared grid", () => {
     const { container } = renderList(
       <AttachmentList
         attachments={[
@@ -145,15 +146,17 @@ describe("AttachmentList — layout (MUL-7649)", () => {
         content=""
       />,
     );
-    const figures = container.querySelectorAll(".image-figure");
+    const grid = container.querySelector(".image-grid");
+    expect(grid).toBeTruthy();
+    const figures = grid!.querySelectorAll(".image-figure");
     expect(figures).toHaveLength(3);
-    expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("alt"))).toEqual([
+    expect([...grid!.querySelectorAll("img")].map((img) => img.getAttribute("alt"))).toEqual([
       "a.png",
       "b.png",
       "c.png",
     ]);
-    // No tile box sized to a shared row height around any of them.
-    for (const figure of figures) expect(figure).toHaveClass("image-standalone");
+    for (const figure of figures) expect(figure).toHaveClass("image-thumb");
+    // Sizing is CSS-only — no inline height styles anywhere in the list.
     expect(container.querySelector("[style*='height']")).toBeNull();
   });
 

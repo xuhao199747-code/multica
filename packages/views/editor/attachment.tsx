@@ -102,9 +102,12 @@ export interface AttachmentProps {
   /**
    * "block" (default) renders each kind at full width, as a body renders it.
    * "card" is the form a list of standalone attachments lays out: an image
-   * keeps its full size up to a height cap, any other file becomes a card.
+   * becomes a fixed-height thumbnail, any other file becomes a card.
+   * "thumb" renders an image as that same fixed-height thumbnail inline in a
+   * readonly body (DAWE-2); the inline image grid and the attachment list
+   * share one thumbnail look.
    */
-  layout?: "block" | "card";
+  layout?: "block" | "card" | "thumb";
   /** Card layout only — rendered after the file name, e.g. a version badge. */
   badge?: ReactNode;
   className?: string;
@@ -422,7 +425,10 @@ export function Attachment({
           onView={openPreview}
           onDownload={handleDownload}
           onDelete={onDelete}
-          className={cn(layout === "card" && "image-standalone", className)}
+          className={cn(
+            (layout === "card" || layout === "thumb") && "image-thumb",
+            className,
+          )}
         />
         {preview.modal}
       </>
