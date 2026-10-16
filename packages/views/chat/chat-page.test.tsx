@@ -3,7 +3,7 @@
 import { StrictMode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Agent } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../locales/en/common.json";
@@ -106,6 +106,9 @@ const availableAgentsRef = vi.hoisted(() => ({ current: [] as Agent[] }));
 const agentsSettledRef = vi.hoisted(() => ({ current: true }));
 const mockStartNewChat = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
+const mockCreateProjectMutate = vi.hoisted(() => vi.fn());
+const mockPickDirectory = vi.hoisted(() => vi.fn());
+const mockValidateLocalDirectory = vi.hoisted(() => vi.fn());
 const mockSetActiveSession = vi.hoisted(() =>
   vi.fn((id: string | null) => {
     storeRef.current = { ...storeRef.current, activeSessionId: id };
@@ -119,6 +122,13 @@ const subscribeToStore = vi.hoisted(() => (cb: () => void) => {
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: mockToastError },
+}));
+
+// The page's project mutations hit the API — assert the payload instead.
+vi.mock("@multica/core/projects", () => ({
+  useCreateProject: () => ({ mutate: mockCreateProjectMutate, isPending: false }),
+  useUpdateProject: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteProject: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@multica/core/chat", () => ({
@@ -259,7 +269,29 @@ beforeEach(() => {
   agentsSettledRef.current = true;
   platformWorkspace.slug = "acme";
   layout.width = DESKTOP;
+  // Most tests run as the web shell; the local-folder tests install their own
+  // desktop bridge via mockDesktopBridge().
+  (window as unknown as { desktopAPI?: unknown }).desktopAPI = undefined;
+  (window as unknown as { daemonAPI?: unknown }).daemonAPI = undefined;
 });
+
+// Install the preload bridges the desktop shell exposes: folder picking on
+// desktopAPI, daemon status on daemonAPI. Without these the page renders as
+// the web shell (isDesktopShell() === false).
+function mockDesktopBridge({ daemonRunning = true } = {}) {
+  (window as unknown as { desktopAPI: unknown }).desktopAPI = {
+    pickDirectory: mockPickDirectory,
+    validateLocalDirectory: mockValidateLocalDirectory,
+  };
+  (window as unknown as { daemonAPI: unknown }).daemonAPI = {
+    getStatus: async () => ({
+      state: daemonRunning ? "running" : "stopped",
+      daemonId: daemonRunning ? "daemon-1" : undefined,
+      deviceName: "Test Mac",
+    }),
+    onStatusChange: () => () => {},
+  };
+}
 
 describe("ChatPage URL synchronization", () => {
   it.each(["/globex/issues", "/acme/issues"])(
@@ -494,5 +526,96 @@ describe("ChatPage responsive layout", () => {
       screen.getByRole("button", { name: "select-thread" }),
     ).toBeInTheDocument();
     expect(screen.getByText("chat-input")).toBeInTheDocument();
+  });
+});
+
+describe("ChatPage 新建项目：绑定本地文件夹", () => {
+  const PICKED = { path: "/Users/dev/work/app", basename: "app" };
+
+  it("桌面端选择已有文件夹后，随创建请求带上 local_directory 资源", async () => {
+    mockDesktopBridge();
+    mockPickDirectory.mockResolvedValue({ ok: true, ...PICKED });
+    mockValidateLocalDirectory.mockResolvedValue({ ok: true, is_git_repo: true });
+
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.click(await screen.findByRole("button", { name: "选择本地文件夹" }));
+
+    // The folder basename prefills a title the user hasn't typed yet.
+    const titleInput = await screen.findByLabelText("项目名称");
+    await waitFor(() => expect(titleInput).toHaveValue("app"));
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(mockCreateProjectMutate).toHaveBeenCalledTimes(1));
+    expect(mockCreateProjectMutate.mock.calls[0]?.[0]).toEqual({
+      title: "app",
+      status: "planned",
+      priority: "none",
+      resources: [
+        {
+          resource_type: "local_directory",
+          resource_ref: {
+            local_path: PICKED.path,
+            daemon_id: "daemon-1",
+            label: "app",
+            execution_mode: "in_place",
+          },
+        },
+      ],
+    });
+  });
+
+  it("未选择文件夹时创建请求不带资源", async () => {
+    mockDesktopBridge();
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.change(await screen.findByLabelText("项目名称"), {
+      target: { value: "仅聊天" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(mockCreateProjectMutate).toHaveBeenCalledTimes(1));
+    expect(mockCreateProjectMutate.mock.calls[0]?.[0]).toEqual({
+      title: "仅聊天",
+      status: "planned",
+      priority: "none",
+      resources: undefined,
+    });
+  });
+
+  it("网页端不显示选择文件夹入口", async () => {
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+
+    expect(await screen.findByLabelText("项目名称")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "选择本地文件夹" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("智能体未运行时显示提示而不是选择按钮", async () => {
+    mockDesktopBridge({ daemonRunning: false });
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+
+    expect(
+      await screen.findByText("启动本地智能体后，可将项目绑定到电脑中已有的文件夹。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "选择本地文件夹" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("文件夹校验失败时显示错误且不带入该文件夹", async () => {
+    mockDesktopBridge();
+    mockPickDirectory.mockResolvedValue({ ok: true, ...PICKED });
+    mockValidateLocalDirectory.mockResolvedValue({ ok: false, reason: "not_writable" });
+
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.click(await screen.findByRole("button", { name: "选择本地文件夹" }));
+
+    expect(await screen.findByText("该文件夹不可用，请重新选择")).toBeInTheDocument();
+    expect(screen.queryByText(PICKED.path)).not.toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
-import { ArrowLeft, FolderPlus, MessageSquare } from "lucide-react";
+import { ArrowLeft, FolderOpen, FolderPlus, MessageSquare, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -43,6 +43,13 @@ import type { Agent, ChatSession, Project } from "@multica/core/types";
 import { PageHeader } from "../layout/page-header";
 import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
+import {
+  buildLocalDirectoryResourceRef,
+  isDesktopShell,
+  pickDirectory,
+  validateLocalDirectory,
+} from "../platform/local-directory";
+import { useLocalDaemonStatus } from "../platform/use-local-daemon-status";
 import { ChatMessageList, ChatMessageSkeleton } from "./components/chat-message-list";
 import { ChatInput } from "./components/chat-input";
 import { ChatQueue } from "./components/chat-queue";
@@ -109,6 +116,26 @@ export function ChatPage() {
     confirm: "删除项目",
     failed: "删除项目失败，请稍后重试",
   };
+  // The chat page copy is zh-only for now (same as projectDeleteCopy above).
+  // Centralizing it here keeps the strings out of JSX literals, which the
+  // i18next lint rule requires until this page moves to locale files.
+  const projectDialogCopy = {
+    title: "新建项目",
+    description: "项目用于归纳彼此独立的聊天记录。",
+    cancel: "取消",
+    submit: "创建项目",
+    pickDirectory: "选择本地文件夹",
+    pickingDirectory: "正在打开文件选择器…",
+    clearDirectory: "移除本地文件夹",
+    daemonOfflineHint: "启动本地智能体后，可将项目绑定到电脑中已有的文件夹。",
+    directoryHint: "智能体将直接在该文件夹中工作。",
+    pickFailed: "选择文件夹失败，请重试",
+    invalidDirectory: "该文件夹不可用，请重新选择",
+    agentPickerTitle: "选择智能体",
+    agentPickerDescription: "选择后将在该项目内创建新聊天。",
+    agentNeedsRuntime: "需要运行环境",
+    agentPickerEmpty: "暂无可用智能体",
+  };
   const urlSession = searchParams.get("session") || null;
   const urlAgent = searchParams.get("agent") || null;
 
@@ -119,6 +146,20 @@ export function ChatPage() {
   const [composingNew, setComposingNew] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
+  // Bind the new project to an existing local folder (desktop only — the
+  // web shell has no way to pick or validate a local path).
+  const desktopShell = isDesktopShell();
+  const daemonStatus = useLocalDaemonStatus();
+  const [projectLocalPath, setProjectLocalPath] = useState<string | null>(null);
+  const [projectLocalLabel, setProjectLocalLabel] = useState<string | null>(null);
+  const [projectDirectoryError, setProjectDirectoryError] = useState<string | null>(null);
+  const [projectPickingDirectory, setProjectPickingDirectory] = useState(false);
+  const resetProjectDialog = () => {
+    setProjectTitle("");
+    setProjectLocalPath(null);
+    setProjectLocalLabel(null);
+    setProjectDirectoryError(null);
+  };
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [selectingAgentForProjectId, setSelectingAgentForProjectId] = useState<string | null>(null);
   useEffect(() => {
@@ -228,12 +269,30 @@ export function ChatPage() {
   const createNewProject = () => {
     const title = projectTitle.trim();
     if (!title) return;
+    // Attach the picked folder in the same request that creates the project:
+    // the server persists both in one transaction, so the sync process sees a
+    // finished project on its next poll instead of racing to bind its own
+    // sync-root directory.
+    const resources =
+      projectLocalPath && daemonStatus.daemonId
+        ? [
+            {
+              resource_type: "local_directory" as const,
+              resource_ref: buildLocalDirectoryResourceRef({
+                localPath: projectLocalPath,
+                daemonId: daemonStatus.daemonId,
+                label: projectLocalLabel,
+                mode: "in_place",
+              }),
+            },
+          ]
+        : undefined;
     createProject.mutate(
-      { title, status: "planned", priority: "none" },
+      { title, status: "planned", priority: "none", resources },
       {
         onSuccess: () => {
           setProjectDialogOpen(false);
-          setProjectTitle("");
+          resetProjectDialog();
           // Keep creation and conversation creation separate: the new project
           // appears in the tree first, then its + action starts a fresh chat.
           // This preserves the explicit Project → Chat hierarchy.
@@ -241,6 +300,33 @@ export function ChatPage() {
         onError: () => toast.error("创建项目失败，请稍后重试"),
       },
     );
+  };
+
+  const handlePickProjectDirectory = async () => {
+    if (projectPickingDirectory) return;
+    setProjectDirectoryError(null);
+    setProjectPickingDirectory(true);
+    try {
+      const picked = await pickDirectory(projectLocalPath ?? undefined);
+      if (!picked.ok || !picked.path) {
+        if (picked.reason && picked.reason !== "cancelled") {
+          setProjectDirectoryError(picked.error ?? projectDialogCopy.pickFailed);
+        }
+        return;
+      }
+      const validation = await validateLocalDirectory(picked.path);
+      if (!validation.ok) {
+        setProjectDirectoryError(validation.error ?? projectDialogCopy.invalidDirectory);
+        return;
+      }
+      setProjectLocalPath(picked.path);
+      setProjectLocalLabel(picked.basename ?? null);
+      // A picked folder is the strongest title hint — prefill it only when
+      // the user hasn't typed anything yet.
+      if (!projectTitle.trim()) setProjectTitle(picked.basename ?? "");
+    } finally {
+      setProjectPickingDirectory(false);
+    }
   };
 
   const changeProjectContext = (projectId: string | null) => {
@@ -291,10 +377,10 @@ export function ChatPage() {
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="新建项目"
-        title="新建项目"
+        aria-label={projectDialogCopy.title}
+        title={projectDialogCopy.title}
         onClick={() => {
-          setProjectTitle("");
+          resetProjectDialog();
           setProjectDialogOpen(true);
         }}
       >
@@ -304,7 +390,7 @@ export function ChatPage() {
         open={projectDialogOpen}
         onOpenChange={(open) => {
           setProjectDialogOpen(open);
-          if (!open) setProjectTitle("");
+          if (!open) resetProjectDialog();
         }}
       >
         <DialogContent>
@@ -315,8 +401,8 @@ export function ChatPage() {
             }}
           >
             <DialogHeader>
-              <DialogTitle>新建项目</DialogTitle>
-              <DialogDescription>项目用于归纳彼此独立的聊天记录。</DialogDescription>
+              <DialogTitle>{projectDialogCopy.title}</DialogTitle>
+              <DialogDescription>{projectDialogCopy.description}</DialogDescription>
             </DialogHeader>
             <Input
               autoFocus
@@ -326,12 +412,65 @@ export function ChatPage() {
               placeholder="项目名称"
               aria-label="项目名称"
             />
+            {desktopShell && (
+              <div className="mt-3 space-y-1.5">
+                {projectLocalPath ? (
+                  <div className="flex items-start gap-2 rounded-md border px-2.5 py-2">
+                    <FolderOpen className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      {projectLocalLabel && (
+                        <div className="truncate text-caption font-medium">{projectLocalLabel}</div>
+                      )}
+                      <div className="break-all font-mono text-micro text-muted-foreground">
+                        {projectLocalPath}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProjectLocalPath(null);
+                        setProjectLocalLabel(null);
+                        setProjectDirectoryError(null);
+                      }}
+                      aria-label={projectDialogCopy.clearDirectory}
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ) : daemonStatus.running ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handlePickProjectDirectory}
+                    disabled={projectPickingDirectory}
+                  >
+                    <FolderOpen className="size-3.5" />
+                    {projectPickingDirectory
+                      ? projectDialogCopy.pickingDirectory
+                      : projectDialogCopy.pickDirectory}
+                  </Button>
+                ) : (
+                  <p className="text-micro text-muted-foreground">
+                    {projectDialogCopy.daemonOfflineHint}
+                  </p>
+                )}
+                {projectDirectoryError && (
+                  <p className="text-micro text-destructive">{projectDirectoryError}</p>
+                )}
+                {projectLocalPath && (
+                  <p className="text-micro text-muted-foreground">{projectDialogCopy.directoryHint}</p>
+                )}
+              </div>
+            )}
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setProjectDialogOpen(false)}>
-                取消
+                {projectDialogCopy.cancel}
               </Button>
               <Button type="submit" disabled={!projectTitle.trim() || createProject.isPending}>
-                创建项目
+                {projectDialogCopy.submit}
               </Button>
             </DialogFooter>
           </form>
@@ -345,8 +484,8 @@ export function ChatPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>选择智能体</DialogTitle>
-            <DialogDescription>选择后将在该项目内创建新聊天。</DialogDescription>
+            <DialogTitle>{projectDialogCopy.agentPickerTitle}</DialogTitle>
+            <DialogDescription>{projectDialogCopy.agentPickerDescription}</DialogDescription>
           </DialogHeader>
           <div className="mt-3 max-h-80 space-y-1 overflow-y-auto">
             {c.availableAgents.length > 0 ? c.availableAgents.map((agent) => {
@@ -364,11 +503,11 @@ export function ChatPage() {
                     {agent.name.slice(0, 1)}
                   </span>
                   <span className="truncate">{agent.name}</span>
-                  {!runnable && <span className="ml-auto text-micro text-muted-foreground">需要运行环境</span>}
+                  {!runnable && <span className="ml-auto text-micro text-muted-foreground">{projectDialogCopy.agentNeedsRuntime}</span>}
                 </Button>
               );
             }) : (
-              <p className="px-2 py-4 text-center text-caption text-muted-foreground">暂无可用智能体</p>
+              <p className="px-2 py-4 text-center text-caption text-muted-foreground">{projectDialogCopy.agentPickerEmpty}</p>
             )}
           </div>
         </DialogContent>
