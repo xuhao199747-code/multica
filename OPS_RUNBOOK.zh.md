@@ -180,7 +180,7 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.y
 curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 ```
 
-已知锚点（2026-10-16 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`、`20261016-fca801f`（当前线上）。
+已知锚点（2026-10-16 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`、`20261016-fca801f`、`20261016-37f6f92`（当前线上）。
 
 ⚠️ **代码回滚 ≠ 数据库回滚**：新版本跑过的迁移不会自动撤销。回滚后若后端报错（表结构不匹配），用最近的 pg_dump 备份恢复数据库，再重启后端。
 
@@ -196,7 +196,7 @@ curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 ## 9. 当前资产清单
 
 - 备份：`~/multica-backup-20261015/`（源码 + .git 打包 + 生产库 pg_dump）；发布大版本前重新做 pg_dump
-- 生产镜像锚点：`multica-backend:rollback-v061`、`multica-web:rollback-v061`、`multica-{backend,web}:20261015-eeb9459`、`multica-{backend,web}:20261016-fca801f`（当前线上）
+- 生产镜像锚点：`multica-backend:rollback-v061`、`multica-web:rollback-v061`、`multica-{backend,web}:20261015-eeb9459`、`multica-{backend,web}:20261016-fca801f`、`multica-{backend,web}:20261016-37f6f92`（当前线上）
 - 生产卷：`multica_pgdata`（数据库）、`multica_backend_uploads`（上传文件）
 - dev 栈：`multica-dev-postgres`（5433，可随时 `docker stop multica-dev-postgres` 停掉，不影响任何线上）
 
@@ -205,6 +205,7 @@ curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 1. `packages/views` 仍有少量中文字面量未走 i18n（lint 报错，不影响构建运行）——chat-page 的一批已在 2026-10-16 顺手修掉，改到其他文件时同理顺手修。
 2. Electron 桌面版未安装（本机已验证可构建，`apps/desktop/dist/` 有 2026-10-16 的 dmg；本地工作区链路目前不需要它）——要用桌面客户端时再装。
 3. 镜像只存本机，未推 GHCR——走 GitHub Actions 自动发布时再配（需要 GHCR 权限）。
+4. Docker Desktop（containerd 镜像存储）在 2026-10-16 发生过一次引擎重启、`docker images` 瞬时不显示自定义 tag——锚点 tag 若"丢失"，先 `docker ps` 确认容器在跑，再按镜像 ID 重打即可（数据未丢）。
 
 ## 11. 必须我确认后才执行的动作
 
