@@ -160,7 +160,8 @@ multica project resource add <project-id> --type local_directory \
   --local-path /绝对/路径/到/文件夹 --daemon-id <本机daemon id> --execution-mode in_place
 # 本机 daemon id 用 `multica daemon status` 查看
 
-# 方式二：桌面端"新建项目"对话框里直接选（桌面版未装时不可用）
+# 方式二：聊天页"新建项目"对话框里直接填文件夹绝对路径（网页端可用；
+#         桌面版额外有文件夹选择按钮，填路径两者都支持）
 ```
 
 当前规则：资源路径在**同步根之外**时，sync 完全不动它——不建目录、不改名、不清扫、也不把资源路径"纠正"回同步根（2026-10-16 之前的旧版会改回，已修）；聊天记录仍照常镜像到同步根。同步根之内的项目维持原样（建目录、随项目改名、删除进废纸篓）。

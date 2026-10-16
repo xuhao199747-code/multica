@@ -109,6 +109,14 @@ const mockToastError = vi.hoisted(() => vi.fn());
 const mockCreateProjectMutate = vi.hoisted(() => vi.fn());
 const mockPickDirectory = vi.hoisted(() => vi.fn());
 const mockValidateLocalDirectory = vi.hoisted(() => vi.fn());
+const mockRuntimeList = vi.hoisted(() => ({
+  current: [] as Array<{
+    daemon_id: string | null;
+    name: string;
+    custom_name?: string | null;
+    status: string;
+  }>,
+}));
 const mockSetActiveSession = vi.hoisted(() =>
   vi.fn((id: string | null) => {
     storeRef.current = { ...storeRef.current, activeSessionId: id };
@@ -129,6 +137,15 @@ vi.mock("@multica/core/projects", () => ({
   useCreateProject: () => ({ mutate: mockCreateProjectMutate, isPending: false }),
   useUpdateProject: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteProject: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+// Runtime list backs the "which device owns this folder" select.
+vi.mock("@multica/core/runtimes", () => ({
+  runtimeListOptions: () => ({
+    queryKey: ["runtime-list"],
+    queryFn: async () => mockRuntimeList.current,
+  }),
+  runtimeAdvertisesLocalWorktree: () => false,
 }));
 
 vi.mock("@multica/core/chat", () => ({
@@ -269,6 +286,7 @@ beforeEach(() => {
   agentsSettledRef.current = true;
   platformWorkspace.slug = "acme";
   layout.width = DESKTOP;
+  mockRuntimeList.current = [];
   // Most tests run as the web shell; the local-folder tests install their own
   // desktop bridge via mockDesktopBridge().
   (window as unknown as { desktopAPI?: unknown }).desktopAPI = undefined;
@@ -583,27 +601,73 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     });
   });
 
-  it("网页端不显示选择文件夹入口", async () => {
+  it("网页端输入路径并选定设备后，创建请求带上 local_directory 资源", async () => {
+    mockRuntimeList.current = [
+      { daemon_id: "daemon-9", name: "Mac Studio", custom_name: null, status: "online" },
+    ];
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.change(screen.getByLabelText("本地文件夹路径"), {
+      target: { value: "/Users/mac/work/app" },
+    });
+    expect(await screen.findByText("智能体将直接在该文件夹中工作。")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("项目名称"), { target: { value: "网页绑定" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(mockCreateProjectMutate).toHaveBeenCalledTimes(1));
+    expect(mockCreateProjectMutate.mock.calls[0]?.[0]).toEqual({
+      title: "网页绑定",
+      status: "planned",
+      priority: "none",
+      resources: [
+        {
+          resource_type: "local_directory",
+          resource_ref: {
+            local_path: "/Users/mac/work/app",
+            daemon_id: "daemon-9",
+            label: "app",
+            execution_mode: "in_place",
+          },
+        },
+      ],
+    });
+  });
+
+  it("网页端不显示桌面专属的文件夹选择按钮", () => {
     renderPage("");
     fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
 
-    expect(await screen.findByLabelText("项目名称")).toBeInTheDocument();
+    expect(screen.getByLabelText("本地文件夹路径")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "选择本地文件夹" }),
     ).not.toBeInTheDocument();
   });
 
-  it("智能体未运行时显示提示而不是选择按钮", async () => {
-    mockDesktopBridge({ daemonRunning: false });
+  it("路径已填但没有可用设备时提示并禁用创建", async () => {
     renderPage("");
     fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.change(screen.getByLabelText("本地文件夹路径"), {
+      target: { value: "/Users/mac/work/app" },
+    });
 
     expect(
-      await screen.findByText("启动本地智能体后，可将项目绑定到电脑中已有的文件夹。"),
+      await screen.findByText(/没有可用的本地设备/),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "选择本地文件夹" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建项目" })).toBeDisabled();
+  });
+
+  it("相对路径提示错误并禁用创建", async () => {
+    mockRuntimeList.current = [
+      { daemon_id: "daemon-9", name: "Mac Studio", custom_name: null, status: "online" },
+    ];
+    renderPage("");
+    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.change(screen.getByLabelText("本地文件夹路径"), {
+      target: { value: "Documents/app" },
+    });
+
+    expect(await screen.findByText(/绝对路径/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建项目" })).toBeDisabled();
   });
 
   it("文件夹校验失败时显示错误且不带入该文件夹", async () => {
