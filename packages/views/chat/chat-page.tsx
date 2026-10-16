@@ -6,6 +6,7 @@ import { ArrowLeft, FolderOpen, FolderPlus, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
+import { cn } from "@multica/ui/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -141,7 +142,10 @@ export function ChatPage() {
     submit: "创建项目",
     pickDirectory: "选择本地文件夹",
     pickingDirectory: "正在打开文件选择器…",
+    sourceTabPlain: "直接新建",
+    sourceTabFolder: "绑定本地文件夹",
     pathLabel: "本地文件夹路径",
+    pathRequired: "填写要绑定的文件夹绝对路径",
     pathPlaceholder: "本地文件夹绝对路径，如 /Users/mac/Documents/项目",
     deviceLabel: "选择运行设备",
     deviceOffline: "离线",
@@ -168,8 +172,12 @@ export function ChatPage() {
   // Bind the new project to an existing local folder by path. Typing a path
   // works in any browser (the folder lives on the selected device's disk);
   // the desktop shell additionally gets a native folder picker that fills it.
+  // Two explicit sources, switched by tabs: "plain" keeps the original
+  // title-only flow (the sync process creates the folder), "folder" binds an
+  // existing one.
   const desktopShell = isDesktopShell();
   const daemonStatus = useLocalDaemonStatus();
+  const [projectSource, setProjectSource] = useState<"plain" | "folder">("plain");
   const [projectLocalPath, setProjectLocalPath] = useState("");
   const [projectLocalLabel, setProjectLocalLabel] = useState<string | null>(null);
   const [projectDaemonId, setProjectDaemonId] = useState<string | null>(null);
@@ -177,6 +185,7 @@ export function ChatPage() {
   const [projectPickingDirectory, setProjectPickingDirectory] = useState(false);
   const resetProjectDialog = () => {
     setProjectTitle("");
+    setProjectSource("plain");
     setProjectLocalPath("");
     setProjectLocalLabel(null);
     setProjectDaemonId(null);
@@ -322,12 +331,14 @@ export function ChatPage() {
   const createNewProject = () => {
     const title = projectTitle.trim();
     if (!title) return;
+    const bindFolder = projectSource === "folder";
+    if (bindFolder && (!projectPath || !projectPathValid || !effectiveProjectDaemonId)) return;
     // Attach the folder in the same request that creates the project: the
     // server persists both in one transaction, so the sync process sees a
     // finished project on its next poll instead of racing to bind its own
     // sync-root directory.
     const resources =
-      projectPath && projectPathValid && effectiveProjectDaemonId
+      bindFolder && projectPath && effectiveProjectDaemonId
         ? [
             {
               resource_type: "local_directory" as const,
@@ -465,66 +476,97 @@ export function ChatPage() {
               placeholder="项目名称"
               aria-label="项目名称"
             />
-            <div className="mt-3 space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <Input
-                  value={projectLocalPath}
-                  onChange={(event) => {
-                    setProjectLocalPath(event.target.value);
-                    if (projectDirectoryError) setProjectDirectoryError(null);
-                  }}
-                  placeholder={projectDialogCopy.pathPlaceholder}
-                  aria-label={projectDialogCopy.pathLabel}
-                  className="flex-1 font-mono text-caption"
-                />
-                {desktopShell && daemonStatus.running && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    onClick={handlePickProjectDirectory}
-                    disabled={projectPickingDirectory}
-                    aria-label={projectDialogCopy.pickDirectory}
-                    title={projectDialogCopy.pickDirectory}
+            <div className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted/60 p-0.5">
+              <button
+                type="button"
+                onClick={() => setProjectSource("plain")}
+                className={cn(
+                  "rounded-xs px-2 py-1 text-caption transition-colors",
+                  projectSource === "plain"
+                    ? "bg-background shadow-sm font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {projectDialogCopy.sourceTabPlain}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectSource("folder")}
+                className={cn(
+                  "rounded-xs px-2 py-1 text-caption transition-colors",
+                  projectSource === "folder"
+                    ? "bg-background shadow-sm font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {projectDialogCopy.sourceTabFolder}
+              </button>
+            </div>
+            {projectSource === "folder" && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={projectLocalPath}
+                    onChange={(event) => {
+                      setProjectLocalPath(event.target.value);
+                      if (projectDirectoryError) setProjectDirectoryError(null);
+                    }}
+                    placeholder={projectDialogCopy.pathPlaceholder}
+                    aria-label={projectDialogCopy.pathLabel}
+                    className="flex-1 font-mono text-caption"
+                  />
+                  {desktopShell && daemonStatus.running && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={handlePickProjectDirectory}
+                      disabled={projectPickingDirectory}
+                      aria-label={projectDialogCopy.pickDirectory}
+                      title={projectDialogCopy.pickDirectory}
+                    >
+                      <FolderOpen className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
+                {projectPath && projectDaemonOptions.length > 0 && (
+                  <Select
+                    items={projectDaemonOptions.map((option) => ({
+                      value: option.daemonId,
+                      label: `${option.label}${!option.online ? `（${projectDialogCopy.deviceOffline}）` : ""}`,
+                    }))}
+                    value={effectiveProjectDaemonId ?? null}
+                    onValueChange={(value) => {
+                      if (value) setProjectDaemonId(value);
+                    }}
                   >
-                    <FolderOpen className="size-3.5" />
-                  </Button>
+                    <SelectTrigger
+                      className="h-8 w-full text-caption"
+                      aria-label={projectDialogCopy.deviceLabel}
+                    >
+                      <SelectValue placeholder={projectDialogCopy.deviceLabel} />
+                    </SelectTrigger>
+                  </Select>
+                )}
+                {!projectPath && (
+                  <p className="text-micro text-muted-foreground">{projectDialogCopy.pathRequired}</p>
+                )}
+                {projectPath && !projectPathValid && (
+                  <p className="text-micro text-destructive">{projectDialogCopy.invalidPath}</p>
+                )}
+                {projectPath && projectPathValid && !effectiveProjectDaemonId && (
+                  <p className="text-micro text-amber-600 dark:text-amber-400">
+                    {projectDialogCopy.noDaemon}
+                  </p>
+                )}
+                {projectPath && projectPathValid && effectiveProjectDaemonId && (
+                  <p className="text-micro text-muted-foreground">{projectDialogCopy.directoryHint}</p>
+                )}
+                {projectDirectoryError && (
+                  <p className="text-micro text-destructive">{projectDirectoryError}</p>
                 )}
               </div>
-              {projectPath && projectDaemonOptions.length > 0 && (
-                <Select
-                  items={projectDaemonOptions.map((option) => ({
-                    value: option.daemonId,
-                    label: `${option.label}${!option.online ? `（${projectDialogCopy.deviceOffline}）` : ""}`,
-                  }))}
-                  value={effectiveProjectDaemonId ?? null}
-                  onValueChange={(value) => {
-                    if (value) setProjectDaemonId(value);
-                  }}
-                >
-                  <SelectTrigger
-                    className="h-8 w-full text-caption"
-                    aria-label={projectDialogCopy.deviceLabel}
-                  >
-                    <SelectValue placeholder={projectDialogCopy.deviceLabel} />
-                  </SelectTrigger>
-                </Select>
-              )}
-              {projectPath && !projectPathValid && (
-                <p className="text-micro text-destructive">{projectDialogCopy.invalidPath}</p>
-              )}
-              {projectPath && projectPathValid && !effectiveProjectDaemonId && (
-                <p className="text-micro text-amber-600 dark:text-amber-400">
-                  {projectDialogCopy.noDaemon}
-                </p>
-              )}
-              {projectPath && projectPathValid && effectiveProjectDaemonId && (
-                <p className="text-micro text-muted-foreground">{projectDialogCopy.directoryHint}</p>
-              )}
-              {projectDirectoryError && (
-                <p className="text-micro text-destructive">{projectDirectoryError}</p>
-              )}
-            </div>
+            )}
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setProjectDialogOpen(false)}>
                 {projectDialogCopy.cancel}
@@ -534,7 +576,8 @@ export function ChatPage() {
                 disabled={
                   !projectTitle.trim() ||
                   createProject.isPending ||
-                  (projectPath !== "" && (!projectPathValid || !effectiveProjectDaemonId))
+                  (projectSource === "folder" &&
+                    (!projectPath || !projectPathValid || !effectiveProjectDaemonId))
                 }
               >
                 {projectDialogCopy.submit}
