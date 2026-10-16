@@ -109,6 +109,8 @@ docker tag multica-web:dev multica-web:$VER
 docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.yml up -d
 ```
 
+快捷方式：`make selfhost-build` = ① + ③ 一条龙（锚点 tag 仍需自己按 ② 补打）。2026-10-16 的发布即用此方式。
+
 发布后验证（全过才算成功）：
 
 ```bash
@@ -131,7 +133,39 @@ docker logs --tail 50 multica-backend-1     # 无 migrate 失败 / panic
 | 迁移 | 无 / 清单+dev 库验证结果 |
 | 回滚锚点 | 上一个 `multica-*:YYYYMMDD-xxxxxxx` 或 `rollback-v061` |
 
-## 6. 回滚线上 SOP（说"回滚线上"）
+## 6. 本地工作区链路（浏览器聊天 ↔ 本机文件夹）
+
+> 记录的是 2026-10-16 时点的当前形态。这条链还在演进，细节以代码为准；有功能改动时同步更新本节。
+
+浏览器里创建聊天项目时，项目本身只写数据库；本机文件夹由下面这条链补齐：
+
+1. **sync（launchd 托管）**：`~/Library/LaunchAgents/com.multica.local-sync.plist` → 每 15 秒轮询 API，在同步根 `~/Documents/multica/<项目名>` 建目录（内含 `.multica-project.json` 元数据），并给项目绑定 `local_directory` 资源（`in_place`、指向本机 daemon）。聊天记录（`conversation.md` + `metadata.json`）也镜像到同步根下的项目目录里。
+2. **daemon（本机进程）**：领取项目内的聊天任务时，若任务携带了匹配本机 daemon 的 `local_directory` 资源，就以该目录为 agent 的工作目录；否则按普通任务跑。
+
+各组件的启动 / 重启方式：
+
+| 组件 | 二进制 | 启动 | 重启 / 升级 |
+| --- | --- | --- | --- |
+| sync | `server/bin/multica`（仓库 `go build` 产物） | launchd 开机自启 | 改代码后：`cd server && go build -o bin/multica ./cmd/multica`，再 `launchctl kickstart -k gui/$(id -u)/com.multica.local-sync` |
+| daemon | `~/.local/bin/multica`（手工替换） | `multica daemon start --foreground`（终端常驻） | 替换二进制后重启进程生效；`multica daemon status` 查状态 |
+| 生产栈 | Docker 镜像 | 见 §5 | 见 §5 |
+
+绑定电脑里**已有**的文件夹（当前支持两种方式，都不需要桌面版）：
+
+```bash
+# 方式一：CLI（项目已存在时绑定）
+multica project resource add <project-id> --type local_directory \
+  --local-path /绝对/路径/到/文件夹 --daemon-id <本机daemon id> --execution-mode in_place
+# 本机 daemon id 用 `multica daemon status` 查看
+
+# 方式二：桌面端"新建项目"对话框里直接选（桌面版未装时不可用）
+```
+
+当前规则：资源路径在**同步根之外**时，sync 完全不动它——不建目录、不改名、不清扫、也不把资源路径"纠正"回同步根（2026-10-16 之前的旧版会改回，已修）；聊天记录仍照常镜像到同步根。同步根之内的项目维持原样（建目录、随项目改名、删除进废纸篓）。
+
+边界：网页端不显示"选文件夹"入口（浏览器拿不到本地路径）；daemon 离线时相关聊天任务不带本地目录运行。
+
+## 7. 回滚线上 SOP（说"回滚线上"）
 
 只对**上一个已验证的锚点**回滚，禁止凭 `latest` 猜：
 
@@ -143,11 +177,11 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.y
 curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 ```
 
-已知锚点（2026-10-15 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`（当前线上）。
+已知锚点（2026-10-16 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`、`20261016-fca801f`（当前线上）。
 
 ⚠️ **代码回滚 ≠ 数据库回滚**：新版本跑过的迁移不会自动撤销。回滚后若后端报错（表结构不匹配），用最近的 pg_dump 备份恢复数据库，再重启后端。
 
-## 7. 数据保护红线（任何情况下不做）
+## 8. 数据保护红线（任何情况下不做）
 
 - `docker compose down -v`、`make destroy`、删任何 volume（`multica_pgdata`、`multica_backend_uploads`、`multica_dev_pgdata`、`multica-tailscale-state`）
 - 删/重建 `multica-postgres-1` 容器以外的任何生产容器前不确认
@@ -156,19 +190,19 @@ curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 - 重新生成 `.env` 里的 `JWT_SECRET` / `POSTGRES_PASSWORD` / `MULTICA_VCS_SECRET_KEY`（会导致全员掉登录、集成失效）
 - 动 `docker-*` 开头的那批 Dify 容器（与本项目无关）
 
-## 8. 当前资产清单
+## 9. 当前资产清单
 
 - 备份：`~/multica-backup-20261015/`（源码 + .git 打包 + 生产库 pg_dump）；发布大版本前重新做 pg_dump
-- 生产镜像锚点：`multica-backend:rollback-v061`、`multica-web:rollback-v061`、`multica-{backend,web}:20261015-eeb9459`
+- 生产镜像锚点：`multica-backend:rollback-v061`、`multica-web:rollback-v061`、`multica-{backend,web}:20261015-eeb9459`、`multica-{backend,web}:20261016-fca801f`（当前线上）
 - 生产卷：`multica_pgdata`（数据库）、`multica_backend_uploads`（上传文件）
 - dev 栈：`multica-dev-postgres`（5433，可随时 `docker stop multica-dev-postgres` 停掉，不影响任何线上）
 
-## 9. 已知欠账（不紧急）
+## 10. 已知欠账（不紧急）
 
-1. `packages/views` 有 4 处中文字面量未走 i18n（lint 报错，不影响构建运行）——下次改到相关文件时顺手修。
-2. Electron 未安装（desktop 一个测试文件跑不了）——要用桌面客户端时再装。
+1. `packages/views` 仍有少量中文字面量未走 i18n（lint 报错，不影响构建运行）——chat-page 的一批已在 2026-10-16 顺手修掉，改到其他文件时同理顺手修。
+2. Electron 桌面版未安装（本机已验证可构建，`apps/desktop/dist/` 有 2026-10-16 的 dmg；本地工作区链路目前不需要它）——要用桌面客户端时再装。
 3. 镜像只存本机，未推 GHCR——走 GitHub Actions 自动发布时再配（需要 GHCR 权限）。
 
-## 10. 必须我确认后才执行的动作
+## 11. 必须我确认后才执行的动作
 
 `git push`（首次连通新远端时）、一切 `docker build/up/stop/rm/tag`、创建/修改 `.env`、安装系统级软件、对生产库应用迁移、`docker compose down`（任何形式）、回滚、暴露新端口到 Tailscale。
