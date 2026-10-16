@@ -2,6 +2,10 @@
 SELECT * FROM spec
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: GetSpecByIdentifierInWorkspace :one
+SELECT * FROM spec
+WHERE identifier = $1 AND workspace_id = $2;
+
 -- name: ListSpecs :many
 SELECT * FROM spec
 WHERE workspace_id = $1
@@ -27,6 +31,23 @@ RETURNING *;
 -- name: DeleteSpec :exec
 DELETE FROM spec
 WHERE id = $1 AND workspace_id = $2;
+
+-- name: DeleteSpecVersionsBySpec :exec
+DELETE FROM spec_version
+WHERE spec_id = $1;
+
+-- name: DeleteSpecIssuesBySpec :exec
+DELETE FROM spec_issue
+WHERE spec_id = $1;
+
+-- name: DeleteSpecSubscribersBySpec :exec
+DELETE FROM spec_subscriber
+WHERE spec_id = $1;
+
+-- name: IncrementSpecCounter :one
+UPDATE workspace SET spec_counter = spec_counter + 1
+WHERE id = $1
+RETURNING spec_counter;
 
 -- name: GetSpecVersion :one
 SELECT * FROM spec_version

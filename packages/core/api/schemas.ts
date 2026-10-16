@@ -83,6 +83,9 @@ import type {
   Skill,
   SkillImportResult,
   SkillSummary,
+  SpecDetail,
+  SpecListResponse,
+  SpecSummary,
   Squad,
   TimelineEntry,
   User,
@@ -3447,6 +3450,69 @@ export const EMPTY_SKILL: Skill = {
 export const SkillSummaryListSchema = z.array(SkillSummarySchema).default([]);
 
 export const EMPTY_SKILL_SUMMARY_LIST: SkillSummary[] = [];
+
+// Specs. `status` is parsed as a plain string rather than an enum: the
+// server CHECK-constrains it (draft | in_review | approved | deprecated), but
+// a future status must not fail the whole parse for older clients.
+export const SpecVersionSchema = z.object({
+  id: z.string(),
+  number: z.number(),
+  content: z.string(),
+  changelog: z.string().optional().default(""),
+  created_by: z.string().optional().default(""),
+  created_at: z.string().optional().default(""),
+}).loose();
+
+export const SpecSummarySchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  project_id: z.string().nullable().optional().default(null),
+  title: z.string(),
+  identifier: z.string(),
+  status: z.string(),
+  current_version_id: z.string().nullable().optional().default(null),
+  created_at: z.string().optional().default(""),
+  updated_at: z.string().optional().default(""),
+}).loose();
+
+export const EMPTY_SPEC_SUMMARY: SpecSummary = {
+  id: "",
+  workspace_id: "",
+  project_id: null,
+  title: "",
+  identifier: "",
+  status: "",
+  current_version_id: null,
+  created_at: "",
+  updated_at: "",
+};
+
+export const SpecSummaryListSchema = z.array(SpecSummarySchema).default([]);
+
+export const EMPTY_SPEC_SUMMARY_LIST: SpecSummary[] = [];
+
+// Detail shape (`GET /api/specs/:id`): the summary fields plus the resolved
+// current version. `.nullish()` so older backends that never populate the
+// field still parse instead of failing the whole detail; the transform pins
+// the result to null (never undefined) so it matches the SpecDetail type.
+export const SpecDetailSchema = SpecSummarySchema.extend({
+  current_version: SpecVersionSchema.nullish().transform((v) => v ?? null),
+}).loose();
+
+export const EMPTY_SPEC_DETAIL: SpecDetail = {
+  ...EMPTY_SPEC_SUMMARY,
+  current_version: null,
+};
+
+export const SpecListEnvelopeSchema = z.object({
+  specs: SpecSummaryListSchema,
+  total: z.number().catch(0),
+}).loose();
+
+export const EMPTY_SPEC_LIST_ENVELOPE: SpecListResponse = {
+  specs: [],
+  total: 0,
+};
 
 export const SkillImportExistingSkillSchema = z.object({
   id: z.string(),

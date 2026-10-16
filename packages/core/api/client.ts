@@ -70,6 +70,10 @@ import type {
   UpdateSkillRequest,
   SetAgentSkillsRequest,
   SetAgentRuntimeSkillEnabledRequest,
+  SpecDetail,
+  SpecListResponse,
+  CreateSpecRequest,
+  UpdateSpecRequest,
   PersonalAccessToken,
   CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
@@ -442,6 +446,9 @@ import {
   EMPTY_SKILL_SUMMARY_LIST,
   SkillImportResultSchema,
   EMPTY_SKILL_IMPORT_RESULT,
+  SpecDetailSchema,
+  SpecListEnvelopeSchema,
+  EMPTY_SPEC_LIST_ENVELOPE,
   IssueViewSchema,
   IssueViewListSchema,
   IssueViewPreferenceSchema,
@@ -3587,6 +3594,62 @@ export class ApiClient {
 			method: "DELETE",
 		});
 	}
+
+  // Specs
+  async listSpecs(projectId?: string): Promise<SpecListResponse> {
+    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    const raw = await this.fetch<unknown>(`/api/specs${query}`);
+    return parseWithFallback(raw, SpecListEnvelopeSchema, EMPTY_SPEC_LIST_ENVELOPE, {
+      endpoint: "GET /api/specs",
+    });
+  }
+
+  // A single spec has no safe-empty shape: callers key navigation and detail
+  // screens off its id, so a malformed 2xx must fail the call instead of
+  // resolving to a truthy spec with an empty id (same contract as getIssue).
+  async getSpec(id: string): Promise<SpecDetail> {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}`);
+    const spec = parseWithFallback<SpecDetail | null>(raw, SpecDetailSchema, null, {
+      endpoint: "GET /api/specs/:id",
+    });
+    if (!spec) {
+      // parseWithFallback already logged the zod issues + raw payload.
+      throw new Error("GET /api/specs/:id returned a malformed spec");
+    }
+    return spec;
+  }
+
+  async createSpec(data: CreateSpecRequest): Promise<SpecDetail> {
+    const raw = await this.fetch<unknown>("/api/specs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    const spec = parseWithFallback<SpecDetail | null>(raw, SpecDetailSchema, null, {
+      endpoint: "POST /api/specs",
+    });
+    if (!spec) {
+      throw new Error("POST /api/specs returned a malformed spec");
+    }
+    return spec;
+  }
+
+  async updateSpec(id: string, data: UpdateSpecRequest): Promise<SpecDetail> {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    const spec = parseWithFallback<SpecDetail | null>(raw, SpecDetailSchema, null, {
+      endpoint: "PUT /api/specs/:id",
+    });
+    if (!spec) {
+      throw new Error("PUT /api/specs/:id returned a malformed spec");
+    }
+    return spec;
+  }
+
+  async deleteSpec(id: string): Promise<void> {
+    await this.fetch(`/api/specs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
 
   // Personal Access Tokens
   async listPersonalAccessTokens(): Promise<PersonalAccessToken[]> {

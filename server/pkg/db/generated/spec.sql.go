@@ -139,6 +139,64 @@ func (q *Queries) DeleteSpec(ctx context.Context, arg DeleteSpecParams) error {
 	return err
 }
 
+const deleteSpecIssuesBySpec = `-- name: DeleteSpecIssuesBySpec :exec
+DELETE FROM spec_issue
+WHERE spec_id = $1
+`
+
+func (q *Queries) DeleteSpecIssuesBySpec(ctx context.Context, specID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSpecIssuesBySpec, specID)
+	return err
+}
+
+const deleteSpecSubscribersBySpec = `-- name: DeleteSpecSubscribersBySpec :exec
+DELETE FROM spec_subscriber
+WHERE spec_id = $1
+`
+
+func (q *Queries) DeleteSpecSubscribersBySpec(ctx context.Context, specID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSpecSubscribersBySpec, specID)
+	return err
+}
+
+const deleteSpecVersionsBySpec = `-- name: DeleteSpecVersionsBySpec :exec
+DELETE FROM spec_version
+WHERE spec_id = $1
+`
+
+func (q *Queries) DeleteSpecVersionsBySpec(ctx context.Context, specID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSpecVersionsBySpec, specID)
+	return err
+}
+
+const getSpecByIdentifierInWorkspace = `-- name: GetSpecByIdentifierInWorkspace :one
+SELECT id, workspace_id, project_id, title, identifier, status, current_version_id, created_by, created_at, updated_at FROM spec
+WHERE identifier = $1 AND workspace_id = $2
+`
+
+type GetSpecByIdentifierInWorkspaceParams struct {
+	Identifier  string      `json:"identifier"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetSpecByIdentifierInWorkspace(ctx context.Context, arg GetSpecByIdentifierInWorkspaceParams) (Spec, error) {
+	row := q.db.QueryRow(ctx, getSpecByIdentifierInWorkspace, arg.Identifier, arg.WorkspaceID)
+	var i Spec
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Title,
+		&i.Identifier,
+		&i.Status,
+		&i.CurrentVersionID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getSpecInWorkspace = `-- name: GetSpecInWorkspace :one
 SELECT id, workspace_id, project_id, title, identifier, status, current_version_id, created_by, created_at, updated_at FROM spec
 WHERE id = $1 AND workspace_id = $2
@@ -190,6 +248,19 @@ func (q *Queries) GetSpecVersion(ctx context.Context, arg GetSpecVersionParams) 
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const incrementSpecCounter = `-- name: IncrementSpecCounter :one
+UPDATE workspace SET spec_counter = spec_counter + 1
+WHERE id = $1
+RETURNING spec_counter
+`
+
+func (q *Queries) IncrementSpecCounter(ctx context.Context, id pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, incrementSpecCounter, id)
+	var spec_counter int32
+	err := row.Scan(&spec_counter)
+	return spec_counter, err
 }
 
 const listIssueSpecs = `-- name: ListIssueSpecs :many
