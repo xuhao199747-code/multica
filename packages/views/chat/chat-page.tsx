@@ -315,6 +315,16 @@ export function ChatPage() {
 
   const startProjectChat = (projectId: string) => {
     supersedeAgentIntent();
+    // A single runnable agent means there is no real choice to make — skip
+    // the picker and start the project chat with it directly. Multiple
+    // (or zero) agents still open the picker.
+    const runnable = c.availableAgents.filter((a) => !!a.runtime_id);
+    if (runnable.length === 1 && runnable[0]) {
+      c.handleStartNewChat(runnable[0]);
+      c.handleStartProjectChat(projectId);
+      setComposingNew(true);
+      return;
+    }
     setSelectingAgentForProjectId(projectId);
   };
 

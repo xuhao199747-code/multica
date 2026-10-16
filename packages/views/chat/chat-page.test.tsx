@@ -30,15 +30,22 @@ vi.mock("./components/chat-input", () => ({
 vi.mock("./components/chat-thread-list", () => ({
   ChatThreadList: ({
     onSelectSession,
+    onStartProjectChat,
   }: {
     onSelectSession: (s: { id: string; agent_id: string }) => void;
+    onStartProjectChat: (projectId: string) => void;
   }) => (
-    <button
-      type="button"
-      onClick={() => onSelectSession({ id: "session-9", agent_id: "agent-9" })}
-    >
-      select-thread
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={() => onSelectSession({ id: "session-9", agent_id: "agent-9" })}
+      >
+        select-thread
+      </button>
+      <button type="button" onClick={() => onStartProjectChat("project-1")}>
+        start-project-chat
+      </button>
+    </div>
   ),
 }));
 vi.mock("./components/chat-session-header", () => ({
@@ -105,6 +112,7 @@ const storeListeners = vi.hoisted(() => new Set<() => void>());
 const availableAgentsRef = vi.hoisted(() => ({ current: [] as Agent[] }));
 const agentsSettledRef = vi.hoisted(() => ({ current: true }));
 const mockStartNewChat = vi.hoisted(() => vi.fn());
+const mockStartProjectChat = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
 const mockCreateProjectMutate = vi.hoisted(() => vi.fn());
 const mockPickDirectory = vi.hoisted(() => vi.fn());
@@ -195,6 +203,7 @@ vi.mock("./components/use-chat-controller", async () => {
       handleUploadFile: vi.fn(),
       handleNewChat: vi.fn(),
       handleStartNewChat: mockStartNewChat,
+      handleStartProjectChat: mockStartProjectChat,
       handleSelectSession: vi.fn(),
       advanceSelectionAfterArchive: vi.fn(),
       archiveSession: vi.fn(),
@@ -706,5 +715,30 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
 
     expect(await screen.findByText("该文件夹不可用，请重新选择")).toBeInTheDocument();
     expect(screen.queryByText(PICKED.path)).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatPage 项目聊天入口", () => {
+  const secondAgent: Agent = { ...agent, id: "agent-2", name: "Sigma", runtime_id: "runtime-2" };
+
+  it("只有一个可用智能体时，点项目+直接开始聊天，不弹选择框", () => {
+    availableAgentsRef.current = [agent];
+    renderPage("");
+
+    fireEvent.click(screen.getByRole("button", { name: "start-project-chat" }));
+
+    expect(mockStartNewChat).toHaveBeenCalledWith(agent);
+    expect(mockStartProjectChat).toHaveBeenCalledWith("project-1");
+    expect(screen.queryByText("选择智能体")).not.toBeInTheDocument();
+  });
+
+  it("有多个可用智能体时，点项目+仍弹出选择框", () => {
+    availableAgentsRef.current = [agent, secondAgent];
+    renderPage("");
+
+    fireEvent.click(screen.getByRole("button", { name: "start-project-chat" }));
+
+    expect(mockStartNewChat).not.toHaveBeenCalled();
+    expect(screen.getByText("选择智能体")).toBeInTheDocument();
   });
 });
