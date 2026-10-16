@@ -247,14 +247,16 @@ func TestUpdateChatSession_UpdatesProjectContext(t *testing.T) {
 	}
 }
 
-func TestDeleteProject_ClearsChatSessionContext(t *testing.T) {
+func TestDeleteProject_DeletesProjectChatSessions(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 
 	projectID := createChatProjectTestProject(t, testWorkspaceID, "Deleted chat project", "")
+	otherProjectID := createChatProjectTestProject(t, testWorkspaceID, "Other chat project", "")
 	agentID := createHandlerTestAgent(t, "DeletedChatProjectAgent", []byte("[]"))
 	sessionID := createChatSessionWithProjectForTest(t, agentID, projectID)
+	otherSessionID := createChatSessionWithProjectForTest(t, agentID, otherProjectID)
 
 	w := httptest.NewRecorder()
 	req := withURLParam(
@@ -267,14 +269,22 @@ func TestDeleteProject_ClearsChatSessionContext(t *testing.T) {
 		t.Fatalf("DeleteProject: expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var storedProjectID *string
+	var exists bool
 	if err := testPool.QueryRow(context.Background(), `
-		SELECT project_id::text FROM chat_session WHERE id = $1
-	`, sessionID).Scan(&storedProjectID); err != nil {
-		t.Fatalf("load chat session after project delete: %v", err)
+		SELECT EXISTS (SELECT 1 FROM chat_session WHERE id = $1)
+	`, sessionID).Scan(&exists); err != nil {
+		t.Fatalf("check chat session after project delete: %v", err)
 	}
-	if storedProjectID != nil {
-		t.Fatalf("project_id = %v after project delete, want null", storedProjectID)
+	if exists {
+		t.Fatal("project chat session survived project deletion")
+	}
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM chat_session WHERE id = $1)
+	`, otherSessionID).Scan(&exists); err != nil {
+		t.Fatalf("check unrelated chat session after project delete: %v", err)
+	}
+	if !exists {
+		t.Fatal("unrelated project chat session was deleted")
 	}
 }
 

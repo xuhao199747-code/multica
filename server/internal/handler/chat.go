@@ -695,83 +695,14 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	// FOR UPDATE on the chat_session row blocks any concurrent INSERT into
-	// agent_task_queue that references it (the FK validation needs a
-	// KEY SHARE lock). After we commit the delete, the blocked INSERT
-	// fails its FK check, so it can't land an orphaned task.
-	if _, err := qtx.LockChatSessionForDelete(r.Context(), session.ID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Already gone — treat as idempotent success.
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to lock chat session")
-		return
-	}
-
-	// Claim, clear, prioritize, and direct send all lock the agent before task
-	// rows. Keep delete on the same agent -> task suffix after its session lock,
-	// otherwise a builder-agent delete can deadlock with a concurrent claim.
-	if _, err := qtx.GetAgentForClaimUpdate(r.Context(), session.AgentID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to lock chat agent")
-		return
-	}
-
-	cancelled, err := qtx.CancelAgentTasksByChatSession(r.Context(), session.ID)
+	deleted, cancelled, err := h.deleteChatSessionInTx(r.Context(), qtx, session)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to cancel chat session tasks")
-		return
-	}
-	if err := service.SettleTerminalTaskState(r.Context(), qtx, cancelled...); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to settle terminal task state")
-		return
-	}
-
-	// channel_chat_session_binding used to carry a chat_session FK with
-	// ON DELETE CASCADE; MUL-3515 §4 dropped every channel_* foreign key, so
-	// prune the binding here in the same tx that deletes its chat_session.
-	if err := qtx.DeleteChannelChatSessionBindingBySession(r.Context(), session.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete chat session binding")
-		return
-	}
-	// channel_outbound_card_message is also keyed by chat_session_id with no FK
-	// and no reaper, so prune it in the same tx or a deleted chat session leaves
-	// permanent orphan card rows (#4810 follow-up).
-	if err := qtx.DeleteChannelOutboundCardMessagesBySession(r.Context(), session.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete chat session outbound cards")
-		return
-	}
-	// chat_draft_restore is keyed by chat_session_id with no FK either, so its
-	// pending restores are pruned here rather than by a DB cascade (#5219). The
-	// LockChatSessionForDelete above doubles as the deleter half of the
-	// draft-restore protocol: FinalizeDeferredCancelledChat takes the same
-	// chat_session lock before inserting a restore, so it cannot slip one past
-	// this sweep (see LockChatSessionForTask in chat.sql).
-	if err := qtx.DeleteChatDraftRestoresBySession(r.Context(), session.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete chat session draft restores")
-		return
-	}
-
-	// Same no-FK chore, for the agent configuration a builder conversation was
-	// editing. A no-op for ordinary chats, which never have one.
-	if err := qtx.DeleteAgentBuilderDraft(r.Context(), session.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete agent builder draft")
-		return
-	}
-
-	if err := qtx.DeleteChatSession(r.Context(), db.DeleteChatSessionParams{
-		ID:          session.ID,
-		WorkspaceID: session.WorkspaceID,
-	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete chat session")
 		return
 	}
-	if err := qtx.DeleteAgentLabelAssignmentsByAgent(r.Context(), session.AgentID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to remove chat session agent label assignments")
-		return
-	}
-	if err := qtx.DeleteSystemAgentByID(r.Context(), session.AgentID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up chat session agent")
+	if !deleted {
+		// Already gone — treat as idempotent success.
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -795,6 +726,54 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteChatSessionInTx removes a session and every application-owned record
+// that lacks an FK cascade. The caller owns the transaction and must publish
+// returned task/session events only after committing it.
+func (h *Handler) deleteChatSessionInTx(ctx context.Context, qtx *db.Queries, session db.ChatSession) (bool, []db.AgentTaskQueue, error) {
+	if _, err := qtx.LockChatSessionForDelete(ctx, session.ID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil, nil
+		}
+		return false, nil, err
+	}
+	if _, err := qtx.GetAgentForClaimUpdate(ctx, session.AgentID); err != nil {
+		return false, nil, err
+	}
+
+	cancelled, err := qtx.CancelAgentTasksByChatSession(ctx, session.ID)
+	if err != nil {
+		return false, nil, err
+	}
+	if err := service.SettleTerminalTaskState(ctx, qtx, cancelled...); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteChannelChatSessionBindingBySession(ctx, session.ID); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteChannelOutboundCardMessagesBySession(ctx, session.ID); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteChatDraftRestoresBySession(ctx, session.ID); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteAgentBuilderDraft(ctx, session.ID); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteChatSession(ctx, db.DeleteChatSessionParams{
+		ID:          session.ID,
+		WorkspaceID: session.WorkspaceID,
+	}); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteAgentLabelAssignmentsByAgent(ctx, session.AgentID); err != nil {
+		return false, nil, err
+	}
+	if err := qtx.DeleteSystemAgentByID(ctx, session.AgentID); err != nil {
+		return false, nil, err
+	}
+	return true, cancelled, nil
 }
 
 // ---------------------------------------------------------------------------

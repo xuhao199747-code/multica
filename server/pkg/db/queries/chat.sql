@@ -3,13 +3,14 @@ INSERT INTO chat_session (workspace_id, agent_id, creator_id, title, runtime_id,
 VALUES ($1, $2, $3, $4, (SELECT runtime_id FROM agent WHERE id = $2), $5, sqlc.narg('project_id'), COALESCE(sqlc.narg('id')::uuid, gen_random_uuid()))
 RETURNING *;
 
--- name: ClearChatSessionProjectByProject :exec
--- Project references are intentionally soft (no database FK). Keep chat
--- history while removing the context selection when a project is deleted.
--- Do not touch updated_at: context cleanup is not chat activity.
-UPDATE chat_session
-SET project_id = NULL
-WHERE project_id = $1 AND workspace_id = $2;
+-- name: LockChatSessionsByProject :many
+-- Project deletion holds the parent project row FOR UPDATE first. That blocks
+-- project-bound session creates or rebindings; locking the resulting sessions
+-- in a stable order then lets the caller cancel their work and delete them.
+SELECT * FROM chat_session
+WHERE project_id = $1 AND workspace_id = $2
+ORDER BY id
+FOR UPDATE;
 
 -- name: GetChatSession :one
 SELECT * FROM chat_session

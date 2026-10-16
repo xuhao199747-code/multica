@@ -639,12 +639,26 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to lock project")
 		return
 	}
-	if err := qtx.ClearChatSessionProjectByProject(r.Context(), db.ClearChatSessionProjectByProjectParams{
+	projectSessions, err := qtx.LockChatSessionsByProject(r.Context(), db.LockChatSessionsByProjectParams{
 		ProjectID:   project.ID,
 		WorkspaceID: project.WorkspaceID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clear project chat context")
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock project chat sessions")
 		return
+	}
+	deletedSessions := make([]db.ChatSession, 0, len(projectSessions))
+	cancelledTasks := make([]db.AgentTaskQueue, 0)
+	for _, session := range projectSessions {
+		deleted, cancelled, deleteErr := h.deleteChatSessionInTx(r.Context(), qtx, session)
+		if deleteErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to delete project chat session")
+			return
+		}
+		if deleted {
+			deletedSessions = append(deletedSessions, session)
+			cancelledTasks = append(cancelledTasks, cancelled...)
+		}
 	}
 	// Project-scoped saved views live on the project page; once the project
 	// is gone they are unreachable, so they go in the same transaction.
@@ -667,6 +681,13 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.publish(protocol.EventProjectDeleted, workspaceID, "member", userID, map[string]any{"project_id": uuidToString(project.ID)})
+	h.TaskService.BroadcastCancelledTasks(r.Context(), workspaceID, cancelledTasks)
+	for _, session := range deletedSessions {
+		resolvedSessionID := uuidToString(session.ID)
+		h.publishChat(protocol.EventChatSessionDeleted, workspaceID, "member", userID, resolvedSessionID, protocol.ChatSessionDeletedPayload{
+			ChatSessionID: resolvedSessionID,
+		})
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
