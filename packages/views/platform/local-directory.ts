@@ -4,6 +4,8 @@
 // SSR-render on web (where `window.desktopAPI` is undefined) and degrade
 // gracefully to no-op promises instead of crashing.
 
+import type { LocalDirectoryExecutionMode } from "@multica/core/types";
+
 export type PickDirectoryResult = {
   ok: boolean;
   path?: string;
@@ -67,4 +69,35 @@ export async function validateLocalDirectory(
   const api = readDesktopAPI();
   if (!api?.validateLocalDirectory) return { ok: false, reason: "unsupported" };
   return api.validateLocalDirectory(path);
+}
+
+/**
+ * Builds the resource_ref for a local directory attached while creating a
+ * project.
+ *
+ * Lives in the platform module (not beside one dialog) so lightweight entry
+ * points — e.g. the chat page's quick-create dialog — don't pull the whole
+ * create-project modal into their chunk. Exported so the execution-mode
+ * contract can be asserted directly: this is the payload the server stores
+ * and the daemon later reads to decide whether tasks edit the user's folder
+ * or hand back a branch, and getting `execution_mode` wrong here is invisible
+ * until a task runs.
+ */
+export function buildLocalDirectoryResourceRef({
+  localPath,
+  daemonId,
+  label,
+  mode,
+}: {
+  localPath: string;
+  daemonId: string;
+  label: string | null;
+  mode: LocalDirectoryExecutionMode;
+}): Record<string, unknown> {
+  return {
+    local_path: localPath,
+    daemon_id: daemonId,
+    ...(label ? { label } : {}),
+    execution_mode: mode,
+  };
 }

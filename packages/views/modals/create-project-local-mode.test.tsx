@@ -134,7 +134,8 @@ vi.mock("../projects/components/project-due-date-picker", () => ({
 }));
 
 // Desktop-only surface: without these the Local directory tab never renders.
-vi.mock("../platform/local-directory", () => ({
+vi.mock("../platform/local-directory", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../platform/local-directory")>()),
   isDesktopShell: () => true,
   pickDirectory: () =>
     Promise.resolve({ ok: true, path: "/Users/dev/work/game-client", basename: "game-client" }),
@@ -167,7 +168,8 @@ vi.mock("@multica/ui/components/ui/dropdown-menu", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { CreateProjectModal, buildLocalDirectoryResourceRef } from "./create-project";
+import { CreateProjectModal } from "./create-project";
+import { buildLocalDirectoryResourceRef } from "../platform/local-directory";
 
 async function pickLocalDirectory(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /Local directory/i }));

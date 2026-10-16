@@ -67,6 +67,7 @@ import {
   githubRefHasError,
 } from "../projects/components/github-ref-field";
 import {
+  buildLocalDirectoryResourceRef,
   isDesktopShell,
   pickDirectory,
   validateLocalDirectory,
@@ -79,34 +80,6 @@ import {
 import { useConfigStore } from "@multica/core/config";
 import type { LocalDirectoryExecutionMode } from "@multica/core/types";
 import { LocalDirectoryModeOptions } from "../projects/components/local-directory-mode-dialog";
-
-/**
- * Builds the resource_ref for a local directory attached during project
- * creation.
- *
- * Exported so the execution-mode contract can be asserted directly: this is the
- * payload the server stores and the daemon later reads to decide whether tasks
- * edit the user's folder or hand back a branch, and getting `execution_mode`
- * wrong here is invisible until a task runs.
- */
-export function buildLocalDirectoryResourceRef({
-  localPath,
-  daemonId,
-  label,
-  mode,
-}: {
-  localPath: string;
-  daemonId: string;
-  label: string | null;
-  mode: LocalDirectoryExecutionMode;
-}): Record<string, unknown> {
-  return {
-    local_path: localPath,
-    daemon_id: daemonId,
-    ...(label ? { label } : {}),
-    execution_mode: mode,
-  };
-}
 
 function RepoUrlText({
   url,
