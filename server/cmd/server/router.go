@@ -2136,6 +2136,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			r.Route("/api/specs", func(r chi.Router) {
+				r.Route("/{id}", func(r chi.Router) {
+					r.Post("/versions", h.PublishSpecVersion)
+					r.Get("/versions", h.ListSpecVersions)
+					r.Get("/versions/{number}", h.GetSpecVersion)
+					r.Patch("/versions/latest", h.UpdateLatestSpecVersion)
+					r.Post("/transition", h.TransitionSpecStatus)
+				})
+			})
+
 			// Squads
 			r.Route("/api/squads", func(r chi.Router) {
 				r.Get("/", h.ListSquads)

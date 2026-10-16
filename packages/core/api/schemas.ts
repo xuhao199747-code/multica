@@ -486,6 +486,42 @@ export const EMPTY_LIST_LABELS_RESPONSE: ListLabelsResponse = {
   total: 0,
 };
 
+// Spec versions (DAWE-6). A version is an immutable snapshot; editing the
+// latest version of a draft spec is the only mutation and it never changes
+// number or id, so `number` stays a plain integer here.
+export const SpecVersionSchema = z.object({
+  id: z.string(),
+  number: z.number().int(),
+  content: z.string(),
+  changelog: z.string(),
+  created_at: z.string(),
+}).loose();
+
+export type SpecVersion = z.infer<typeof SpecVersionSchema>;
+
+export const EMPTY_SPEC_VERSION: SpecVersion = {
+  id: "",
+  number: 0,
+  content: "",
+  changelog: "",
+  created_at: "",
+};
+
+export const SpecVersionListResponseSchema = z.object({
+  versions: z
+    .array(SpecVersionSchema.catch(EMPTY_SPEC_VERSION))
+    .transform((versions) => versions.filter((version) => version.id !== ""))
+    .default([]),
+  total: z.number().default(0),
+}).loose();
+
+export type SpecVersionListResponse = z.infer<typeof SpecVersionListResponseSchema>;
+
+export const EMPTY_SPEC_VERSION_LIST_RESPONSE: SpecVersionListResponse = {
+  versions: [],
+  total: 0,
+};
+
 // Issue status catalog (MUL-6243). `category` is parsed as a plain string
 // rather than an enum: a newer server could in principle report a category this
 // build does not know, and failing the whole catalog parse would leave the UI

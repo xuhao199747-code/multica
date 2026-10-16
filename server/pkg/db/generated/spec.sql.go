@@ -124,6 +124,44 @@ func (q *Queries) CreateSpecVersion(ctx context.Context, arg CreateSpecVersionPa
 	return i, err
 }
 
+const createSpecVersionNext = `-- name: CreateSpecVersionNext :one
+INSERT INTO spec_version (spec_id, number, content, changelog, created_by)
+SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $3, $4
+FROM spec_version
+WHERE spec_id = $1
+RETURNING id, spec_id, number, content, changelog, created_by, created_at
+`
+
+type CreateSpecVersionNextParams struct {
+	SpecID    pgtype.UUID `json:"spec_id"`
+	Content   string      `json:"content"`
+	Changelog string      `json:"changelog"`
+	CreatedBy pgtype.UUID `json:"created_by"`
+}
+
+// Number assignment is MAX(number)+1 inside the INSERT so concurrent
+// publishes serialize on the unique (spec_id, number) index instead of
+// racing a read-then-write increment.
+func (q *Queries) CreateSpecVersionNext(ctx context.Context, arg CreateSpecVersionNextParams) (SpecVersion, error) {
+	row := q.db.QueryRow(ctx, createSpecVersionNext,
+		arg.SpecID,
+		arg.Content,
+		arg.Changelog,
+		arg.CreatedBy,
+	)
+	var i SpecVersion
+	err := row.Scan(
+		&i.ID,
+		&i.SpecID,
+		&i.Number,
+		&i.Content,
+		&i.Changelog,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteSpec = `-- name: DeleteSpec :exec
 DELETE FROM spec
 WHERE id = $1 AND workspace_id = $2
@@ -137,6 +175,28 @@ type DeleteSpecParams struct {
 func (q *Queries) DeleteSpec(ctx context.Context, arg DeleteSpecParams) error {
 	_, err := q.db.Exec(ctx, deleteSpec, arg.ID, arg.WorkspaceID)
 	return err
+}
+
+const getLatestSpecVersion = `-- name: GetLatestSpecVersion :one
+SELECT id, spec_id, number, content, changelog, created_by, created_at FROM spec_version
+WHERE spec_id = $1
+ORDER BY number DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestSpecVersion(ctx context.Context, specID pgtype.UUID) (SpecVersion, error) {
+	row := q.db.QueryRow(ctx, getLatestSpecVersion, specID)
+	var i SpecVersion
+	err := row.Scan(
+		&i.ID,
+		&i.SpecID,
+		&i.Number,
+		&i.Content,
+		&i.Changelog,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getSpecInWorkspace = `-- name: GetSpecInWorkspace :one
@@ -179,6 +239,31 @@ type GetSpecVersionParams struct {
 
 func (q *Queries) GetSpecVersion(ctx context.Context, arg GetSpecVersionParams) (SpecVersion, error) {
 	row := q.db.QueryRow(ctx, getSpecVersion, arg.ID, arg.SpecID)
+	var i SpecVersion
+	err := row.Scan(
+		&i.ID,
+		&i.SpecID,
+		&i.Number,
+		&i.Content,
+		&i.Changelog,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSpecVersionByNumber = `-- name: GetSpecVersionByNumber :one
+SELECT id, spec_id, number, content, changelog, created_by, created_at FROM spec_version
+WHERE spec_id = $1 AND number = $2
+`
+
+type GetSpecVersionByNumberParams struct {
+	SpecID pgtype.UUID `json:"spec_id"`
+	Number int32       `json:"number"`
+}
+
+func (q *Queries) GetSpecVersionByNumber(ctx context.Context, arg GetSpecVersionByNumberParams) (SpecVersion, error) {
+	row := q.db.QueryRow(ctx, getSpecVersionByNumber, arg.SpecID, arg.Number)
 	var i SpecVersion
 	err := row.Scan(
 		&i.ID,
@@ -470,6 +555,85 @@ func (q *Queries) UpdateSpec(ctx context.Context, arg UpdateSpecParams) (Spec, e
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateSpecStatusWhereStatus = `-- name: UpdateSpecStatusWhereStatus :one
+UPDATE spec
+SET status = $3,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $2 AND status = $4
+RETURNING id, workspace_id, project_id, title, identifier, status, current_version_id, created_by, created_at, updated_at
+`
+
+type UpdateSpecStatusWhereStatusParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Status      string      `json:"status"`
+	Status_2    string      `json:"status_2"`
+}
+
+// The expected from-status is part of the predicate so an illegal or
+// raced transition updates nothing and the caller can report a conflict.
+func (q *Queries) UpdateSpecStatusWhereStatus(ctx context.Context, arg UpdateSpecStatusWhereStatusParams) (Spec, error) {
+	row := q.db.QueryRow(ctx, updateSpecStatusWhereStatus,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.Status,
+		arg.Status_2,
+	)
+	var i Spec
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Title,
+		&i.Identifier,
+		&i.Status,
+		&i.CurrentVersionID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateSpecVersionContentWhereNumber = `-- name: UpdateSpecVersionContentWhereNumber :one
+UPDATE spec_version
+SET content = $3,
+    changelog = COALESCE($5, changelog)
+WHERE id = $1 AND spec_id = $2 AND number = $4
+RETURNING id, spec_id, number, content, changelog, created_by, created_at
+`
+
+type UpdateSpecVersionContentWhereNumberParams struct {
+	ID        pgtype.UUID `json:"id"`
+	SpecID    pgtype.UUID `json:"spec_id"`
+	Content   string      `json:"content"`
+	Number    int32       `json:"number"`
+	Changelog pgtype.Text `json:"changelog"`
+}
+
+// Guards on number so an edit aimed at the latest version fails instead of
+// silently rewriting a newer snapshot when a publish races it.
+func (q *Queries) UpdateSpecVersionContentWhereNumber(ctx context.Context, arg UpdateSpecVersionContentWhereNumberParams) (SpecVersion, error) {
+	row := q.db.QueryRow(ctx, updateSpecVersionContentWhereNumber,
+		arg.ID,
+		arg.SpecID,
+		arg.Content,
+		arg.Number,
+		arg.Changelog,
+	)
+	var i SpecVersion
+	err := row.Scan(
+		&i.ID,
+		&i.SpecID,
+		&i.Number,
+		&i.Content,
+		&i.Changelog,
+		&i.CreatedBy,
+		&i.CreatedAt,
 	)
 	return i, err
 }
