@@ -121,6 +121,16 @@ beforeEach(() => {
 });
 
 describe("WorkspaceLayout", () => {
+  it("keeps an existing workspace accessible when onboarding is incomplete", async () => {
+    state.user = { id: "user-1", onboarded_at: null };
+    state.workspacesBySlug = { acme: { id: "ws-acme", slug: "acme" } };
+
+    renderLayout();
+
+    expect(await screen.findByTestId("workspace-content")).toBeInTheDocument();
+    expect(state.replace).not.toHaveBeenCalledWith("/onboarding");
+  });
+
   it("keeps loading instead of showing NoAccess when the initial list request fails", async () => {
     state.workspaceError = true;
     const { queryClient } = renderLayout();

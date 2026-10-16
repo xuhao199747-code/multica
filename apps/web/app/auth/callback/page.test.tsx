@@ -267,10 +267,10 @@ describe("CallbackPage", () => {
     expect(mockListMyInvitations).not.toHaveBeenCalled();
   });
 
-  it("unonboarded user with no next= and no pending invitations lands on /onboarding", async () => {
+  it("unonboarded user with no next= and no pending invitations lands on workspace creation", async () => {
     renderCallback();
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(paths.onboarding());
+      expect(mockPush).toHaveBeenCalledWith(paths.newWorkspace());
     });
     expect(mockListMyInvitations).toHaveBeenCalled();
   });
@@ -347,11 +347,11 @@ describe("CallbackPage", () => {
     });
   });
 
-  it("falls through to /onboarding when listMyInvitations errors", async () => {
+  it("falls through to workspace creation when listMyInvitations errors", async () => {
     mockListMyInvitations.mockRejectedValue(new Error("network"));
     renderCallback();
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(paths.onboarding());
+      expect(mockPush).toHaveBeenCalledWith(paths.newWorkspace());
     });
   });
 
@@ -409,7 +409,7 @@ describe("CallbackPage", () => {
       expect(mockLoginWithGoogle).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(paths.onboarding());
+      expect(mockPush).toHaveBeenCalledWith(paths.newWorkspace());
     });
   });
 

@@ -48,19 +48,15 @@ export default function OnboardingPage() {
     }
     if (!workspacesReady) return;
     if (completingRef.current) return;
-    // Bounce out only when onboarding genuinely doesn't apply: the user is
-    // already onboarded. We deliberately don't bounce on `workspaces.length`
-    // here — the flow creates a workspace mid-onboarding, and a
-    // hasWorkspaces bounce here would kick the user out before runtime and
-    // Mika setup can run. The new entry-point
-    // judgment in callback / login handles "where should this user go on
-    // login" so OnboardingPage no longer needs to second-guess it.
-    if (hasOnboarded) {
+    // An existing workspace always wins over unfinished onboarding. The
+    // workbench is the product entry point; `onboarded_at` records optional
+    // setup progress and is not a permission gate for that workspace.
+    if (hasOnboarded || workspaces.length > 0) {
       router.replace(resolvePostAuthDestination(workspaces, hasOnboarded));
     }
   }, [isLoading, user, hasOnboarded, workspacesReady, workspaces, router]);
 
-  if (isLoading || !user || hasOnboarded) return null;
+  if (isLoading || !user || hasOnboarded || (workspacesReady && workspaces.length > 0)) return null;
 
   // Layout: page owns its own scroll (root layout sets `body {
   // overflow: hidden }` for the app-shell convention). OnboardingFlow

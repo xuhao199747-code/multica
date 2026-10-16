@@ -3,24 +3,15 @@ import { useAuthStore } from "../auth";
 import { paths } from "./paths";
 
 /**
- * Priority (onboarded-first):
- *   !hasOnboarded               → /onboarding
- *   hasOnboarded + workspace[0] → /<first.slug>/issues
- *   hasOnboarded + no workspace → /workspaces/new
+ * Priority (workspace-first):
+ *   workspace[0] → /<first.slug>/issues
+ *   no workspace → /workspaces/new
  *
- * V3 invariant: `onboarded_at != null` is the single source of truth for
- * "may access /<slug>/*". The web workspace layout and the desktop App.tsx
- * overlay decision both gate on this — sending an un-onboarded user
- * straight to /issues would just be redirected back to /onboarding by
- * the layout gate, costing a navigation round-trip. Check onboarded
- * first.
- *
- * In v3 "has workspace but !onboarded" is physically rare (a user can
- * only land in that state by closing the app between Step 2 and Step 3
- * — both questionnaire and runtime picker steps run after workspace
- * creation but before CompleteOnboarding). OnboardingFlow's Step 2
- * already recognizes existing workspaces and offers "Continue with
- * {name}", so the recovery is seamless.
+ * A workspace is sufficient to enter its workbench. `onboarded_at` records
+ * progress through the optional onboarding flow; it is not an authorization
+ * boundary for an existing workspace. This keeps login, direct workspace
+ * links, web onboarding URLs, and desktop startup from sending a user who
+ * already has a workspace into a route they do not need.
  *
  * Callers that need invitation-aware routing (callback / login) handle
  * the "un-onboarded with pending invites" branch themselves before calling
@@ -29,11 +20,8 @@ import { paths } from "./paths";
  */
 export function resolvePostAuthDestination(
   workspaces: Workspace[],
-  hasOnboarded: boolean,
+  _hasOnboarded: boolean,
 ): string {
-  if (!hasOnboarded) {
-    return paths.onboarding();
-  }
   const first = workspaces[0];
   if (first) {
     return paths.workspace(first.slug).issues();

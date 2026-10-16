@@ -53,6 +53,41 @@ implementation. Mobile owns its API, cache, and realtime plumbing; read
 | Realtime delivery | A WebSocket notification reduces latency; it is not durable delivery and cannot be the sole reconciliation mechanism. |
 | Asynchronous work | The creating React mount is not necessarily the owner. Long-lived work names its durable owner and its unmount, abort, reconnect, and retry behavior. |
 
+## Workspace entry flow
+
+### Read this card when
+
+Changing login or OAuth destinations, a workspace route guard, desktop startup
+overlays, the landing-page dashboard CTA, or an onboarding redirect.
+
+### Contract
+
+```text
+authenticated account + first accessible workspace -> /<workspace>/issues
+authenticated account + no accessible workspace    -> /workspaces/new
+unauthenticated workspace URL                      -> /login
+```
+
+An existing accessible workspace is sufficient to enter its workbench.
+`onboarded_at` records optional setup progress; it is not authorization for an
+existing workspace and must not redirect a user away from that workbench. This
+same decision applies to post-login routing, a direct workspace URL, an old
+`/onboarding` bookmark, and desktop startup. Membership and workspace-scoped
+data access remain enforced independently by the server and workspace query.
+
+If an account has no workspace, retain the workspace-creation path. Do not
+invent a fallback workspace slug or render a dashboard without resolved
+workspace access.
+
+### Primary code map
+
+| Layer | Entry points |
+| --- | --- |
+| Shared destination choice | [`packages/core/paths/resolve.ts`](../../packages/core/paths/resolve.ts) |
+| Web workspace guard | [`apps/web/app/[workspaceSlug]/layout.tsx`](../../apps/web/app/[workspaceSlug]/layout.tsx) |
+| Web onboarding route | [`apps/web/app/(auth)/onboarding/page.tsx`](../../apps/web/app/(auth)/onboarding/page.tsx) |
+| Desktop startup overlay | [`apps/desktop/src/renderer/src/App.tsx`](../../apps/desktop/src/renderer/src/App.tsx) |
+
 ## Attachment and upload flow
 
 ### Read this card when

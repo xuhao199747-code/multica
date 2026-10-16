@@ -214,26 +214,17 @@ function AppContent() {
     : undefined;
   useDaemonIPCBridge(activeWsId);
 
-  // Pre-workspace overlay routing for desktop. Mirrors the web layout
-  // hard gate via overlays (desktop has no URL bar, so we open the
-  // onboarding overlay instead of router.replace):
-  //   onboarded + has workspace      → no overlay, dashboard
-  //   un-onboarded (any wsCount):
+  // Pre-workspace overlay routing for desktop:
+  //   has workspace                  → no overlay, dashboard
+  //   un-onboarded + no workspace:
   //     pending invites on email     → /invitations overlay
   //     no invites                   → /onboarding overlay
   //   onboarded + no workspace       → /workspaces/new overlay
-  //
-  // V3 invariant: `onboarded_at != null` is the only path into the
-  // dashboard. CreateWorkspace does not mark onboarded; only Step 3's
-  // CompleteOnboarding (and AcceptInvitation) flip the flag. A user who
-  // somehow has a workspace but no onboarded mark must be sent back to
-  // /onboarding — we also clear the active workspace so the dashboard
-  // doesn't render under the overlay with stale workspace context.
   useEffect(() => {
     if (!user || !workspaceListReady) return undefined;
     const { overlay, open } = useWindowOverlayStore.getState();
     if (overlay) return undefined;
-    if (hasOnboarded && wsCount > 0) return undefined;
+    if (wsCount > 0) return undefined;
     if (!hasOnboarded) {
       // Stale workspace context (if any) would leak X-Workspace-Slug
       // headers into onboarding-time API calls. Clear it before opening

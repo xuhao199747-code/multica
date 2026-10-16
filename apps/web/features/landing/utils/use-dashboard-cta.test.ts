@@ -47,9 +47,9 @@ describe("resolveDashboardCtaHref", () => {
     expect(href).not.toBe("/");
   });
 
-  it("sends an un-onboarded visitor to /onboarding", () => {
+  it("sends an un-onboarded visitor with a workspace to that workbench", () => {
     expect(resolveDashboardCtaHref(fetched([makeWs("acme")], false))).toBe(
-      paths.onboarding(),
+      paths.workspace("acme").issues(),
     );
   });
 
