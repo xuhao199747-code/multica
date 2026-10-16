@@ -1422,6 +1422,41 @@ type SkillToLabel struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Spec struct {
+	ID               pgtype.UUID        `json:"id"`
+	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
+	ProjectID        pgtype.UUID        `json:"project_id"`
+	Title            string             `json:"title"`
+	Identifier       string             `json:"identifier"`
+	Status           string             `json:"status"`
+	CurrentVersionID pgtype.UUID        `json:"current_version_id"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SpecIssue struct {
+	SpecID    pgtype.UUID        `json:"spec_id"`
+	IssueID   pgtype.UUID        `json:"issue_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type SpecSubscriber struct {
+	SpecID    pgtype.UUID        `json:"spec_id"`
+	MemberID  pgtype.UUID        `json:"member_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type SpecVersion struct {
+	ID        pgtype.UUID        `json:"id"`
+	SpecID    pgtype.UUID        `json:"spec_id"`
+	Number    int32              `json:"number"`
+	Content   string             `json:"content"`
+	Changelog string             `json:"changelog"`
+	CreatedBy pgtype.UUID        `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Squad struct {
 	ID           pgtype.UUID        `json:"id"`
 	WorkspaceID  pgtype.UUID        `json:"workspace_id"`

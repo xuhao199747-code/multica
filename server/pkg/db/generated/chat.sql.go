@@ -2797,6 +2797,59 @@ func (q *Queries) LockChatSessionForTask(ctx context.Context, id pgtype.UUID) (p
 	return id_2, err
 }
 
+const lockChatSessionsByProject = `-- name: LockChatSessionsByProject :many
+SELECT id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at FROM chat_session
+WHERE project_id = $1 AND workspace_id = $2
+ORDER BY id
+FOR UPDATE
+`
+
+type LockChatSessionsByProjectParams struct {
+	ProjectID   pgtype.UUID `json:"project_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Project deletion holds the parent project row FOR UPDATE first. That blocks
+// project-bound session creates or rebindings; locking the resulting sessions
+// in a stable order then lets the caller cancel their work and delete them.
+func (q *Queries) LockChatSessionsByProject(ctx context.Context, arg LockChatSessionsByProjectParams) ([]ChatSession, error) {
+	rows, err := q.db.Query(ctx, lockChatSessionsByProject, arg.ProjectID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatSession{}
+	for rows.Next() {
+		var i ChatSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.AgentID,
+			&i.CreatorID,
+			&i.Title,
+			&i.SessionID,
+			&i.WorkDir,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.UnreadSince,
+			&i.RuntimeID,
+			&i.LastReadAt,
+			&i.IsAgentIntro,
+			&i.PinnedAt,
+			&i.ProjectID,
+			&i.ExplicitlyCreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockChatSessionsBySystemRuntimeAgents = `-- name: LockChatSessionsBySystemRuntimeAgents :many
 SELECT cs.id FROM chat_session cs
 JOIN agent a ON a.id = cs.agent_id
