@@ -104,11 +104,23 @@ func syncChats(cmd *cobra.Command, root string) error {
 	activeProjects := make(map[string]bool, len(projects))
 	for id, title := range projects {
 		activeProjects[id] = true
+		resources, err := listProjectResources(ctx, c, id)
+		if err != nil {
+			return err
+		}
+		if hasUserManagedLocalDirectory(resources, daemonID, root) {
+			// The project is bound to a folder the user picked on this machine
+			// that lives outside the sync root. That directory is theirs: the
+			// sync process must not create, rename, trash, or repoint it, and
+			// must not "correct" the resource back to a sync-root directory.
+			// Chat transcripts are still mirrored under the root by e.Sync.
+			continue
+		}
 		path, err := e.EnsureProjectPath(id, title)
 		if err != nil {
 			return err
 		}
-		if err := reconcileLocalProjectDirectory(ctx, c, id, title, path, daemonID); err != nil {
+		if err := reconcileLocalProjectDirectory(ctx, c, id, title, path, daemonID, resources); err != nil {
 			return fmt.Errorf("sync project local directory %s: %w", id, err)
 		}
 	}
@@ -146,6 +158,50 @@ type syncProjectResource struct {
 	ResourceRef  json.RawMessage `json:"resource_ref"`
 }
 
+func listProjectResources(ctx context.Context, c *cli.APIClient, projectID string) ([]syncProjectResource, error) {
+	var response struct {
+		Resources []syncProjectResource `json:"resources"`
+	}
+	if err := c.GetJSON(ctx, "/api/projects/"+projectID+"/resources", &response); err != nil {
+		return nil, fmt.Errorf("list project resources: %w", err)
+	}
+	return response.Resources, nil
+}
+
+// hasUserManagedLocalDirectory reports whether the project is bound to a
+// local_directory resource for this daemon whose path lies OUTSIDE the sync
+// root — a folder the user picked themselves (for example when the desktop
+// app attaches an existing folder while creating the project). The sync
+// process manages only directories it created inside the root; a user-picked
+// folder must be left untouched, otherwise the next poll would overwrite the
+// resource's local_path and orphan the user's choice.
+func hasUserManagedLocalDirectory(resources []syncProjectResource, daemonID, root string) bool {
+	for _, resource := range resources {
+		if resource.ResourceType != "local_directory" {
+			continue
+		}
+		var ref map[string]any
+		if json.Unmarshal(resource.ResourceRef, &ref) != nil || ref["daemon_id"] != daemonID {
+			continue
+		}
+		localPath, _ := ref["local_path"].(string)
+		if localPath != "" && !pathWithinRoot(root, localPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathWithinRoot reports whether path lies inside root (or equals it). Unlike
+// the exporter's trash guard, the paths may not exist on disk yet.
+func pathWithinRoot(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 // reconcileLocalProjectDirectory makes the directory created by the local
 // exporter available to this machine's daemon. It deliberately matches only
 // local_directory resources assigned to this exact daemon, leaving resources
@@ -154,17 +210,10 @@ func reconcileLocalProjectDirectory(
 	ctx context.Context,
 	c *cli.APIClient,
 	projectID, projectTitle, localPath, daemonID string,
+	resources []syncProjectResource,
 ) error {
 	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(daemonID) == "" {
 		return fmt.Errorf("project id and daemon id are required")
-	}
-
-	var response struct {
-		Resources []syncProjectResource `json:"resources"`
-	}
-	basePath := "/api/projects/" + projectID + "/resources"
-	if err := c.GetJSON(ctx, basePath, &response); err != nil {
-		return fmt.Errorf("list project resources: %w", err)
 	}
 
 	desired := map[string]any{
@@ -173,7 +222,8 @@ func reconcileLocalProjectDirectory(
 		"label":          projectTitle,
 		"execution_mode": "in_place",
 	}
-	for _, resource := range response.Resources {
+	basePath := "/api/projects/" + projectID + "/resources"
+	for _, resource := range resources {
 		if resource.ResourceType != "local_directory" {
 			continue
 		}
