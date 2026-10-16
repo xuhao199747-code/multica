@@ -148,6 +148,8 @@ docker logs --tail 50 multica-backend-1     # 无 migrate 失败 / panic
 | --- | --- | --- | --- |
 | sync | `server/bin/multica`（仓库 `go build` 产物） | launchd 开机自启 | 改代码后：`cd server && go build -o bin/multica ./cmd/multica`，再 `launchctl kickstart -k gui/$(id -u)/com.multica.local-sync` |
 | daemon | `~/.local/bin/multica`（手工替换） | `multica daemon start --foreground`（终端常驻） | 替换二进制后重启进程生效；`multica daemon status` 查状态 |
+
+替换 `~/.local/bin/multica` 注意：直接 `cp` 覆盖会被 Gatekeeper 拦截（`Killed: 9`，`com.apple.provenance` 与文件内容不匹配），要 `rm` 旧文件后 `cp` 新文件（新 inode），并实际跑一条命令验证（如 `multica version`）再指望 daemon 重启拉起。
 | 生产栈 | Docker 镜像 | 见 §5 | 见 §5 |
 
 绑定电脑里**已有**的文件夹（当前支持两种方式，都不需要桌面版）：
