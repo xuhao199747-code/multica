@@ -180,7 +180,7 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.y
 curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 ```
 
-已知锚点（2026-10-16 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`、`20261016-fca801f`、`20261016-37f6f92`（当前线上）。
+已知锚点（2026-10-16 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`、`20261016-fca801f`、`20261016-37f6f92`、`20261016-9949541`（当前线上）。
 
 ⚠️ **代码回滚 ≠ 数据库回滚**：新版本跑过的迁移不会自动撤销。回滚后若后端报错（表结构不匹配），用最近的 pg_dump 备份恢复数据库，再重启后端。
 
@@ -196,7 +196,7 @@ curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 ## 9. 当前资产清单
 
 - 备份：`~/multica-backup-20261015/`（源码 + .git 打包 + 生产库 pg_dump）；发布大版本前重新做 pg_dump
-- 生产镜像锚点：`multica-backend:rollback-v061`、`multica-web:rollback-v061`、`multica-{backend,web}:20261015-eeb9459`、`multica-{backend,web}:20261016-fca801f`、`multica-{backend,web}:20261016-37f6f92`（当前线上）
+- 生产镜像锚点：`multica-backend:rollback-v061`、`multica-web:rollback-v061`、`multica-{backend,web}:20261015-eeb9459`、`multica-{backend,web}:20261016-fca801f`、`multica-{backend,web}:20261016-37f6f92`、`multica-{backend,web}:20261016-9949541`（当前线上）
 - 生产卷：`multica_pgdata`（数据库）、`multica_backend_uploads`（上传文件）
 - dev 栈：`multica-dev-postgres`（5433，可随时 `docker stop multica-dev-postgres` 停掉，不影响任何线上）
 
