@@ -84,7 +84,10 @@ import type {
   SkillImportResult,
   SkillSummary,
   SpecDetail,
+  SpecIssueListResponse,
+  SpecLink,
   SpecListResponse,
+  SpecSubscriberListResponse,
   SpecSummary,
   Squad,
   TimelineEntry,
@@ -489,10 +492,13 @@ export const EMPTY_LIST_LABELS_RESPONSE: ListLabelsResponse = {
   total: 0,
 };
 
-// Spec versions (DAWE-6). A version is an immutable snapshot; editing the
-// latest version of a draft spec is the only mutation and it never changes
-// number or id, so `number` stays a plain integer here.
-export const SpecVersionSchema = z.object({
+// Spec version items (DAWE-6) as returned by the version endpoints. A version
+// is an immutable snapshot; editing the latest version of a draft spec is the
+// only mutation and it never changes number or id, so `number` stays a plain
+// integer here. This is deliberately a separate schema from the detail
+// shape's SpecVersionSchema: the version endpoints return no `created_by`,
+// while the spec detail's `current_version` does.
+export const SpecVersionItemSchema = z.object({
   id: z.string(),
   number: z.number().int(),
   content: z.string(),
@@ -500,9 +506,9 @@ export const SpecVersionSchema = z.object({
   created_at: z.string(),
 }).loose();
 
-export type SpecVersion = z.infer<typeof SpecVersionSchema>;
+export type SpecVersionItem = z.infer<typeof SpecVersionItemSchema>;
 
-export const EMPTY_SPEC_VERSION: SpecVersion = {
+export const EMPTY_SPEC_VERSION_ITEM: SpecVersionItem = {
   id: "",
   number: 0,
   content: "",
@@ -512,7 +518,7 @@ export const EMPTY_SPEC_VERSION: SpecVersion = {
 
 export const SpecVersionListResponseSchema = z.object({
   versions: z
-    .array(SpecVersionSchema.catch(EMPTY_SPEC_VERSION))
+    .array(SpecVersionItemSchema.catch(EMPTY_SPEC_VERSION_ITEM))
     .transform((versions) => versions.filter((version) => version.id !== ""))
     .default([]),
   total: z.number().default(0),
@@ -1328,6 +1334,23 @@ export const CommentSubIssueTaskResponseSchema = z.object({
   task_id: z.string().min(1),
 }).loose();
 
+// Spec link summary embedded in issue responses (DAWE-7): enough to render a
+// chip and navigate without the version body. Defined before IssueSchema
+// because IssueSchema references it.
+export const SpecLinkSchema = z.object({
+  id: z.string(),
+  identifier: z.string(),
+  title: z.string(),
+  status: z.string(),
+}).loose();
+
+export const EMPTY_SPEC_LINK: SpecLink = {
+  id: "",
+  identifier: "",
+  title: "",
+  status: "",
+};
+
 export const IssueSchema = z.object({
   id: z.string(),
   workspace_id: z.string(),
@@ -1380,6 +1403,12 @@ export const IssueSchema = z.object({
   properties: IssuePropertyValuesSchema,
   reactions: z.array(z.unknown()).optional(),
   labels: z.array(z.unknown()).optional(),
+  // Linked spec summaries (DAWE-7), attached by the same list/detail endpoints
+  // that attach labels. Optional with the same pointer semantics — absent
+  // means "not loaded, do not touch cache". `.catch(undefined)` because the
+  // field is additive: one malformed specs array from a mixed-version server
+  // must not blank the whole issue through parseWithFallback.
+  specs: z.array(SpecLinkSchema).optional().catch(undefined),
   created_at: z.string(),
   updated_at: z.string(),
   revision: z.number().int().positive().optional(),
@@ -3547,6 +3576,67 @@ export const SpecListEnvelopeSchema = z.object({
 
 export const EMPTY_SPEC_LIST_ENVELOPE: SpecListResponse = {
   specs: [],
+  total: 0,
+};
+
+// Spec ↔ issue links (DAWE-7). The issue ref is the same identifier/title/
+// status summary the duplicate_of pointer uses; a malformed entry drops
+// alone so one bad row cannot blank the whole link list.
+export const SpecIssueRefSchema = z.object({
+  id: z.string(),
+  identifier: z.string(),
+  title: z.string(),
+  status: z.string(),
+}).loose();
+
+type SpecIssueRefParsed = z.infer<typeof SpecIssueRefSchema>;
+
+export const EMPTY_SPEC_ISSUE_REF: SpecIssueRefParsed = {
+  id: "",
+  identifier: "",
+  title: "",
+  status: "",
+};
+
+export const SpecIssueListEnvelopeSchema = z.object({
+  issues: z
+    .array(SpecIssueRefSchema.catch(EMPTY_SPEC_ISSUE_REF))
+    .transform((issues) => issues.filter((issue) => issue.id !== ""))
+    .default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const EMPTY_SPEC_ISSUE_LIST_ENVELOPE: SpecIssueListResponse = {
+  issues: [],
+  total: 0,
+};
+
+// Spec subscriptions (DAWE-7). Member-only: `user_id` is always a workspace
+// member, never an agent.
+export const SpecSubscriberSchema = z.object({
+  spec_id: z.string(),
+  user_id: z.string(),
+  created_at: z.string().optional().default(""),
+}).loose();
+
+type SpecSubscriberParsed = z.infer<typeof SpecSubscriberSchema>;
+
+export const EMPTY_SPEC_SUBSCRIBER: SpecSubscriberParsed = {
+  spec_id: "",
+  user_id: "",
+  created_at: "",
+};
+
+export const SpecSubscriberListEnvelopeSchema = z.object({
+  subscribers: z
+    .array(SpecSubscriberSchema.catch(EMPTY_SPEC_SUBSCRIBER))
+    .transform((subscribers) => subscribers.filter((subscriber) => subscriber.spec_id !== ""))
+    .default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const EMPTY_SPEC_SUBSCRIBER_LIST_ENVELOPE: SpecSubscriberListResponse = {
+  subscribers: [],
   total: 0,
 };
 

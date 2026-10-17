@@ -55,9 +55,16 @@ import {
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
   SendChatMessageResponseSchema,
+  IssueSchema,
+  SpecIssueListEnvelopeSchema,
+  SpecIssueRefSchema,
+  EMPTY_SPEC_ISSUE_LIST_ENVELOPE,
+  EMPTY_SPEC_ISSUE_REF,
+  SpecSubscriberListEnvelopeSchema,
+  EMPTY_SPEC_SUBSCRIBER_LIST_ENVELOPE,
   SpecVersionListResponseSchema,
-  SpecVersionSchema,
-  EMPTY_SPEC_VERSION,
+  SpecVersionItemSchema,
+  EMPTY_SPEC_VERSION_ITEM,
   EMPTY_SPEC_VERSION_LIST_RESPONSE,
   SquadListSchema,
   SquadSchema,
@@ -2388,9 +2395,87 @@ describe("SpecVersion schemas", () => {
 
   it("degrades a malformed version payload to the empty version", () => {
     expect(
-      parseWithFallback({ id: 42 }, SpecVersionSchema, EMPTY_SPEC_VERSION, {
+      parseWithFallback({ id: 42 }, SpecVersionItemSchema, EMPTY_SPEC_VERSION_ITEM, {
         endpoint: "POST /api/specs/:id/versions",
       }),
-    ).toEqual(EMPTY_SPEC_VERSION);
+    ).toEqual(EMPTY_SPEC_VERSION_ITEM);
+  });
+});
+
+describe("Spec link and subscriber schemas (DAWE-7)", () => {
+  const ref = { id: "iss-1", identifier: "MUL-42", title: "Ship it", status: "in_progress" };
+
+  it("drops one malformed linked issue without hiding the rest", () => {
+    const parsed = SpecIssueListEnvelopeSchema.parse({
+      issues: [ref, { ...ref, id: "iss-2", status: 7 }, { ...ref, id: "iss-3" }],
+      total: 3,
+    });
+    expect(parsed.issues.map((issue) => issue.id)).toEqual(["iss-1", "iss-3"]);
+    expect(parsed.total).toBe(3);
+  });
+
+  it("falls back to an empty link list when the response is not an object", () => {
+    expect(
+      parseWithFallback("nope", SpecIssueListEnvelopeSchema, EMPTY_SPEC_ISSUE_LIST_ENVELOPE, {
+        endpoint: "GET /api/specs/:id/issues",
+      }),
+    ).toEqual(EMPTY_SPEC_ISSUE_LIST_ENVELOPE);
+  });
+
+  it("rejects a malformed single link ref instead of fabricating an empty one", () => {
+    expect(
+      parseWithFallback({ id: 42 }, SpecIssueRefSchema, EMPTY_SPEC_ISSUE_REF, {
+        endpoint: "POST /api/specs/:id/issues",
+      }),
+    ).toEqual(EMPTY_SPEC_ISSUE_REF);
+  });
+
+  it("drops one malformed subscriber without hiding the rest", () => {
+    const subscriber = { spec_id: "spec-1", user_id: "user-1", created_at: "2026-10-17T00:00:00Z" };
+    const parsed = SpecSubscriberListEnvelopeSchema.parse({
+      subscribers: [subscriber, { spec_id: "spec-1", user_id: 5 }],
+      total: 2,
+    });
+    expect(parsed.subscribers).toHaveLength(1);
+    expect(parsed.subscribers[0]?.user_id).toBe("user-1");
+  });
+
+  it("falls back to an empty subscriber list when the response is not an object", () => {
+    expect(
+      parseWithFallback(null, SpecSubscriberListEnvelopeSchema, EMPTY_SPEC_SUBSCRIBER_LIST_ENVELOPE, {
+        endpoint: "GET /api/specs/:id/subscribers",
+      }),
+    ).toEqual(EMPTY_SPEC_SUBSCRIBER_LIST_ENVELOPE);
+  });
+
+  it("treats a malformed specs array on an issue as absent, not as a parse failure", () => {
+    const issue = {
+      id: "iss-1",
+      workspace_id: "ws-1",
+      number: 42,
+      identifier: "MUL-42",
+      title: "Ship it",
+      description: null,
+      status: "in_progress",
+      status_name: "",
+      priority: "none",
+      assignee_type: null,
+      assignee_id: null,
+      creator_type: "member",
+      creator_id: "user-1",
+      parent_issue_id: null,
+      project_id: null,
+      position: 1,
+      stage: null,
+      start_date: null,
+      due_date: null,
+      metadata: {},
+      properties: {},
+      created_at: "2026-10-17T00:00:00Z",
+      updated_at: "2026-10-17T00:00:00Z",
+    };
+    expect(IssueSchema.parse(issue).specs).toBeUndefined();
+    expect(IssueSchema.parse({ ...issue, specs: [{ id: "s-1", identifier: "MUL-S-1", title: "Rules", status: "approved" }] }).specs).toHaveLength(1);
+    expect(IssueSchema.parse({ ...issue, specs: "not-an-array" }).specs).toBeUndefined();
   });
 });

@@ -71,6 +71,14 @@ const (
 	EventSkillUpdated = "skill:updated"
 	EventSkillDeleted = "skill:deleted"
 
+	// Spec events. The dot-namespaced counterparts live in
+	// pkg/eventcontract (spec.created / spec.approved / spec.published) and
+	// name the business facts; these colon-namespaced types are what the
+	// realtime layer broadcasts to workspace clients.
+	EventSpecCreated   = "spec:created"
+	EventSpecApproved  = "spec:approved"
+	EventSpecPublished = "spec:published"
+
 	// Chat events
 	EventChatMessage = "chat:message"
 	EventChatDone    = "chat:done"

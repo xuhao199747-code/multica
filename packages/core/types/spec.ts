@@ -41,8 +41,41 @@ export interface SpecDetail extends SpecSummary {
   current_version: SpecVersion | null;
 }
 
+/** Spec summary embedded in issue responses: enough to render a link chip. */
+export interface SpecLink {
+  id: string;
+  identifier: string;
+  title: string;
+  status: string;
+}
+
 export interface SpecListResponse {
   specs: SpecSummary[];
+  total: number;
+}
+
+/** One linked issue as returned by the spec-side link endpoints. */
+export interface SpecIssueRef {
+  id: string;
+  identifier: string;
+  title: string;
+  status: string;
+}
+
+export interface SpecIssueListResponse {
+  issues: SpecIssueRef[];
+  total: number;
+}
+
+/** One spec subscription. Spec subscriptions are member-only. */
+export interface SpecSubscriber {
+  spec_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface SpecSubscriberListResponse {
+  subscribers: SpecSubscriber[];
   total: number;
 }
 

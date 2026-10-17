@@ -177,6 +177,18 @@ func (q *Queries) DeleteSpec(ctx context.Context, arg DeleteSpecParams) error {
 	return err
 }
 
+const deleteSpecIssuesByIssue = `-- name: DeleteSpecIssuesByIssue :exec
+DELETE FROM spec_issue
+WHERE issue_id = $1
+`
+
+// Issue deletion sweeps its spec links in the same application transaction;
+// the junction has no foreign key (MUL-3515), so nothing cascades for free.
+func (q *Queries) DeleteSpecIssuesByIssue(ctx context.Context, issueID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSpecIssuesByIssue, issueID)
+	return err
+}
+
 const deleteSpecIssuesBySpec = `-- name: DeleteSpecIssuesBySpec :exec
 DELETE FROM spec_issue
 WHERE spec_id = $1
@@ -400,6 +412,54 @@ func (q *Queries) ListMemberSpecSubscriptions(ctx context.Context, memberID pgty
 	return items, nil
 }
 
+const listSpecIssueRefs = `-- name: ListSpecIssueRefs :many
+SELECT i.id, i.number, i.title, i.status
+FROM spec_issue si
+JOIN issue i ON i.id = si.issue_id
+WHERE si.spec_id = $1
+  AND i.workspace_id = $2
+ORDER BY si.created_at ASC
+`
+
+type ListSpecIssueRefsParams struct {
+	SpecID      pgtype.UUID `json:"spec_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+type ListSpecIssueRefsRow struct {
+	ID     pgtype.UUID `json:"id"`
+	Number int32       `json:"number"`
+	Title  string      `json:"title"`
+	Status string      `json:"status"`
+}
+
+// Spec-side view of the link list: full issue identity (number resolved to
+// the workspace identifier by the handler) in one round-trip.
+func (q *Queries) ListSpecIssueRefs(ctx context.Context, arg ListSpecIssueRefsParams) ([]ListSpecIssueRefsRow, error) {
+	rows, err := q.db.Query(ctx, listSpecIssueRefs, arg.SpecID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSpecIssueRefsRow{}
+	for rows.Next() {
+		var i ListSpecIssueRefsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Title,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSpecIssues = `-- name: ListSpecIssues :many
 SELECT spec_id, issue_id, created_at FROM spec_issue
 WHERE spec_id = $1
@@ -518,6 +578,57 @@ func (q *Queries) ListSpecs(ctx context.Context, arg ListSpecsParams) ([]Spec, e
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSpecsForIssues = `-- name: ListSpecsForIssues :many
+SELECT si.issue_id, s.id, s.identifier, s.title, s.status
+FROM spec_issue si
+JOIN spec s ON s.id = si.spec_id
+WHERE si.issue_id = ANY($1::uuid[])
+  AND s.workspace_id = $2::uuid
+ORDER BY si.issue_id, s.identifier ASC
+`
+
+type ListSpecsForIssuesParams struct {
+	IssueIds    []pgtype.UUID `json:"issue_ids"`
+	WorkspaceID pgtype.UUID   `json:"workspace_id"`
+}
+
+type ListSpecsForIssuesRow struct {
+	IssueID    pgtype.UUID `json:"issue_id"`
+	ID         pgtype.UUID `json:"id"`
+	Identifier string      `json:"identifier"`
+	Title      string      `json:"title"`
+	Status     string      `json:"status"`
+}
+
+// Bulk variant for issue list/detail endpoints: fold linked spec summaries
+// into each issue row without an N+1 round-trip per issue. Workspace-guarded
+// like the single-spec lookups.
+func (q *Queries) ListSpecsForIssues(ctx context.Context, arg ListSpecsForIssuesParams) ([]ListSpecsForIssuesRow, error) {
+	rows, err := q.db.Query(ctx, listSpecsForIssues, arg.IssueIds, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSpecsForIssuesRow{}
+	for rows.Next() {
+		var i ListSpecsForIssuesRow
+		if err := rows.Scan(
+			&i.IssueID,
+			&i.ID,
+			&i.Identifier,
+			&i.Title,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}

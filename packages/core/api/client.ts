@@ -74,6 +74,9 @@ import type {
   SpecListResponse,
   CreateSpecRequest,
   UpdateSpecRequest,
+  SpecIssueListResponse,
+  SpecIssueRef,
+  SpecSubscriberListResponse,
   PersonalAccessToken,
   CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
@@ -449,6 +452,11 @@ import {
   SpecDetailSchema,
   SpecListEnvelopeSchema,
   EMPTY_SPEC_LIST_ENVELOPE,
+  SpecIssueRefSchema,
+  SpecIssueListEnvelopeSchema,
+  EMPTY_SPEC_ISSUE_LIST_ENVELOPE,
+  SpecSubscriberListEnvelopeSchema,
+  EMPTY_SPEC_SUBSCRIBER_LIST_ENVELOPE,
   IssueViewSchema,
   IssueViewListSchema,
   IssueViewPreferenceSchema,
@@ -3649,6 +3657,59 @@ export class ApiClient {
 
   async deleteSpec(id: string): Promise<void> {
     await this.fetch(`/api/specs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  // Spec ↔ issue links (DAWE-7). The list envelope degrades one malformed
+  // entry without dropping the rest; the link response itself is a single
+  // ref, so a malformed body rejects rather than fabricating an empty ref.
+  async listSpecIssues(id: string): Promise<SpecIssueListResponse> {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}/issues`);
+    return parseWithFallback(raw, SpecIssueListEnvelopeSchema, EMPTY_SPEC_ISSUE_LIST_ENVELOPE, {
+      endpoint: "GET /api/specs/:id/issues",
+    });
+  }
+
+  async addSpecIssue(id: string, issueId: string): Promise<SpecIssueRef> {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}/issues`, {
+      method: "POST",
+      body: JSON.stringify({ issue_id: issueId }),
+    });
+    const ref = parseWithFallback<SpecIssueRef | null>(raw, SpecIssueRefSchema, null, {
+      endpoint: "POST /api/specs/:id/issues",
+    });
+    if (!ref) {
+      throw new Error("POST /api/specs/:id/issues returned a malformed issue ref");
+    }
+    return ref;
+  }
+
+  async removeSpecIssue(id: string, issueId: string): Promise<void> {
+    await this.fetch(`/api/specs/${encodeURIComponent(id)}/issues/${encodeURIComponent(issueId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Spec subscriptions (DAWE-7). Subscribers are members only. Omitting
+  // userId subscribes/unsubscribes the caller.
+  async listSpecSubscribers(id: string): Promise<SpecSubscriberListResponse> {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}/subscribers`);
+    return parseWithFallback(raw, SpecSubscriberListEnvelopeSchema, EMPTY_SPEC_SUBSCRIBER_LIST_ENVELOPE, {
+      endpoint: "GET /api/specs/:id/subscribers",
+    });
+  }
+
+  async subscribeToSpec(id: string, userId?: string): Promise<void> {
+    await this.fetch(`/api/specs/${encodeURIComponent(id)}/subscribe`, {
+      method: "POST",
+      body: JSON.stringify(userId ? { user_id: userId, user_type: "member" } : {}),
+    });
+  }
+
+  async unsubscribeFromSpec(id: string, userId?: string): Promise<void> {
+    await this.fetch(`/api/specs/${encodeURIComponent(id)}/unsubscribe`, {
+      method: "POST",
+      body: JSON.stringify(userId ? { user_id: userId, user_type: "member" } : {}),
+    });
   }
 
   // Personal Access Tokens

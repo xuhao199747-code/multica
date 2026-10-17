@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 // Spec version publishing and the spec state machine.
@@ -151,6 +152,23 @@ func (h *Handler) PublishSpecVersion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update spec current version")
 		return
 	}
+
+	workspaceID := uuidToString(s.WorkspaceID)
+	actorType, actorID := h.resolveActor(r, user, workspaceID)
+	h.publish(protocol.EventSpecPublished, workspaceID, actorType, actorID, map[string]any{
+		"spec_id":  uuidToString(s.ID),
+		"version":  specVersionItem(v),
+	})
+	// A new snapshot on an already-approved spec changes its effective
+	// content, which is the same signal as entering approved: notify watchers
+	// of the newly effective version. (DAWE-7)
+	if s.Status == "approved" {
+		h.notifySpecApproval(r, s, v, actorType, actorID)
+		h.publish(protocol.EventSpecApproved, workspaceID, actorType, actorID, map[string]any{
+			"spec_id": uuidToString(s.ID),
+			"version": specVersionItem(v),
+		})
+	}
 	writeJSON(w, http.StatusCreated, specVersionItem(v))
 }
 
@@ -288,6 +306,26 @@ func (h *Handler) TransitionSpecStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusConflict, "spec status changed concurrently; retry")
 		return
+	}
+
+	workspaceID := uuidToString(s.WorkspaceID)
+	user, _ := requireUserID(w, r)
+	actorType, actorID := h.resolveActor(r, user, workspaceID)
+	if to == "approved" {
+		// Entering approved makes the current version the effective one:
+		// notify the spec's subscribers and the subscribers of every linked
+		// issue. The version lookup cannot fail here — the legality check
+		// above already required at least one published version.
+		version, err := h.Queries.GetLatestSpecVersion(r.Context(), s.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load approved version")
+			return
+		}
+		h.notifySpecApproval(r, updated, version, actorType, actorID)
+		h.publish(protocol.EventSpecApproved, workspaceID, actorType, actorID, map[string]any{
+			"spec_id": uuidToString(s.ID),
+			"version": specVersionItem(version),
+		})
 	}
 	writeJSON(w, http.StatusOK, specStateItem(updated))
 }

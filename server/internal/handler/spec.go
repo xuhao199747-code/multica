@@ -15,6 +15,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 // ---------------------------------------------------------------------------
@@ -292,10 +293,25 @@ func (h *Handler) CreateSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create spec")
 		return
 	}
+	// The creator auto-subscribes inside the same transaction: the spec must
+	// never exist without its creator watching it. (DAWE-7)
+	if err := qtx.AddSpecSubscriber(r.Context(), db.AddSpecSubscriberParams{
+		SpecID:   spec.ID,
+		MemberID: parseUUID(creatorID),
+	}); err != nil {
+		slog.Warn("CreateSpec: creator auto-subscribe failed", append(logger.RequestAttrs(r), "error", err)...)
+		writeError(w, http.StatusInternalServerError, "failed to subscribe creator")
+		return
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to commit spec creation")
 		return
 	}
+
+	actorType, actorID := h.resolveActor(r, creatorID, workspaceID)
+	h.publish(protocol.EventSpecCreated, workspaceID, actorType, actorID, map[string]any{
+		"spec": specToSummaryResponse(spec),
+	})
 
 	resp, err := h.specDetailResponse(r, spec)
 	if err != nil {
