@@ -138,8 +138,10 @@ describe("ChatThreadList project hierarchy", () => {
     expect(screen.getByText("文献梳理")).toBeInTheDocument();
     expect(screen.getByText("随手问问")).toBeInTheDocument();
 
-    // The per-project hover actions are collapsed into a ⋯ menu.
-    fireEvent.click(screen.getByRole("button", { name: "论文助手项目操作" }));
+    // The project menu remains visible without hovering.
+    const projectMenu = screen.getByRole("button", { name: "论文助手项目操作" });
+    expect(projectMenu).not.toHaveClass("opacity-0");
+    fireEvent.click(projectMenu);
     fireEvent.click(await screen.findByRole("menuitem", { name: "新建聊天" }));
     expect(onStartProjectChat).toHaveBeenCalledWith("project-1");
   });
