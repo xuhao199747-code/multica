@@ -172,6 +172,8 @@ const utilityNav: { key: NavKey; labelKey: NavLabelKey }[] = [
 
 const NAV_ITEM_CLASS_NAME =
   "text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground";
+const NAV_COUNT_CLASS_NAME =
+  "ml-auto text-caption group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:right-0 group-data-[collapsible=icon]:top-0 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:h-4 group-data-[collapsible=icon]:min-w-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-full group-data-[collapsible=icon]:bg-primary group-data-[collapsible=icon]:px-0.5 group-data-[collapsible=icon]:text-micro group-data-[collapsible=icon]:leading-none group-data-[collapsible=icon]:text-primary-foreground";
 
 function DraftDot() {
   const hasDraft = useIssueDraftStore((s) => s.hasDraft());
@@ -227,6 +229,7 @@ function SortablePinItem({
     >
       <SidebarMenuButton
         size="sm"
+        tooltip={label}
         isActive={isActive}
         render={<AppLink href={href} newTabTitle={label} draggable={false} />}
         onClick={(event) => {
@@ -453,7 +456,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   // pinned items, the workspace switcher's programmatic push, and anything
   // added later. `setOpenMobile` is a no-op on desktop, where the sheet is not
   // the sidebar's rendering at all.
-  const { setOpenMobile } = useSidebar();
+  const { setOpenMobile, isCompact, openMobile } = useSidebar();
   useEffect(() => {
     setOpenMobile(false);
   }, [pathname, setOpenMobile]);
@@ -623,7 +626,8 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
-                <DropdownMenuTrigger
+                <Tooltip>
+                <TooltipTrigger render={<DropdownMenuTrigger
                   render={
                     <SidebarMenuButton>
                       <span className="relative">
@@ -642,7 +646,9 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                       <ChevronDown className="size-3 text-muted-foreground" />
                     </SidebarMenuButton>
                   }
-                />
+                />} />
+                <TooltipContent side="right" hidden={!isCompact || openMobile}>{workspace?.name ?? "Multica"}</TooltipContent>
+                </Tooltip>
                 <DropdownMenuContent
                   className="w-auto min-w-56"
                   align="start"
@@ -751,6 +757,16 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             </SidebarMenuItem>
           </SidebarMenu>
           <SidebarMenu>
+            <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
+              <SidebarMenuButton
+                onClick={() => setOpenMobile(true)}
+                aria-label={t(($) => $.sidebar.expand_sidebar)}
+                tooltip={t(($) => $.sidebar.expand_sidebar)}
+                className="text-muted-foreground"
+              >
+                <PanelLeftOpen />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             {searchSlot && (
               // The search trigger is a wide fake input — useless in the
               // compact rail, where the whole row collapses to icon width.
@@ -761,6 +777,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             <SidebarMenuItem>
               <SidebarMenuButton
                 className="text-muted-foreground"
+                tooltip={t(($) => $.sidebar.new_issue)}
                 onClick={() => openCreateIssueWithPreference()}
               >
                 <span className="relative">
@@ -789,8 +806,9 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     <SidebarMenuItem key={item.key}>
                       <SidebarMenuButton
                         isActive={isActive}
+                        tooltip={t(($) => $.nav[item.labelKey])}
                         render={<AppLink href={href} />}
-                        className={NAV_ITEM_CLASS_NAME}
+                        className={cn(NAV_ITEM_CLASS_NAME, "relative")}
                       >
                         <Icon />
                         <span>{t(($) => $.nav[item.labelKey])}</span>
@@ -798,14 +816,14 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                           <CappedNumberFlow
                             value={unreadCount}
                             animated={false}
-                            className="ml-auto text-caption"
+                            className={NAV_COUNT_CLASS_NAME}
                           />
                         )}
                         {item.key === "chat" && chatUnreadCount > 0 && (
                           <CappedNumberFlow
                             value={chatUnreadCount}
                             animated={false}
-                            className="ml-auto text-caption"
+                            className={NAV_COUNT_CLASS_NAME}
                           />
                         )}
                       </SidebarMenuButton>
@@ -877,6 +895,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     <SidebarMenuItem key={item.key}>
                       <SidebarMenuButton
                         isActive={isActive}
+                        tooltip={t(($) => $.nav[item.labelKey])}
                         render={<AppLink href={href} />}
                         className={NAV_ITEM_CLASS_NAME}
                       >
@@ -902,6 +921,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     <SidebarMenuItem key={item.key}>
                       <SidebarMenuButton
                         isActive={isActive}
+                        tooltip={t(($) => $.nav[item.labelKey])}
                         render={<AppLink href={href} />}
                         className={NAV_ITEM_CLASS_NAME}
                       >
@@ -925,6 +945,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                 <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
                     isActive={isNavActive(pathname, href)}
+                    tooltip={t(($) => $.nav[item.labelKey])}
                     render={<AppLink href={href} />}
                     className={NAV_ITEM_CLASS_NAME}
                   >
@@ -940,18 +961,8 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
               aligns with the navigation icons above. */}
           <div className="flex items-center gap-1">
             <JoinDiscordCard />
-            <HelpLauncher />
+            <HelpLauncher compactRail={isCompact && !openMobile} />
           </div>
-          {/* Compact-rail-only affordance (the rail is the only surface that
-              renders with data-collapsible=icon): opens the full sheet. */}
-          <button
-            type="button"
-            onClick={() => setOpenMobile(true)}
-            aria-label={t(($) => $.sidebar.expand_sidebar)}
-            className="hidden size-8 items-center justify-center rounded-md text-muted-foreground ring-sidebar-ring outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 group-data-[collapsible=icon]:flex"
-          >
-            <PanelLeftOpen className="size-4" />
-          </button>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
