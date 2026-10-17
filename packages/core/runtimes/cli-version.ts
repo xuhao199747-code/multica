@@ -33,6 +33,16 @@ const SEMVER_RE = /v?(\d+)\.(\d+)\.(\d+)/;
 // the gate for staging or production users running stale stable releases.
 const DEV_DESCRIBE_RE = /^v?\d+\.\d+\.\d+-\d+-g[0-9a-fA-F]+/;
 
+// `git describe --always` prints only the abbreviated commit when this checkout
+// has no reachable version tag. A direct `go build` without Makefile ldflags
+// leaves the default value from cmd/multica/main.go instead. Both are local
+// source-build markers, not release versions.
+const SOURCE_BUILD_MARKER_RE = /^(?:dev|[0-9a-fA-F]{7,64})$/;
+
+function isSourceBuildVersion(version: string): boolean {
+  return DEV_DESCRIBE_RE.test(version) || SOURCE_BUILD_MARKER_RE.test(version);
+}
+
 function parseSemver(raw: string): [number, number, number] | null {
   const m = SEMVER_RE.exec(raw.trim());
   if (!m) return null;
@@ -68,7 +78,7 @@ function checkCliVersion(
   minimum: string,
 ): CliVersionCheck {
   const current = (detected ?? "").trim();
-  if (DEV_DESCRIBE_RE.test(current)) {
+  if (isSourceBuildVersion(current)) {
     return { state: "ok", current, min: minimum };
   }
   const parsed = current ? parseSemver(current) : null;
@@ -113,7 +123,7 @@ export function chatProjectContextSupported(detected: string | undefined | null)
 function meetsMinCliVersion(detected: string | undefined | null, minimum: string): boolean {
   const current = (detected ?? "").trim();
   if (!current) return false;
-  if (DEV_DESCRIBE_RE.test(current)) return true;
+  if (isSourceBuildVersion(current)) return true;
   const parsed = parseSemver(current);
   if (!parsed) return false;
   return !lessThan(parsed, parseSemver(minimum)!);

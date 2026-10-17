@@ -62,6 +62,11 @@ describe("chatProjectContextSupported", () => {
     expect(chatProjectContextSupported("v0.4.8-37-g5d0275d68")).toBe(true);
     expect(chatProjectContextSupported("v0.1.0-235-gdaf0e935-dirty")).toBe(true);
   });
+
+  it("treats source builds without a reachable tag as supported", () => {
+    expect(chatProjectContextSupported("dev")).toBe(true);
+    expect(chatProjectContextSupported("254852f")).toBe(true);
+  });
 });
 
 describe("runtimeAdvertisesLocalWorktree", () => {

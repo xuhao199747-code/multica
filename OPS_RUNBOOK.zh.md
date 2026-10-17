@@ -1,25 +1,38 @@
 # Multica 执行规范（运维操作手册）
 
-> 本文档是本仓库唯一的操作事实来源。命令都经过 2026-10-15 实际验证。
+> 本文档是本仓库唯一的操作事实来源。命令都经过 2026-10-15 实际验证，2026-10-16 复核（地址、端口、对外入口、邮件通道已按当前实际状态更新）。
 > 修改流程、地址、端口后必须同步更新本文档。
 
 ## 1. 环境地图（东西都在哪）
 
 | 环境 | 位置 | 地址 | 跑的代码 | 数据 |
 | --- | --- | --- | --- | --- |
-| 生产栈（Docker） | 本机 Docker，compose 托管 | `http://localhost:3000`（前端）/ `:8080`（后端，仅 127.0.0.1） | 镜像 `multica-{web,backend}:dev`（从源码构建） | 卷 `multica_pgdata`、`multica_backend_uploads` |
-| 对外入口 | 宿主机 Tailscale serve → 前端容器 | `https://multica-server.tail709cfb.ts.net` | 同生产栈 | 同生产栈 |
+| 生产栈（Docker） | 本机 Docker，compose 托管 | `http://localhost:13017`（前端，仅 127.0.0.1）/ `http://localhost:18097`（后端，仅 127.0.0.1） | 镜像 `multica-{web,backend}:dev`（从源码构建） | 卷 `multica_pgdata`、`multica_backend_uploads` |
+| 对外入口 | `multica-tailscale` 容器（Tailscale Funnel，见 §1a）→ 前端容器 | `https://multica-server.tail709cfb.ts.net`（公网可达） | 同生产栈 | 同生产栈 |
 | 本地开发后端 | 本机进程（`go run`） | `http://localhost:18080` | 当前工作区源码 | 库 `multica_dev_postgres`（127.0.0.1:**5433**，卷 `multica_dev_pgdata`，与生产隔离） |
 | 本地开发前端 | 本机进程（`pnpm dev:web`，热更新） | `http://localhost:3100` | 当前工作区源码，连 18080 | 无 |
 | Git 远端 | GitHub | `origin` = `xuhao199747-code/multica`（你的 fork，可推送）；`upstream` = `multica-ai/multica`（官方，只读） | — | — |
 
-关键事实：
+关键事实（2026-10-16 逐条核实）：
 
-- 生产数据库容器**没有发布宿主端口**（不能 localhost:5432 连接）；生产库只能通过备份/容器内访问。
-- `multica-tailscale` 容器是坏的（无 AUTHKEY），**不要修不要删**——对外入口由宿主机 Tailscale 提供。
+- 生产数据库容器**发布了宿主端口** `127.0.0.1:5432`（2026-10-15 版"没有发布"已过时）。
+- 对外入口由 `multica-tailscale` 容器的 Funnel 提供，**该容器不要动**（登录态与 serve 配置都在卷 `multica-tailscale-state` 里）；宿主机 Tailscale.app 未运行、也不需要。细节见 §1a。
+- 邮件通道：生产 `.env` 走 **Resend**（`RESEND_API_KEY`、`RESEND_FROM_EMAIL` 已配置；`SMTP_HOST` 为空 = SMTP 未启用）。改邮件 = 改 `.env` + 重启后端容器。机制见 `SELF_HOSTING_ADVANCED.md` 的 Email 一节。本地 dev（18080）不发邮件，验证码打印在后端日志（`[DEV] Verification code ...`，问我"验证码"即可）。
+- 当前运行中的生产栈是 2026-10-16 用 `/tmp/multica-workbench-route-G7mLOS/` 下的 compose 副本启动的（宿主端口 13017/18097/5432 与仓库 compose 默认的 3000/8080 不同，属未收尾变更，见 §10）。frontend/backend/tailscale 重启策略 `unless-stopped`（开机自拉起），**postgres 是 `no`**——机器重启后若后端连不上库，先 `docker start multica-postgres-1`。
 - `docker compose` 必须带 `-f docker-compose.selfhost.yml`（必要时加 `-f docker-compose.selfhost.build.yml`）；`.env` 必须存在（密钥已与线上一致，绝不要重新随机生成，否则全员掉登录）。
-- `/health` 返回的 `commit` 字段 = 生产后端的真实版本身份证明（构建时注入）。
+- `/health` 返回的 `commit` 字段 = 生产后端的真实版本身份证明（构建时注入）。当前值 `254852f`（即 20261016-1e2268d 那次发布的构建 HEAD，代码版本 = 1e2268d）。
 - 本机网络注意：github.com 时通时断（推送需重试）；brew 不可用（Go 手工装在 `/opt/homebrew/opt/go`）；api.github.com 稳定。
+
+## 1a. 对外入口（线上网址）是怎么搭的
+
+链路：公网浏览器 → Tailscale Funnel 边缘节点（公共 anycast IP `103.84.155.x`，所以 `*.ts.net` 域名公网 DNS 可直接解析）→ 本机 `multica-tailscale` 容器（tailnet 机器名 `multica-server`，100.96.49.87）→ `host.docker.internal:13017`（前端容器宿主端口）→ 容器内后端。
+
+- 容器内跑 `tailscaled`（userspace networking，socket 在 `/tmp/tailscaled.sock`，状态卷 `multica-tailscale-state`）。仓库的 compose 文件**没有**这个服务，它是单独 `docker run` 起来的。
+- 查看/验证配置：`docker exec multica-tailscale tailscale --socket=/tmp/tailscaled.sock serve status`。注意必须带 `--socket=/tmp/tailscaled.sock`——在宿主机直接跑 `tailscale serve status` 会因宿主机未登录而挂起。
+- serve/funnel 配置持久化在状态卷里：重建容器只要挂回 `multica-tailscale-state`，就以 `multica-server` 身份自动恢复，不用重配。只有要改 proxy 目标（比如前端宿主端口又变了）时才需要重新执行：
+  `docker exec multica-tailscale tailscale --socket=/tmp/tailscaled.sock serve --bg --https=443 http://host.docker.internal:<前端宿主端口>`
+- Funnel 需要 tailnet 策略允许（当前已开）。状态卷若丢失，要重新把容器登录进 tailnet（浏览器授权或 AUTHKEY），再执行上面的 serve 并 `funnel on`。
+- 改了前端宿主端口必须同步做三件事：重指 serve 目标、更新本文档 §1 和 §5。
 
 ## 2. 固定口令（说这些词，我就执行对应流程）
 
@@ -39,7 +52,7 @@ cd /Users/mac/Documents/vibcoding/multica
 git status --short                    # ① 看改动；当前分支应跟踪 origin/local-baseline-20261015
 git checkout -b feat/xxx              # ② 新功能开新分支（命名：feat/ fix/ chore/）
 
-# ③ 启动本地开发（生产栈已占 3000/8080，dev 用 3100/18080，互不影响）
+# ③ 启动本地开发（生产栈已占宿主端口 13017/18097，dev 用 3100/18080，互不影响）
 cd server && PORT=18080 \
   DATABASE_URL='postgres://multica:multica@localhost:5433/multica_dev?sslmode=disable' \
   JWT_SECRET=local-dev-only-secret-change-me \
@@ -114,13 +127,15 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.y
 发布后验证（全过才算成功）：
 
 ```bash
-curl -s http://localhost:8080/health          # commit 必须等于本次构建的 SHA
-curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/          # 200
+curl -s http://localhost:18097/health          # commit 必须等于本次构建的 SHA
+curl -s -o /dev/null -w '%{http_code}' http://localhost:13017/          # 200
 curl -s -o /dev/null -w '%{http_code}' https://multica-server.tail709cfb.ts.net/   # 200
-docker compose -f docker-compose.selfhost.yml ps                        # 3 个服务全 Up
+docker compose -f docker-compose.selfhost.yml ps                        # 生产服务全 Up
 docker logs --tail 50 multica-backend-1     # 无 migrate 失败 / panic
 # 最后：浏览器打开 Tailscale 地址，登录 → 开个聊天 → 发消息 → 刷新确认
 ```
+
+> ⚠️ 2026-10-16 现状：运行中的栈来自 `/tmp/multica-workbench-route-G7mLOS/` 的 compose 副本，宿主端口 13017/18097（见 §1）；直接对仓库 compose 跑 `up -d` 会按 3000/8080 重建、弄断 Funnel 指向（§1a）。发布前先确认 compose 来源与端口映射，或先把两边对齐（§10 欠账）。
 
 发布记录（每次发布必须留痕，记到 `docs/releases/` 或直接告诉我存档）：
 
@@ -177,7 +192,7 @@ docker tag multica-backend:<锚点tag> multica-backend:dev
 docker tag multica-web:<锚点tag> multica-web:dev
 docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.yml \
   up -d --force-recreate backend frontend
-curl -s http://localhost:8080/health    # 确认 commit 回到锚点
+curl -s http://localhost:18097/health    # 确认 commit 回到锚点
 ```
 
 已知锚点（2026-10-16 时点）：`rollback-v061`（旧 v0.6.1）、`20261015-eeb9459`、`20261016-fca801f`、`20261016-37f6f92`、`20261016-9949541`、`20261016-1e2268d`（当前线上）。
@@ -206,6 +221,7 @@ curl -s http://localhost:8080/health    # 确认 commit 回到锚点
 2. Electron 桌面版未安装（本机已验证可构建，`apps/desktop/dist/` 有 2026-10-16 的 dmg；本地工作区链路目前不需要它）——要用桌面客户端时再装。
 3. 镜像只存本机，未推 GHCR——走 GitHub Actions 自动发布时再配（需要 GHCR 权限）。
 4. Docker Desktop（containerd 镜像存储）在 2026-10-16 发生过一次引擎重启、`docker images` 瞬时不显示自定义 tag——锚点 tag 若"丢失"，先 `docker ps` 确认容器在跑，再按镜像 ID 重打即可（数据未丢）。
+5. 生产栈端口（13017/18097/5432）与仓库 compose 默认（3000/8080/不发布）不一致，栈由 `/tmp/multica-workbench-route-G7mLOS/` 的副本托管——下次发布前先把 compose 来源与端口对齐，否则 `up -d` 会重建出 3000/8080 的容器、Funnel 入口断掉（§5 警告、§1a）。postgres 重启策略是 `no`，机器重启后要手动 `docker start multica-postgres-1`。
 
 ## 11. 必须我确认后才执行的动作
 

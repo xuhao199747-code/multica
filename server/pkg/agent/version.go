@@ -82,6 +82,15 @@ var (
 // gate for staging or production users running stale stable releases.
 var devDescribeRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+-\d+-g[0-9a-fA-F]+`)
 
+// sourceBuildMarkerRe covers the other source-build values the CLI can report:
+// a direct go build leaves main.version at "dev", while git describe --always
+// produces only the abbreviated commit when no version tag is reachable.
+var sourceBuildMarkerRe = regexp.MustCompile(`^(?:dev|[0-9a-fA-F]{7,64})$`)
+
+func isSourceBuildVersion(version string) bool {
+	return devDescribeRe.MatchString(version) || sourceBuildMarkerRe.MatchString(version)
+}
+
 // CheckMinCLIVersion returns nil when `detected` parses as ≥ minimum. Returns
 // ErrCLIVersionMissing for empty or unparsable input, and ErrCLIVersionTooOld
 // when parsable but below the minimum. The caller can check for these
@@ -102,7 +111,7 @@ func CheckMinCLIVersionFor(detected, minimum string) error {
 	if d == "" {
 		return ErrCLIVersionMissing
 	}
-	if devDescribeRe.MatchString(d) {
+	if isSourceBuildVersion(d) {
 		return nil
 	}
 	parsed, err := parseSemver(d)
