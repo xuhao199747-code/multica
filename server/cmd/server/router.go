@@ -2079,6 +2079,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetSpec)
 					r.Put("/", h.UpdateSpec)
 					r.Delete("/", h.DeleteSpec)
+					r.Get("/comments", h.ListSpecComments)
+					r.Route("/versions/{versionId}", func(r chi.Router) {
+						r.Get("/comments", h.ListSpecVersionComments)
+						r.Post("/comments", h.CreateSpecComment)
+					})
 				})
 			})
 

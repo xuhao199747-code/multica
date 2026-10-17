@@ -92,6 +92,9 @@ ON CONFLICT (spec_id, issue_id) DO NOTHING;
 DELETE FROM spec_issue
 WHERE spec_id = $1 AND issue_id = $2;
 
+-- name: GetSpecVersionSpec :one
+SELECT spec_id FROM spec_version WHERE id = $1;
+
 -- name: ListSpecSubscribers :many
 SELECT * FROM spec_subscriber
 WHERE spec_id = $1

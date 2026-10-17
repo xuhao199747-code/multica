@@ -609,6 +609,30 @@ func (q *Queries) LinkAttachmentsToIssue(ctx context.Context, arg LinkAttachment
 	return i, err
 }
 
+const linkAttachmentsToSpecComment = `-- name: LinkAttachmentsToSpecComment :exec
+UPDATE attachment
+SET comment_id = $1
+WHERE workspace_id = $2
+  AND issue_id IS NULL
+  AND comment_id IS NULL
+  AND source_context_id IS NULL
+  AND id = ANY($3::uuid[])
+`
+
+type LinkAttachmentsToSpecCommentParams struct {
+	CommentID     pgtype.UUID   `json:"comment_id"`
+	WorkspaceID   pgtype.UUID   `json:"workspace_id"`
+	AttachmentIds []pgtype.UUID `json:"attachment_ids"`
+}
+
+// Spec-side sibling of LinkAttachmentsToComment: a spec comment binds
+// unbound uploads (issue_id IS NULL), scoped by workspace like the lock that
+// preceded it.
+func (q *Queries) LinkAttachmentsToSpecComment(ctx context.Context, arg LinkAttachmentsToSpecCommentParams) error {
+	_, err := q.db.Exec(ctx, linkAttachmentsToSpecComment, arg.CommentID, arg.WorkspaceID, arg.AttachmentIds)
+	return err
+}
+
 const listAttachmentURLsByCommentID = `-- name: ListAttachmentURLsByCommentID :many
 SELECT url FROM attachment
 WHERE comment_id = $1
@@ -1227,6 +1251,47 @@ type LockAttachmentsForIssueLinkParams struct {
 // LockAttachmentsForCommentLink.
 func (q *Queries) LockAttachmentsForIssueLink(ctx context.Context, arg LockAttachmentsForIssueLinkParams) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, lockAttachmentsForIssueLink, arg.WorkspaceID, arg.AttachmentIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockAttachmentsForSpecCommentLink = `-- name: LockAttachmentsForSpecCommentLink :many
+SELECT id FROM attachment
+WHERE workspace_id = $1
+  AND issue_id IS NULL
+  AND comment_id IS NULL
+  AND source_context_id IS NULL
+  AND id = ANY($2::uuid[])
+ORDER BY id
+FOR UPDATE
+`
+
+type LockAttachmentsForSpecCommentLinkParams struct {
+	WorkspaceID   pgtype.UUID   `json:"workspace_id"`
+	AttachmentIds []pgtype.UUID `json:"attachment_ids"`
+}
+
+// Spec-side sibling of LockAttachmentsForCommentLink: pins the requested
+// unbound attachment set after the CreateSpecVersionComment statement took
+// the spec row — spec -> comment -> child, mirroring the issue-side order.
+// The existing issue-scoped lock cannot be reused: passing an invalid
+// issue_id would make its `issue_id = @issue_id` predicate match nothing.
+func (q *Queries) LockAttachmentsForSpecCommentLink(ctx context.Context, arg LockAttachmentsForSpecCommentLinkParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, lockAttachmentsForSpecCommentLink, arg.WorkspaceID, arg.AttachmentIds)
 	if err != nil {
 		return nil, err
 	}

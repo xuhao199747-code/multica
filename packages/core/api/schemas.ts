@@ -1108,6 +1108,10 @@ export const CommentSchema = z.object({
   // Set only on comments a quick action produced (MUL-5465). Server-only.
   quick_action_id: z.string().nullable().optional(),
   deleted_at: z.string().nullable().optional().catch(undefined),
+  // Spec-comment anchor (DAWE-8); issue comments omit it and older servers
+  // omit both fields.
+  spec_version_id: z.string().optional().default(""),
+  spec_version_number: z.number().catch(0),
 }).loose();
 
 export const CommentsListSchema = z.array(CommentSchema);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -544,6 +545,79 @@ func notifyDirect(
 	})
 }
 
+// notifySpecSubscribers creates inbox items for the member subscribers of a
+// spec when a spec comment is created, excluding the actor and anyone in the
+// exclude set. Deliberately simpler than the issue path: spec subscriptions
+// have no delegated tier and no handoff statuses, and the inbox items carry
+// no issue_id — the comment's anchor is the spec version.
+func notifySpecSubscribers(
+	ctx context.Context,
+	queries *db.Queries,
+	bus *events.Bus,
+	specID string,
+	workspaceID string,
+	e events.Event,
+	exclude map[string]bool,
+	title string,
+	body string,
+	details []byte,
+) {
+	subs, err := queries.ListSpecSubscribers(ctx, parseUUID(specID))
+	if err != nil {
+		slog.Error("failed to list spec subscribers for notification",
+			"spec_id", specID, "error", err)
+		return
+	}
+
+	memberIDs := make([]string, 0, len(subs))
+	for _, sub := range subs {
+		memberIDs = append(memberIDs, util.UUIDToString(sub.MemberID))
+	}
+	userPrefs := loadUserPrefs(ctx, queries, workspaceID, memberIDs)
+
+	for _, sub := range subs {
+		subID := util.UUIDToString(sub.MemberID)
+
+		// Skip the actor and any extra excluded IDs.
+		if subID == e.ActorID || exclude[subID] {
+			continue
+		}
+
+		// Same mute group as issue comment notifications.
+		if prefs, ok := userPrefs[subID]; ok && isNotifMuted(prefs, "comments") {
+			continue
+		}
+
+		item, err := queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
+			ID:            dbid.NewV7(),
+			WorkspaceID:   parseUUID(workspaceID),
+			RecipientType: "member",
+			RecipientID:   sub.MemberID,
+			Type:          "new_comment",
+			Severity:      "info",
+			Title:         title,
+			Body:          util.StrToText(body),
+			ActorType:     util.StrToText(e.ActorType),
+			ActorID:       optionalUUID(e.ActorID),
+			Details:       details,
+		})
+		if err != nil {
+			slog.Error("spec subscriber notification creation failed",
+				"subscriber_id", subID, "type", "new_comment", "error", err)
+			continue
+		}
+
+		resp := inboxItemToResponse(item)
+		bus.Publish(events.Event{
+			Type:        protocol.EventInboxNew,
+			WorkspaceID: workspaceID,
+			ActorType:   e.ActorType,
+			ActorID:     e.ActorID,
+			Payload:     map[string]any{"item": resp},
+		})
+	}
+}
+
 // notifyMentionedMembers creates inbox items for each @mentioned member,
 // excluding the actor and any IDs in the skip set. When an @all mention is
 // present, all workspace members are notified (excluding agents).
@@ -638,11 +712,13 @@ func notifyMentionedMembers(
 			RecipientID:   parseUUID(id),
 			Type:          "mentioned",
 			Severity:      "info",
-			IssueID:       parseUUID(issueID),
-			Title:         title,
-			ActorType:     util.StrToText(e.ActorType),
-			ActorID:       optionalUUID(e.ActorID),
-			Details:       details,
+			// Spec comments pass issueID "" — the item anchors to nothing and
+			// stays NULL, exactly like the spec subscriber notify path.
+			IssueID:   optionalUUID(issueID),
+			Title:     title,
+			ActorType: util.StrToText(e.ActorType),
+			ActorID:   optionalUUID(e.ActorID),
+			Details:   details,
 		})
 		if err != nil {
 			slog.Error("mention inbox creation failed", "mentioned_id", id, "error", err)
@@ -905,15 +981,17 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		// The comment payload can come as handler.CommentResponse from the
 		// HTTP handler, or as map[string]any from the agent comment path in
 		// task.go. Handle both.
-		var issueID, commentID, commentContent, authorType string
+		var issueID, specVersionID, commentID, commentContent, authorType string
 		switch c := payload["comment"].(type) {
 		case handler.CommentResponse:
 			issueID = c.IssueID
+			specVersionID = c.SpecVersionID
 			commentID = c.ID
 			commentContent = c.Content
 			authorType = c.AuthorType
 		case map[string]any:
 			issueID, _ = c["issue_id"].(string)
+			specVersionID, _ = c["spec_version_id"].(string)
 			commentID, _ = c["id"].(string)
 			commentContent, _ = c["content"].(string)
 			authorType, _ = c["author_type"].(string)
@@ -930,6 +1008,41 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		// Skip the listener entirely; the WS broadcast still delivers the
 		// comment to the issue timeline.
 		if authorType == "system" {
+			return
+		}
+
+		// Spec comment (DAWE-8): no issue anchor exists, so the subscriber
+		// notify runs against spec_subscriber and inbox items stay issue-less.
+		// @agent mentions intentionally do NOT enqueue runs here — there is no
+		// issue for a run to work on — but member/squad/all mentions notify
+		// exactly like issue comments.
+		if issueID == "" && specVersionID != "" {
+			specID, _ := payload["spec_id"].(string)
+			specIdentifier, _ := payload["spec_identifier"].(string)
+			specTitle, _ := payload["spec_title"].(string)
+			title := strings.TrimSpace(specIdentifier + ": " + specTitle)
+
+			specDetails, _ := json.Marshal(map[string]string{
+				"spec_id":         specID,
+				"spec_version_id": specVersionID,
+				"comment_id":      commentID,
+			})
+
+			notifySpecSubscribers(ctx, queries, bus, specID, e.WorkspaceID, e,
+				nil, title, commentContent, specDetails)
+
+			mentions := parseMentions(commentContent)
+			if len(mentions) > 0 {
+				skip := map[string]bool{e.ActorID: true}
+				notifyMentionedMembers(bus, queries, e, mentions, "", title, "",
+					title, skip, specDetails)
+			}
+			return
+		}
+
+		// A payload with neither anchor is malformed; the issue path below
+		// would panic on parseUUID(""). The WS broadcast already happened.
+		if issueID == "" {
 			return
 		}
 
@@ -1012,6 +1125,13 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		issueStatus, _ := payload["issue_status"].(string)
 
 		if commentAuthorType == "" || commentAuthorID == "" {
+			return
+		}
+
+		// Spec comments carry no issue anchor: there is no issue-scoped inbox
+		// notify to send. The reaction itself was still broadcast above the
+		// listeners; skipping here replaces a parseUUID("") panic.
+		if issueID == "" {
 			return
 		}
 

@@ -546,7 +546,7 @@ WITH locked_issue AS MATERIALIZED (
               comment.parent_id, comment.workspace_id, comment.resolved_at,
               comment.resolved_by_type, comment.resolved_by_id, comment.source_task_id,
               comment.quick_action_id, comment.via_plugin_id, comment.revision,
-              comment.deleted_at, target.did_change
+              comment.deleted_at, comment.spec_version_id, target.did_change
 ), touched_issue AS (
     UPDATE issue
     SET revision = issue.revision + 1,
@@ -564,7 +564,7 @@ SELECT updated_comment.id, updated_comment.issue_id, updated_comment.author_type
        updated_comment.resolved_by_type, updated_comment.resolved_by_id,
        updated_comment.source_task_id, updated_comment.quick_action_id,
        updated_comment.via_plugin_id, updated_comment.revision,
-       updated_comment.deleted_at,
+       updated_comment.deleted_at, updated_comment.spec_version_id,
        COALESCE((SELECT revision FROM touched_issue), 0)::bigint AS issue_revision
 FROM updated_comment;
 
@@ -860,3 +860,92 @@ FROM comment c
 JOIN ancestor_ids path ON path.id = c.id
 ORDER BY c.id
 FOR UPDATE OF c;
+
+-- name: CreateSpecVersionComment :one
+-- Spec-anchored sibling of CreateComment (DAWE-8). The touched owner is the
+-- spec — its updated_at is the spec-side activity signal — and the INSERT
+-- only proceeds when @spec_version_id exists under that spec. A mismatched
+-- (version, spec, workspace) triple matches 0 rows in the CTE, the dependent
+-- INSERT selects nothing, and the :one query returns pgx.ErrNoRows. Same
+-- atomicity and tenant-integrity guarantees as CreateComment, without the
+-- issue revision bump (issue_revision stays 0 for spec comments).
+WITH touched_spec AS (
+    UPDATE spec SET updated_at = now()
+    WHERE spec.id = sqlc.arg(spec_id) AND spec.workspace_id = sqlc.arg(workspace_id)
+    RETURNING spec.id, spec.workspace_id
+), inserted_comment AS (
+    INSERT INTO comment (issue_id, spec_version_id, workspace_id, author_type, author_id, content, type, parent_id, id)
+    SELECT NULL, sqlc.arg(spec_version_id), ts.workspace_id, sqlc.arg(author_type), sqlc.arg(author_id), sqlc.arg(content), sqlc.arg(type), sqlc.narg(parent_id), COALESCE(sqlc.narg('id')::uuid, gen_random_uuid())
+    FROM touched_spec ts
+    WHERE sqlc.arg(spec_version_id) IN (SELECT id FROM spec_version WHERE spec_id = ts.id)
+    RETURNING *
+)
+SELECT inserted_comment.*, 0::bigint AS issue_revision
+FROM inserted_comment;
+
+-- name: ListCommentsForSpecVersion :many
+-- Flat chronological list for one spec version, mirroring the column set and
+-- ascending contract of ListCommentsForIssue. Spec volumes are document-sized,
+-- so no newest-N window: callers render whole threads.
+SELECT * FROM comment
+WHERE spec_version_id = @spec_version_id AND workspace_id = @workspace_id
+ORDER BY created_at ASC, id ASC;
+
+-- name: ListCommentsForSpec :many
+-- Every comment across all versions of a spec, annotated with the version
+-- number so the detail page can group threads per version. Newest version
+-- first; chronological within a version.
+SELECT c.*, sv.number AS spec_version_number
+FROM comment c
+JOIN spec_version sv ON sv.id = c.spec_version_id
+WHERE sv.spec_id = @spec_id AND c.workspace_id = @workspace_id
+ORDER BY sv.number DESC, c.created_at ASC, c.id ASC;
+
+-- name: ClearOtherThreadResolutionsForSpecVersion :many
+-- Spec-anchored sibling of ClearOtherThreadResolutions: the same
+-- single-resolution invariant, scoped by spec_version_id instead of
+-- issue_id. Runs in the same tx as ResolveComment so the replace is atomic.
+WITH RECURSIVE root_of AS (
+    -- Walk up from the target to its thread root.
+    SELECT c.id, c.parent_id
+    FROM comment c
+    WHERE c.id = @target_id AND c.spec_version_id = @spec_version_id AND c.workspace_id = @workspace_id
+    UNION ALL
+    SELECT p.id, p.parent_id
+    FROM comment p
+    JOIN root_of r ON p.id = r.parent_id
+),
+thread_root AS (
+    SELECT id FROM root_of WHERE parent_id IS NULL LIMIT 1
+),
+descendants AS (
+    -- Expand back down from the root over the whole subtree. Cycle-safe under
+    -- the PK constraint (a comment cannot be its own ancestor).
+    SELECT c.id
+    FROM comment c
+    JOIN thread_root tr ON c.id = tr.id
+    UNION
+    SELECT c.id
+    FROM comment c
+    JOIN descendants d ON c.parent_id = d.id
+    WHERE c.spec_version_id = @spec_version_id AND c.workspace_id = @workspace_id
+)
+UPDATE comment SET
+    resolved_at = NULL,
+    resolved_by_type = NULL,
+    resolved_by_id = NULL,
+    revision = revision + 1,
+    updated_at = now()
+WHERE comment.id IN (SELECT id FROM descendants)
+  AND comment.id <> @target_id
+  AND comment.resolved_at IS NOT NULL
+RETURNING *;
+
+-- name: TouchSpecForComment :one
+-- Best-effort activity bump for spec-anchored comments (edit/delete), the
+-- spec-side counterpart of the issue touch statements. A missing or
+-- cross-workspace spec yields pgx.ErrNoRows; callers tolerate that the same
+-- way DeleteComment tolerates a missing parent issue.
+UPDATE spec SET updated_at = now()
+WHERE id = @spec_id AND workspace_id = @workspace_id
+RETURNING id;

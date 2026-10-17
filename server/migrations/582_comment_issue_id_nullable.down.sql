@@ -1,0 +1,1 @@
+ALTER TABLE comment ALTER COLUMN issue_id SET NOT NULL;
