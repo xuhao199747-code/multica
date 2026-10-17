@@ -29,19 +29,43 @@
   border-radius: var(--radius);
 }
 
-/* An image in a list of standalone attachments (the "card" layout): full
-   size, so it reads without opening, but capped in height — a phone
-   screenshot keeps its shape instead of running the length of the page.
-   The list spaces its images itself. */
-.image-figure.image-standalone {
+/*
+ * Fixed-height thumbnail — every readonly surface renders images this way
+ * (inline message/comment bodies via layout="thumb" and the standalone
+ * attachment list via layout="card"): one shared height keeps a multi-image
+ * row even, width follows the source aspect ratio up to the cap so an
+ * ultrawide shot can't hog the row, and object-fit draws the whole frame
+ * uncropped. The surrounding grid owns the outer spacing. (DAWE-2)
+ */
+.image-figure.image-thumb {
   margin: 0;
 }
 
-.image-figure.image-standalone .image-content {
+.image-figure.image-thumb .image-content {
   width: auto;
-  max-width: 100%;
-  max-height: 36rem;
+  height: 8rem;
+  /* min() so a thumbnail never exceeds its (possibly narrow) container on
+     small screens — the grid wraps instead of overflowing. */
+  max-width: min(16rem, 100%);
+  object-fit: contain;
+  margin: 0;
   box-shadow: 0 0 0 1px var(--border);
+}
+
+/*
+ * Consecutive-image grid (Codex / ChatGPT message layout, DAWE-2): the
+ * rehypeImageGrid plugin wraps runs of adjacent images in a
+ * <div data-type="imageGrid">, the rich-content div renderer maps it to this
+ * class, and the standalone attachment list reuses it. One flex row that
+ * wraps when the thumbnails exceed the width; flex item display is
+ * blockified, so the figure inside keeps its intrinsic thumbnail size.
+ */
+.image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.625rem 0;
 }
 
 .image-uploading {

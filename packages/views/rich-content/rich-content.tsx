@@ -68,6 +68,7 @@ import { preprocessMarkdown } from "../editor/utils/preprocess";
 import { highlightToHtml } from "../editor/utils/highlight-markdown";
 import { AttachmentDownloadProvider } from "../editor/attachment-download-context";
 import { Attachment as AttachmentRenderer } from "../editor/attachment";
+import rehypeImageGrid from "./image-grid";
 import { computeClosedFences, type ClosedFence } from "./streaming-fence";
 import { remarkRepairCjkStrongTrailingWhitespace } from "./cjk-emphasis";
 import {
@@ -436,6 +437,9 @@ const COMPONENTS: Partial<Components> = {
         filename: alt ?? "",
         forceKind: "image",
       }}
+      // Readonly bodies always render images as fixed-height thumbnails
+      // (DAWE-2) — never the full-width "block" layout the composer uses.
+      layout="thumb"
     />
   ),
 
@@ -453,6 +457,12 @@ const COMPONENTS: Partial<Components> = {
           }}
         />
       );
+    }
+    // Image grid — <div data-type="imageGrid"> injected by rehypeImageGrid
+    // around runs of consecutive images. Children are <img> elements, so the
+    // img renderer above turns each into a thumbnail, in original order.
+    if (stringProperty(node, "dataType") === "imageGrid") {
+      return <div className="image-grid">{children}</div>;
     }
     return <div {...props}>{children}</div>;
   },
@@ -483,6 +493,9 @@ const REHYPE_PLUGINS = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
   rehypeKatex,
+  // After sanitize: the grid container it injects is not on the sanitize
+  // allow-list, and the images it re-parents have already passed the gate.
+  rehypeImageGrid,
 ] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
 
 // ---------------------------------------------------------------------------
