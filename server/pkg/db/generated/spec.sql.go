@@ -347,6 +347,17 @@ func (q *Queries) GetSpecVersionByNumber(ctx context.Context, arg GetSpecVersion
 	return i, err
 }
 
+const getSpecVersionSpec = `-- name: GetSpecVersionSpec :one
+SELECT spec_id FROM spec_version WHERE id = $1
+`
+
+func (q *Queries) GetSpecVersionSpec(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getSpecVersionSpec, id)
+	var spec_id pgtype.UUID
+	err := row.Scan(&spec_id)
+	return spec_id, err
+}
+
 const incrementSpecCounter = `-- name: IncrementSpecCounter :one
 UPDATE workspace SET spec_counter = spec_counter + 1
 WHERE id = $1

@@ -40,7 +40,14 @@ type CommentResponse struct {
 	ResolvedAt     *string `json:"resolved_at"`
 	ResolvedByType *string `json:"resolved_by_type"`
 	ResolvedByID   *string `json:"resolved_by_id"`
-	SourceTaskID   *string `json:"source_task_id,omitempty"`
+	// SpecVersionID anchors a spec comment to its spec_version (DAWE-8); empty
+	// on issue comments. Exactly one of IssueID / SpecVersionID is set — the
+	// comment_anchor_check constraint guarantees the same at the row level.
+	SpecVersionID string `json:"spec_version_id,omitempty"`
+	// SpecVersionNumber is the human-facing version number, populated only by
+	// the spec-wide comment list so clients can group threads per version.
+	SpecVersionNumber int     `json:"spec_version_number,omitempty"`
+	SourceTaskID      *string `json:"source_task_id,omitempty"`
 	// DeletedAt marks a tombstone: a comment deleted while it still had
 	// replies (#8296). Its content is empty and it carries no attachments or
 	// reactions; it stays only so the replies keep their direct parent.
@@ -129,6 +136,7 @@ func commentToResponse(c db.Comment, reactions []ReactionResponse, attachments [
 		SourceTaskID:   uuidToPtr(c.SourceTaskID),
 		DeletedAt:      timestampToPtr(c.DeletedAt),
 		QuickActionID:  uuidToPtr(c.QuickActionID),
+		SpecVersionID:  uuidToString(c.SpecVersionID),
 		Reactions:      reactions,
 		Attachments:    attachments,
 	}
@@ -3466,7 +3474,10 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 	sourceTaskID := existing.SourceTaskID
 	var triggerIssue *db.Issue
 	var cancelled []db.AgentTaskQueue
-	if oldContent != req.Content {
+	// Spec comments have no issue anchor and never re-trigger agents: a
+	// content edit skips the lineage derivation and task cancellation below.
+	// (triggerTasksForComment is likewise issue-only.)
+	if oldContent != req.Content && existing.IssueID.Valid {
 		issue, err := h.Queries.GetIssue(r.Context(), existing.IssueID)
 		if err != nil {
 			slog.Warn("load issue for edit post-processing failed", "issue_id", uuidToString(existing.IssueID), "error", err)
@@ -3599,8 +3610,13 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update comment")
 		return
 	}
+	if !existing.IssueID.Valid {
+		// Activity parity with issue comments: editing a spec comment bumps
+		// the owning spec's updated_at. Best-effort, like the issue touch.
+		h.touchSpecForComment(r.Context(), comment)
+	}
 	retriggerEditedComment := func() []CommentTriggerOutcome {
-		if oldContent == comment.Content {
+		if oldContent == comment.Content || triggerIssue == nil {
 			return nil
 		}
 		issue := *triggerIssue
@@ -3677,18 +3693,26 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "only comment author or admin can delete")
 		return
 	}
-	issue, err := h.Queries.GetIssue(r.Context(), comment.IssueID)
-	hasIssue := err == nil
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		slog.Warn("load issue for delete post-processing failed", "issue_id", uuidToString(comment.IssueID), "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to load issue")
-		return
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		// The issue delete may have won the race after GetCommentInWorkspace.
-		// Continue so DeleteComment can report whether the comment itself still
-		// existed; touching issue activity is intentionally best effort.
-		slog.Info("comment parent issue no longer exists", "issue_id", uuidToString(comment.IssueID), "comment_id", commentId)
+	// Spec comments have no issue: skip the issue load entirely (and the
+	// "parent issue no longer exists" log with it) instead of querying for an
+	// id the anchor check guarantees is NULL.
+	var issue db.Issue
+	hasIssue := false
+	if comment.IssueID.Valid {
+		var err error
+		issue, err = h.Queries.GetIssue(r.Context(), comment.IssueID)
+		hasIssue = err == nil
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("load issue for delete post-processing failed", "issue_id", uuidToString(comment.IssueID), "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to load issue")
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The issue delete may have won the race after GetCommentInWorkspace.
+			// Continue so DeleteComment can report whether the comment itself still
+			// existed; touching issue activity is intentionally best effort.
+			slog.Info("comment parent issue no longer exists", "issue_id", uuidToString(comment.IssueID), "comment_id", commentId)
+		}
 	}
 
 	if comment.DeletedAt.Valid {
@@ -3935,12 +3959,27 @@ func (h *Handler) deleteComment(ctx context.Context, commentID, workspaceID pgty
 		}
 	}
 
-	out.IssueRevision, err = qtx.TouchIssueForCommentDelete(ctx, db.TouchIssueForCommentDeleteParams{
-		IssueID:     target.IssueID,
-		WorkspaceID: target.WorkspaceID,
-	})
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return out, err
+	if target.IssueID.Valid {
+		out.IssueRevision, err = qtx.TouchIssueForCommentDelete(ctx, db.TouchIssueForCommentDeleteParams{
+			IssueID:     target.IssueID,
+			WorkspaceID: target.WorkspaceID,
+		})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return out, err
+		}
+	} else if target.SpecVersionID.Valid {
+		// Spec comment: bump the owning spec for the same activity parity.
+		// Best-effort like the issue touch above.
+		if specID, specErr := qtx.GetSpecVersionSpec(ctx, target.SpecVersionID); specErr == nil {
+			if _, specErr := qtx.TouchSpecForComment(ctx, db.TouchSpecForCommentParams{
+				SpecID:      specID,
+				WorkspaceID: target.WorkspaceID,
+			}); specErr != nil && !errors.Is(specErr, pgx.ErrNoRows) {
+				return out, specErr
+			}
+		} else if !errors.Is(specErr, pgx.ErrNoRows) {
+			return out, specErr
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return out, err
@@ -4113,11 +4152,22 @@ func (h *Handler) ResolveComment(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	cleared, err := qtx.ClearOtherThreadResolutions(r.Context(), db.ClearOtherThreadResolutionsParams{
-		TargetID:    comment.ID,
-		IssueID:     comment.IssueID,
-		WorkspaceID: comment.WorkspaceID,
-	})
+	// Single-resolution invariant, one tx for both anchors: an issue thread
+	// clears siblings under the issue; a spec thread under the spec version.
+	var cleared []db.Comment
+	if comment.IssueID.Valid {
+		cleared, err = qtx.ClearOtherThreadResolutions(r.Context(), db.ClearOtherThreadResolutionsParams{
+			TargetID:    comment.ID,
+			IssueID:     comment.IssueID,
+			WorkspaceID: comment.WorkspaceID,
+		})
+	} else {
+		cleared, err = qtx.ClearOtherThreadResolutionsForSpecVersion(r.Context(), db.ClearOtherThreadResolutionsForSpecVersionParams{
+			TargetID:      comment.ID,
+			SpecVersionID: comment.SpecVersionID,
+			WorkspaceID:   comment.WorkspaceID,
+		})
+	}
 	if err != nil {
 		slog.Warn("clear other thread resolutions failed", append(logger.RequestAttrs(r), "error", err, "comment_id", uuidToString(comment.ID))...)
 		writeError(w, http.StatusInternalServerError, "failed to resolve comment")

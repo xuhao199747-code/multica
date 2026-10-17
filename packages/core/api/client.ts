@@ -3712,6 +3712,53 @@ export class ApiClient {
     });
   }
 
+  // Spec comments (DAWE-8) — threads anchored to a spec_version instead of an
+  // issue. Same comment wire shape; the list responses default to [] on
+  // malformed payloads like the issue comment list does.
+  async listSpecVersionComments(specId: string, versionId: string): Promise<Comment[]> {
+    const raw = await this.fetch<unknown>(
+      `/api/specs/${encodeURIComponent(specId)}/versions/${encodeURIComponent(versionId)}/comments`,
+    );
+    return parseWithFallback(raw, CommentsListSchema, [], {
+      endpoint: "GET /api/specs/:id/versions/:versionId/comments",
+    });
+  }
+
+  async listSpecComments(specId: string): Promise<Comment[]> {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(specId)}/comments`);
+    return parseWithFallback(raw, CommentsListSchema, [], {
+      endpoint: "GET /api/specs/:id/comments",
+    });
+  }
+
+  // A single new comment has no safe-empty shape (callers render it straight
+  // away), so a malformed 2xx fails the call — same contract as createSpec.
+  async createSpecComment(
+    specId: string,
+    versionId: string,
+    data: { content: string; type?: string; parentId?: string; attachmentIds?: string[] },
+  ): Promise<Comment> {
+    const raw = await this.fetch<unknown>(
+      `/api/specs/${encodeURIComponent(specId)}/versions/${encodeURIComponent(versionId)}/comments`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: data.content,
+          type: data.type ?? "comment",
+          ...(data.parentId ? { parent_id: data.parentId } : {}),
+          ...(data.attachmentIds?.length ? { attachment_ids: data.attachmentIds } : {}),
+        }),
+      },
+    );
+    const comment = parseWithFallback<Comment | null>(raw, CommentSchema, null, {
+      endpoint: "POST /api/specs/:id/versions/:versionId/comments",
+    });
+    if (!comment) {
+      throw new Error("POST /api/specs/:id/versions/:versionId/comments returned a malformed comment");
+    }
+    return comment;
+  }
+
   // Personal Access Tokens
   async listPersonalAccessTokens(): Promise<PersonalAccessToken[]> {
     return this.fetch("/api/tokens");

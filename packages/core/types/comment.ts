@@ -47,6 +47,14 @@ export interface Comment {
   // Per-target result of every explicit @agent / @squad mention in this comment
   // (MUL-4525 §2). Present only on create/edit responses; older servers omit it.
   trigger_outcomes?: CommentTriggerOutcome[];
+  // Anchor for spec comments (DAWE-8): the spec_version the thread belongs to.
+  // Empty on issue comments — exactly one of issue_id / spec_version_id is
+  // set on every comment. Older servers omit the field.
+  spec_version_id?: string;
+  // Version number within the spec, populated only by the spec-wide comment
+  // list so clients can group threads per version. 0 for issue comments and
+  // on servers predating the field.
+  spec_version_number?: number;
   /** Every running turn this comment steered, one receipt per run. */
   supplements?: CommentSupplementReceipt[];
   /** Mirrors the first receipt; servers that predate `supplements` send only these. */

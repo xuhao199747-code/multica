@@ -156,6 +156,8 @@ JOIN issue i ON i.id = si.issue_id
 WHERE si.spec_id = $1
   AND i.workspace_id = $2
 ORDER BY si.created_at ASC;
+-- name: GetSpecVersionSpec :one
+SELECT spec_id FROM spec_version WHERE id = $1;
 
 -- name: ListSpecSubscribers :many
 SELECT * FROM spec_subscriber
