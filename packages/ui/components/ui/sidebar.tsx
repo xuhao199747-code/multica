@@ -321,7 +321,7 @@ function Sidebar({
         {/* Below the compact breakpoint a closed sidebar used to mean no nav
             on screen at all: the sheet is unmounted, the trigger is one small
             icon in the page header. Keep a slim in-flow rail instead — icons
-            stay one tap from every primary destination, and the footer's
+            stay one tap from every primary destination, and the rail's
             expand button (rendered by the app sidebar) opens the full sheet.
             The rail reuses the icon-collapsible styles (`data-collapsible`
             below drives the group-data selectors), with overrides that keep
@@ -825,7 +825,7 @@ function SidebarMenuButton({
     isActive?: boolean
     tooltip?: string | React.ComponentProps<typeof TooltipContent>
   } & VariantProps<typeof sidebarMenuButtonVariants>) {
-  const { isCompact, state } = useSidebar()
+  const { isCompact, state, openMobile } = useSidebar()
   const comp = useRender({
     defaultTagName: "button",
     props: mergeProps<"button">(
@@ -859,7 +859,7 @@ function SidebarMenuButton({
       <TooltipContent
         side="right"
         align="center"
-        hidden={state !== "collapsed" || isCompact}
+        hidden={isCompact ? openMobile : state !== "collapsed"}
         {...tooltip}
       />
     </Tooltip>
