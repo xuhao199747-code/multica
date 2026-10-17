@@ -55,6 +55,10 @@ import {
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
   SendChatMessageResponseSchema,
+  SpecVersionListResponseSchema,
+  SpecVersionSchema,
+  EMPTY_SPEC_VERSION,
+  EMPTY_SPEC_VERSION_LIST_RESPONSE,
   SquadListSchema,
   SquadSchema,
   SourceContextPreviewSchema,
@@ -2353,5 +2357,40 @@ describe("AgentActivityBucketListSchema duration", () => {
     expect(parsed[0]?.task_count).toBe(201);
     expect(parsed[0]?.duration_ms).toBeUndefined();
     expect(parsed[0]?.duration_count).toBeUndefined();
+  });
+});
+
+describe("SpecVersion schemas", () => {
+  const version = {
+    id: "ver-1",
+    number: 3,
+    content: "# Rules",
+    changelog: "Add lockout",
+    created_at: "2026-10-17T00:00:00Z",
+  };
+
+  it("drops one malformed version without hiding the rest of the list", () => {
+    const parsed = SpecVersionListResponseSchema.parse({
+      versions: [version, { ...version, id: "ver-2", number: "two" }, { ...version, id: "ver-1" }],
+      total: 3,
+    });
+    expect(parsed.versions.map((v) => v.id)).toEqual(["ver-1", "ver-1"]);
+    expect(parsed.total).toBe(3);
+  });
+
+  it("falls back to an empty list payload when the response is not an object", () => {
+    expect(
+      parseWithFallback("nope", SpecVersionListResponseSchema, EMPTY_SPEC_VERSION_LIST_RESPONSE, {
+        endpoint: "GET /api/specs/:id/versions",
+      }),
+    ).toEqual(EMPTY_SPEC_VERSION_LIST_RESPONSE);
+  });
+
+  it("degrades a malformed version payload to the empty version", () => {
+    expect(
+      parseWithFallback({ id: 42 }, SpecVersionSchema, EMPTY_SPEC_VERSION, {
+        endpoint: "POST /api/specs/:id/versions",
+      }),
+    ).toEqual(EMPTY_SPEC_VERSION);
   });
 });

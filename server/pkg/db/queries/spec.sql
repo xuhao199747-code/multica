@@ -53,6 +53,16 @@ RETURNING spec_counter;
 SELECT * FROM spec_version
 WHERE id = $1 AND spec_id = $2;
 
+-- name: GetSpecVersionByNumber :one
+SELECT * FROM spec_version
+WHERE spec_id = $1 AND number = $2;
+
+-- name: GetLatestSpecVersion :one
+SELECT * FROM spec_version
+WHERE spec_id = $1
+ORDER BY number DESC
+LIMIT 1;
+
 -- name: ListSpecVersions :many
 SELECT * FROM spec_version
 WHERE spec_id = $1
@@ -66,11 +76,39 @@ INSERT INTO spec_version (
 )
 RETURNING *;
 
+-- name: CreateSpecVersionNext :one
+-- Number assignment is MAX(number)+1 inside the INSERT so concurrent
+-- publishes serialize on the unique (spec_id, number) index instead of
+-- racing a read-then-write increment.
+INSERT INTO spec_version (spec_id, number, content, changelog, created_by)
+SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $3, $4
+FROM spec_version
+WHERE spec_id = $1
+RETURNING *;
+
+-- name: UpdateSpecVersionContentWhereNumber :one
+-- Guards on number so an edit aimed at the latest version fails instead of
+-- silently rewriting a newer snapshot when a publish races it.
+UPDATE spec_version
+SET content = $3,
+    changelog = COALESCE(sqlc.narg('changelog'), changelog)
+WHERE id = $1 AND spec_id = $2 AND number = $4
+RETURNING *;
+
 -- name: SetSpecCurrentVersion :one
 UPDATE spec
 SET current_version_id = $3,
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
+RETURNING *;
+
+-- name: UpdateSpecStatusWhereStatus :one
+-- The expected from-status is part of the predicate so an illegal or
+-- raced transition updates nothing and the caller can report a conflict.
+UPDATE spec
+SET status = $3,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $2 AND status = $4
 RETURNING *;
 
 -- name: ListSpecIssues :many
