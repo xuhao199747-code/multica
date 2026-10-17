@@ -286,6 +286,45 @@ func (f *Fixture) Project(t TB, title string, over ...Cols) string {
 	}, over))
 }
 
+// Spec inserts a spec owned by the fixture's workspace and user.
+//
+// The identifier defaults to "<issue_prefix>-S-<n>" with n derived from the
+// workspace's existing specs, so two specs built by the same test do not
+// collide on the workspace's unique (workspace_id, identifier) index. Tests
+// that mint identifiers some other way can pass an explicit "identifier"
+// override.
+func (f *Fixture) Spec(t TB, title string, over ...Cols) string {
+	t.Helper()
+	cols := merge(Cols{
+		"workspace_id": f.WorkspaceID,
+		"title":        title,
+		"status":       "draft",
+		"created_by":   f.UserID,
+	}, over)
+	if _, ok := cols["identifier"]; !ok {
+		workspaceID, _ := cols["workspace_id"].(string)
+		cols["identifier"] = Raw(fmt.Sprintf(
+			`(SELECT w.issue_prefix || '-S-' ||
+			        COALESCE((SELECT MAX(CAST(substring(s.identifier FROM '-S-([0-9]+)$') AS INTEGER))
+			                  FROM spec s WHERE s.workspace_id = w.id), 0) + 1
+			 FROM workspace w WHERE w.id = %s)`,
+			quoteLiteral(workspaceID)))
+	}
+	return f.Insert(t, "spec", cols)
+}
+
+// SpecVersion inserts a version row for specID.
+func (f *Fixture) SpecVersion(t TB, specID string, number int32, over ...Cols) string {
+	t.Helper()
+	return f.Insert(t, "spec_version", merge(Cols{
+		"spec_id":    specID,
+		"number":     number,
+		"content":    "version content",
+		"changelog":  "",
+		"created_by": f.UserID,
+	}, over))
+}
+
 // ChatSession inserts a chat session with agentID.
 func (f *Fixture) ChatSession(t TB, agentID string, over ...Cols) string {
 	t.Helper()

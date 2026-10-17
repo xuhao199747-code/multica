@@ -2071,6 +2071,28 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			// Specs
+			r.Route("/api/specs", func(r chi.Router) {
+				r.Get("/", h.ListSpecs)
+				r.Post("/", h.CreateSpec)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.GetSpec)
+					r.Put("/", h.UpdateSpec)
+					r.Delete("/", h.DeleteSpec)
+					r.Post("/versions", h.PublishSpecVersion)
+					r.Get("/versions", h.ListSpecVersions)
+					r.Get("/versions/{number}", h.GetSpecVersion)
+					r.Patch("/versions/latest", h.UpdateLatestSpecVersion)
+					r.Post("/transition", h.TransitionSpecStatus)
+					r.Get("/issues", h.ListSpecIssues)
+					r.Post("/issues", h.LinkSpecIssue)
+					r.Delete("/issues/{issueId}", h.UnlinkSpecIssue)
+					r.Get("/subscribers", h.ListSpecSubscribers)
+					r.Post("/subscribe", h.SubscribeToSpec)
+					r.Post("/unsubscribe", h.UnsubscribeFromSpec)
+				})
+			})
+
 			// Task messages (user-facing, not daemon auth)
 			r.Get("/api/tasks/{taskId}/messages", h.ListTaskMessagesByUser)
 			r.With(handler.RequireHumanActor).Post("/api/tasks/{taskId}/retry-source-context", h.RetrySourceContextQuickCreate)

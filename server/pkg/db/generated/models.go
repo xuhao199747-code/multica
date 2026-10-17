@@ -1422,6 +1422,41 @@ type SkillToLabel struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Spec struct {
+	ID               pgtype.UUID        `json:"id"`
+	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
+	ProjectID        pgtype.UUID        `json:"project_id"`
+	Title            string             `json:"title"`
+	Identifier       string             `json:"identifier"`
+	Status           string             `json:"status"`
+	CurrentVersionID pgtype.UUID        `json:"current_version_id"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SpecIssue struct {
+	SpecID    pgtype.UUID        `json:"spec_id"`
+	IssueID   pgtype.UUID        `json:"issue_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type SpecSubscriber struct {
+	SpecID    pgtype.UUID        `json:"spec_id"`
+	MemberID  pgtype.UUID        `json:"member_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type SpecVersion struct {
+	ID        pgtype.UUID        `json:"id"`
+	SpecID    pgtype.UUID        `json:"spec_id"`
+	Number    int32              `json:"number"`
+	Content   string             `json:"content"`
+	Changelog string             `json:"changelog"`
+	CreatedBy pgtype.UUID        `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Squad struct {
 	ID           pgtype.UUID        `json:"id"`
 	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
@@ -1714,7 +1749,8 @@ type Workspace struct {
 	IssueCounter int32              `json:"issue_counter"`
 	AvatarUrl    pgtype.Text        `json:"avatar_url"`
 	// When TRUE, an agent run that resolves to no precise accountable human (would be owner_fallback) is refused at enqueue instead of degrading to the agent owner (MUL-4302 §3.5). Default FALSE = owner_fallback. Never affects authorization (originator_user_id).
-	AttributionFailClosed bool `json:"attribution_fail_closed"`
+	AttributionFailClosed bool  `json:"attribution_fail_closed"`
+	SpecCounter           int32 `json:"spec_counter"`
 }
 
 type WorkspaceInvitation struct {
