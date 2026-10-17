@@ -41,6 +41,12 @@
     "loading_named_prefix": "로딩 중"
   },
   "sidebar": {
+    "update_checking": "업데이트 확인 중",
+    "update_current": "최신 버전입니다",
+    "update_available": "공식 업데이트가 있습니다",
+    "update_unknown": "업데이트 확인 실패",
+    "update_check": "Multica 업데이트 확인",
+    "update_view": "공식 업데이트 보기",
     "unpin_tooltip": "고정 해제",
     "workspaces_label": "워크스페이스",
     "create_workspace": "워크스페이스 만들기",

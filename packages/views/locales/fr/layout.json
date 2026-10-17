@@ -41,6 +41,12 @@
     "loading_named_prefix": "Chargement"
   },
   "sidebar": {
+    "update_checking": "Recherche de mises à jour",
+    "update_current": "À jour",
+    "update_available": "Mise à jour officielle disponible",
+    "update_unknown": "Échec de la recherche de mises à jour",
+    "update_check": "Rechercher les mises à jour Multica",
+    "update_view": "Voir les mises à jour officielles",
     "unpin_tooltip": "Détacher",
     "workspaces_label": "Espaces de travail",
     "create_workspace": "Créer un espace de travail",

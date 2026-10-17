@@ -11,7 +11,7 @@ import { AppSidebar } from "./app-sidebar";
 
 const { appForeground, chatSessions, chatStore, detail, deletePin, invitationApi, navigation, pins, sidebarState, summary, workspaces } = vi.hoisted(() => ({
   appForeground: { current: true },
-  sidebarState: { setOpenMobile: vi.fn() },
+  sidebarState: { setOpenMobile: vi.fn(), isCompact: true, openMobile: false },
   chatSessions: { current: [] as { id?: string; unread_count?: number }[] },
   chatStore: { current: { activeSessionId: null as string | null, isOpen: false } },
   detail: { current: { isPending: false, isError: false, data: null as unknown, error: null as unknown } },
@@ -70,19 +70,21 @@ vi.mock("@multica/ui/components/ui/sidebar", () => ({
     children,
     isActive,
     render,
+    tooltip,
     ...props
   }: {
     children: React.ReactNode;
     isActive?: boolean;
     render?: React.ReactElement<{ href?: string }>;
+    tooltip?: string;
   } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props} type="button" data-active={isActive ? "true" : undefined} data-href={render?.props.href}>
+    <button {...props} type="button" data-tooltip={tooltip} data-active={isActive ? "true" : undefined} data-href={render?.props.href}>
       {children}
     </button>
   ),
   SidebarMenuItem: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   SidebarRail: () => null,
-  useSidebar: () => ({ setOpenMobile: sidebarState.setOpenMobile }),
+  useSidebar: () => sidebarState,
 }));
 vi.mock("@multica/ui/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -101,7 +103,7 @@ vi.mock("@multica/ui/components/ui/collapsible", () => ({
 vi.mock("@multica/ui/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>,
+  TooltipTrigger: ({ children, render }: { children?: React.ReactNode; render?: React.ReactNode }) => render ?? <button type="button">{children}</button>,
 }));
 vi.mock("../common/use-app-foreground", () => ({
   useAppForeground: () => appForeground.current,
@@ -409,6 +411,18 @@ describe("workspace-switcher collapsed rail presentation", () => {
     expect(name.className).toContain("group-data-[collapsible=icon]:sr-only");
     expect(button?.querySelector("svg")?.getAttribute("class")).toContain("group-data-[collapsible=icon]:hidden");
   });
+
+  it("places the expand action between workspace and new issue", () => {
+    const { container } = renderWithI18n(<AppSidebar />);
+    const expand = screen.getByRole("button", { name: /expand sidebar/i });
+    const workspace = screen.getByText("Acme").closest("button")!;
+    const create = screen.getByRole("button", { name: /new issue/i });
+    expect(workspace.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(expand.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(expand);
+    expect(sidebarState.setOpenMobile).toHaveBeenCalledWith(true);
+    expect(container.querySelector('button[data-href="/acme/inbox"]')).toHaveAttribute("data-tooltip", "Inbox");
+  });
 });
 
 describe("navigation item presentation", () => {
@@ -443,6 +457,24 @@ describe("personal nav — Chat", () => {
     container.querySelector<HTMLElement>('button[data-href="/acme/chat"]');
   const chatBadge = (container: HTMLElement) =>
     chatNav(container)?.querySelector("number-flow-react") ?? null;
+
+  it("positions the existing unread counters as compact icon badges", () => {
+    summary.current = [{ workspace_id: "ws-1", count: 4 }];
+    chatSessions.current = [{ id: "a", unread_count: 3 }];
+    const { container, rerender } = render(<AppSidebar />);
+    for (const route of ["inbox", "chat"]) {
+      const nav = container.querySelector<HTMLElement>(`button[data-href="/acme/${route}"]`);
+      const badge = nav?.querySelector("number-flow-react");
+      expect(nav).toHaveClass("relative");
+      expect(badge).toHaveClass("group-data-[collapsible=icon]:absolute");
+      expect(badge).toHaveClass("group-data-[collapsible=icon]:rounded-full");
+    }
+    summary.current = [{ workspace_id: "ws-1", count: 0 }];
+    chatSessions.current = [{ id: "a", unread_count: 0 }];
+    rerender(<AppSidebar />);
+    expect(container.querySelector('button[data-href="/acme/inbox"] number-flow-react')).toBeNull();
+    expect(chatBadge(container)).toBeNull();
+  });
 
   it("keeps persistent Inbox and Chat counters static", () => {
     summary.current = [{ workspace_id: "ws-1", count: 1 }];
