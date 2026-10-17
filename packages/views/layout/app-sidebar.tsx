@@ -625,7 +625,13 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
-                    <SidebarMenuButton>
+                    // Collapsed rail: the row is avatar-only. Hiding the name
+                    // visually (keeping it accessible) and dropping the chevron
+                    // leaves the avatar as the sole in-flow child, so
+                    // justify-center aligns it with the 16px nav icons below —
+                    // left-packed, the 20px avatar overflows the 16px icon box
+                    // to the right and reads as off center.
+                    <SidebarMenuButton className="group-data-[collapsible=icon]:justify-center">
                       <span className="relative">
                         <WorkspaceAvatar name={workspace?.name ?? "M"} avatarUrl={workspace?.avatar_url} size="sm" />
                         {/* Shared brand dot: a pending invitation OR another
@@ -636,10 +642,10 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                           <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-brand ring-1 ring-sidebar" />
                         )}
                       </span>
-                      <span className="flex-1 truncate font-medium">
+                      <span className="flex-1 truncate font-medium group-data-[collapsible=icon]:sr-only">
                         {workspace?.name ?? "Multica"}
                       </span>
-                      <ChevronDown className="size-3 text-muted-foreground" />
+                      <ChevronDown className="size-3 text-muted-foreground group-data-[collapsible=icon]:hidden" />
                     </SidebarMenuButton>
                   }
                 />

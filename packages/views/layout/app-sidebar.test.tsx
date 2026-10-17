@@ -389,6 +389,28 @@ describe("workspace-switcher dropdown per-workspace dot", () => {
   });
 });
 
+describe("workspace-switcher collapsed rail presentation", () => {
+  beforeEach(() => {
+    summary.current = [];
+    workspaces.current = [];
+  });
+
+  // In the icon-collapsible rail the switcher is avatar-only: the button
+  // centers its content and the name/chevron leave the flex row (name stays
+  // screen-reader accessible), so the 20px avatar lines up with the 16px nav
+  // icons instead of overflowing the icon box off center.
+  it("centers the avatar and keeps the workspace name accessible", () => {
+    render(<AppSidebar />);
+    const name = screen.getByText("Acme");
+    const button = name.closest("button");
+
+    expect(button).not.toBeNull();
+    expect(button?.className).toContain("group-data-[collapsible=icon]:justify-center");
+    expect(name.className).toContain("group-data-[collapsible=icon]:sr-only");
+    expect(button?.querySelector("svg")?.getAttribute("class")).toContain("group-data-[collapsible=icon]:hidden");
+  });
+});
+
 describe("navigation item presentation", () => {
   it("keeps Analytics and Settings styled like the other nav items", () => {
     const { container } = render(<AppSidebar />);
