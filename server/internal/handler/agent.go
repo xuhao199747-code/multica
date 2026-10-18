@@ -50,8 +50,9 @@ type AgentConversationStarter struct {
 }
 
 type AgentResponse struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
+	ID           string                     `json:"id"`
+	WorkspaceID  string                     `json:"workspace_id"`
+	ReviewConfig *service.ReviewAgentConfig `json:"review_config,omitempty"`
 	// RuntimeID is the empty string when the agent is unbound — it kept its
 	// configuration and history when its runtime was deleted, and needs a new
 	// runtime before it can run again (MUL-5559). The wire type stays a string
@@ -151,6 +152,13 @@ type AgentResponse struct {
 const runtimeConfigGatewayTokenMask = "***"
 
 func (h *Handler) agentToResponse(a db.Agent) AgentResponse {
+	var reviewConfig *service.ReviewAgentConfig
+	if len(a.ReviewConfig) != 0 {
+		var config service.ReviewAgentConfig
+		if err := json.Unmarshal(a.ReviewConfig, &config); err == nil {
+			reviewConfig = &config
+		}
+	}
 	var rc any
 	if a.RuntimeConfig != nil {
 		json.Unmarshal(a.RuntimeConfig, &rc)
@@ -209,6 +217,7 @@ func (h *Handler) agentToResponse(a db.Agent) AgentResponse {
 	return AgentResponse{
 		ID:                       uuidToString(a.ID),
 		WorkspaceID:              uuidToString(a.WorkspaceID),
+		ReviewConfig:             reviewConfig,
 		RuntimeID:                uuidToString(a.RuntimeID),
 		RuntimeBound:             a.RuntimeID.Valid,
 		Name:                     a.Name,
@@ -1296,6 +1305,7 @@ func (h *Handler) GetAgent(w http.ResponseWriter, r *http.Request) {
 
 type CreateAgentRequest struct {
 	Name                 string                     `json:"name"`
+	ReviewConfig         *service.ReviewAgentConfig `json:"review_config"`
 	Description          string                     `json:"description"`
 	Instructions         string                     `json:"instructions"`
 	ConversationStarters []AgentConversationStarter `json:"conversation_starters"`
@@ -1453,6 +1463,9 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.validateReviewConfig(w, r, wsUUID, req.ReviewConfig) {
+		return
+	}
 	if !canUseRuntimeForAgent(member, runtime) {
 		writeError(w, http.StatusForbidden, "this runtime is private; only its owner can create agents on it")
 		return
@@ -1569,6 +1582,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	qtx := h.Queries.WithTx(tx)
 
 	created, err := qtx.CreateAgent(r.Context(), db.CreateAgentParams{
+		ReviewConfig:             marshalReviewConfig(req.ReviewConfig),
 		WorkspaceID:              wsUUID,
 		Name:                     req.Name,
 		Description:              req.Description,
@@ -1655,6 +1669,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 type UpdateAgentRequest struct {
 	Name                 *string                     `json:"name"`
+	ReviewConfig         *service.ReviewAgentConfig  `json:"review_config"`
 	Description          *string                     `json:"description"`
 	Instructions         *string                     `json:"instructions"`
 	ConversationStarters *[]AgentConversationStarter `json:"conversation_starters"`
@@ -1911,6 +1926,13 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	params := db.UpdateAgentParams{
 		ID: existing.ID,
+	}
+	if _, present := rawFields["review_config"]; present {
+		if !h.validateReviewConfig(w, r, existing.WorkspaceID, req.ReviewConfig) {
+			return
+		}
+		params.SetReviewConfig = true
+		params.ReviewConfig = marshalReviewConfig(req.ReviewConfig)
 	}
 	if req.Name != nil {
 		params.Name = pgtype.Text{String: *req.Name, Valid: true}
