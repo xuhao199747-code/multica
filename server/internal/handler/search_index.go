@@ -524,7 +524,7 @@ func (h *Handler) ListSearchIndexChanges(w http.ResponseWriter, r *http.Request)
 	}
 	liveComments := make(map[pgtype.UUID]bool, len(comments))
 	for _, c := range comments {
-		if c.DeletedAt.Valid {
+		if c.DeletedAt.Valid || !c.IssueID.Valid {
 			continue
 		}
 		liveComments[c.ID] = true

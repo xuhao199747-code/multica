@@ -15,9 +15,9 @@ SELECT
     (SELECT COALESCE(sum(octet_length(i.title) + COALESCE(octet_length(i.description), 0)), 0)
         FROM issue i, ws WHERE i.workspace_id = ws.id)::bigint AS issue_bytes,
     (SELECT count(*) FROM comment c, ws
-        WHERE c.workspace_id = ws.id AND c.deleted_at IS NULL)::bigint AS comment_count,
+        WHERE c.workspace_id = ws.id AND c.issue_id IS NOT NULL AND c.deleted_at IS NULL)::bigint AS comment_count,
     (SELECT COALESCE(sum(octet_length(c.content)), 0) FROM comment c, ws
-        WHERE c.workspace_id = ws.id AND c.deleted_at IS NULL)::bigint AS comment_bytes,
+        WHERE c.workspace_id = ws.id AND c.issue_id IS NOT NULL AND c.deleted_at IS NULL)::bigint AS comment_bytes,
     (SELECT count(*) FROM project p, ws WHERE p.workspace_id = ws.id)::bigint AS project_count,
     (SELECT COALESCE(sum(octet_length(p.title) + COALESCE(octet_length(p.description), 0)), 0)
         FROM project p, ws WHERE p.workspace_id = ws.id)::bigint AS project_bytes;

@@ -79,6 +79,26 @@ func assertIDs(t *testing.T, label string, got, want []string) {
 	}
 }
 
+func TestSearchIndexIgnoresSpecComments(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	specID := dbfx.Spec(t, "search index spec")
+	versionID := dbfx.SpecVersion(t, specID, 1)
+	before := searchIndexManifest(t, testWorkspaceID)
+	comment := mustCreateSpecComment(t, specID, versionID, map[string]any{"content": "spec review"})
+	after := searchIndexManifest(t, testWorkspaceID)
+	if after.CommentCount != before.CommentCount {
+		t.Fatalf("spec comment changed search index count: before=%d after=%d", before.CommentCount, after.CommentCount)
+	}
+	changes := searchIndexChanges(t, testWorkspaceID, before.Cursor, 100)
+	for _, row := range changes.Comments {
+		if row.ID == comment.ID {
+			t.Fatalf("spec comment leaked into issue search index: %+v", row)
+		}
+	}
+}
+
 func TestSearchIndexBootstrapThenCatchUp(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
