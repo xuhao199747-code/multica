@@ -3541,6 +3541,7 @@ export const SpecSummarySchema = z.object({
   identifier: z.string(),
   status: z.string(),
   current_version_id: z.string().nullable().optional().default(null),
+  current_version_number: z.number().int().nonnegative().optional().default(0),
   created_at: z.string().optional().default(""),
   updated_at: z.string().optional().default(""),
 }).loose();
@@ -3560,6 +3561,7 @@ export const EMPTY_SPEC_SUMMARY: SpecSummary = {
   identifier: "",
   status: "",
   current_version_id: null,
+  current_version_number: 0,
   created_at: "",
   updated_at: "",
 };

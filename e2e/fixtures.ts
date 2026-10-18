@@ -210,6 +210,25 @@ export class TestApiClient {
     return res.json();
   }
 
+  async cleanupSpec(id: string) {
+    if (!this.workspaceId) throw new Error("workspace required to clean up spec");
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM comment WHERE spec_version_id IN (SELECT v.id FROM spec_version v JOIN spec s ON s.id = v.spec_id WHERE s.id = $1 AND s.workspace_id = $2)`, [id, this.workspaceId]);
+      await client.query(`UPDATE spec SET status = 'draft' WHERE id = $1 AND workspace_id = $2`, [id, this.workspaceId]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      await client.end();
+    }
+    const res = await this.authedFetch(`/api/specs/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok && res.status !== 404) throw new Error(`delete spec failed: ${res.status}`);
+  }
+
   async deleteProject(id: string) {
     await this.authedFetch(`/api/projects/${id}`, { method: "DELETE" });
   }

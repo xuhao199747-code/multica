@@ -57,6 +57,13 @@ describe("resolveTabPresentation — direct resources", () => {
     });
   });
 
+  it("spec shows its name and a document icon", () => {
+    expect(present("/acme/specs/s1", { spec: { title: "Requirements" } })).toEqual({
+      visual: { kind: "icon", icon: "FileText" },
+      title: { kind: "text", text: "Requirements" },
+    });
+  });
+
   it("actor shows avatar visual and resolved name", () => {
     expect(present("/acme/agents/ag1")).toEqual({
       visual: { kind: "actor", actorType: "agent", id: "ag1" },

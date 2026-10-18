@@ -31,6 +31,7 @@ export interface SpecSummary {
   identifier: string;
   status: string;
   current_version_id: string | null;
+  current_version_number?: number;
   created_at: string;
   updated_at: string;
 }

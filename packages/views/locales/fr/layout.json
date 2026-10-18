@@ -25,7 +25,8 @@
     "runtime": "Runtime",
     "attachment": "Pièce jointe",
     "create_agent": "Créer un agent",
-    "unknown": "Page inconnue"
+    "unknown": "Page inconnue",
+    "spec": "Spécification"
   },
   "help": {
     "trigger": "Aide",

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createMemoryRouter, Outlet, useMatches } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { IssueDetailPage } from "./pages/issue-detail-page";
+import { SpecDetailPage } from "./pages/spec-detail-page";
 import { ProjectDetailPage } from "./pages/project-detail-page";
 import { AutopilotDetailPage } from "./pages/autopilot-detail-page";
 import { SkillDetailPage } from "./pages/skill-detail-page";
@@ -146,6 +147,11 @@ export const appRoutes: RouteObject[] = [
             path: "projects/:id",
             element: <ProjectDetailPage />,
             handle: { title: "Project" },
+          },
+          {
+            path: "specs/:id",
+            element: <SpecDetailPage />,
+            handle: { title: "Spec" },
           },
           {
             path: "autopilots",

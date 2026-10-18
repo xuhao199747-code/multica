@@ -12,6 +12,7 @@ import { defaultStorage } from "../platform/storage";
 import { getCurrentWsId, getCurrentSlug } from "../platform/workspace-storage";
 import { issueKeys } from "../issues/queries";
 import { projectKeys } from "../projects/queries";
+import { specKeys } from "../specs";
 import { pinKeys } from "../pins/queries";
 import { autopilotKeys } from "../autopilots/queries";
 import { runtimeKeys } from "../runtimes/queries";
@@ -655,6 +656,7 @@ function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
     qc.invalidateQueries({ queryKey: workspaceKeys.skills(wsId) });
     qc.invalidateQueries({ queryKey: workspaceKeys.invitations(wsId) });
     qc.invalidateQueries({ queryKey: projectKeys.all(wsId) });
+    qc.invalidateQueries({ queryKey: specKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: autopilotKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: agentTaskSnapshotKeys.all(wsId) });
@@ -785,6 +787,10 @@ export function useRealtimeSync(
     if (!ws) return;
 
     const refreshMap: Record<string, () => void> = {
+      spec: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: specKeys.all(wsId) });
+      },
       inbox: () => {
         const wsId = getCurrentWsId();
         if (wsId) void onInboxInvalidate(qc, wsId);
@@ -1194,7 +1200,11 @@ export function useRealtimeSync(
 
     const unsubCommentCreated = ws.on("comment:created", (p) => {
       const { comment, issue_revision: issueRevision } = p as CommentCreatedPayload;
-      if (!comment?.issue_id) return;
+      if (!comment?.issue_id) {
+        const wsId = getCurrentWsId();
+        if (wsId && comment?.spec_version_id) qc.invalidateQueries({ queryKey: specKeys.all(wsId) });
+        return;
+      }
       invalidateTimeline(comment.issue_id);
       // A new comment bumps the parent issue's updated_at server-side
       // (MUL-5009), so any open board/list sorted by "Updated date" has

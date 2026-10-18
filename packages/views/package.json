@@ -18,6 +18,7 @@
     "./issues/utils/filter": "./issues/utils/filter.ts",
     "./issues/utils/sort": "./issues/utils/sort.ts",
     "./common/task-transcript": "./common/task-transcript/index.ts",
+    "./specs": "./specs/index.ts",
     "./projects/components": "./projects/components/index.ts",
     "./autopilots/components": "./autopilots/components/index.ts",
     "./modals/registry": "./modals/registry.tsx",

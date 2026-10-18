@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { specDetailOptions } from "@multica/core/specs";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { issueStatusListOptions, buildIssueStatusCatalog } from "@multica/core/issue-statuses/queries";
 import {
@@ -66,6 +67,7 @@ const NONE = "__tab_presentation_none__";
 const PENDING_RESOURCE_KEYS: ReadonlySet<TabLabelKey> = new Set<TabLabelKey>([
   "issue",
   "project",
+  "spec",
   "autopilot",
   "agent",
   "member",
@@ -143,6 +145,7 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
     ),
     enabled: false,
   }).data;
+  const spec = useQuery({ ...specDetailOptions(wsId, subject.kind === "spec" ? subject.id : NONE), enabled: false }).data;
   const skill = useQuery({
     ...skillDetailOptions(wsId, subject.kind === "skill" ? subject.id : NONE),
     enabled: false,
@@ -167,6 +170,9 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
       break;
     case "project":
       if (project) data.project = { icon: project.icon, title: project.title };
+      break;
+    case "spec":
+      if (spec) data.spec = { title: spec.title };
       break;
     case "autopilot":
       if (autopilot) data.autopilot = { title: autopilot.autopilot.title };

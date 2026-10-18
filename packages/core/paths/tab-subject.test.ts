@@ -21,6 +21,7 @@ describe("parseTabSubject", () => {
     // Resource details
     ["/acme/issues/bug-1", { kind: "issue", id: "bug-1" }],
     ["/acme/projects/p1", { kind: "project", id: "p1" }],
+    ["/acme/specs/s1", { kind: "spec", id: "s1" }],
     ["/acme/autopilots/a1", { kind: "autopilot", id: "a1" }],
     ["/acme/skills/s1", { kind: "skill", id: "s1" }],
     ["/acme/attachments/att1/preview", { kind: "attachment", id: "att1", filename: null }],

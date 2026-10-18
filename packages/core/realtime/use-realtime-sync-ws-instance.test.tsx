@@ -80,6 +80,23 @@ describe("useRealtimeSync — ws instance change", () => {
     invalidateSpy = vi.spyOn(qc, "invalidateQueries");
   });
 
+  it("refreshes workspace specs when a spec event arrives", async () => {
+    const ws = createMockWs();
+    renderHook(() => useRealtimeSync(ws, stores), { wrapper: createWrapper(qc) });
+    const onAny = vi.mocked(ws.onAny).mock.calls[0]![0];
+    onAny({ type: "spec:published", payload: {} } as never);
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["specs", "ws-1"] }));
+  });
+
+  it("refreshes spec comments when another client comments", async () => {
+    const ws = createMockWs();
+    renderHook(() => useRealtimeSync(ws, stores), { wrapper: createWrapper(qc) });
+    const onComment = vi.mocked(ws.on).mock.calls.find(([name]) => name === "comment:created")?.[1];
+    expect(onComment).toBeDefined();
+    onComment!({ comment: { id: "c1", issue_id: "", spec_version_id: "v1" }, spec_id: "s1" } as never);
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["specs", "ws-1"] }));
+  });
+
   it("skips invalidation on first non-null ws instance", () => {
     const ws = createMockWs();
     renderHook(() => useRealtimeSync(ws, stores), {
@@ -126,15 +143,16 @@ describe("useRealtimeSync — ws instance change", () => {
     rerender({ ws: ws2 });
 
     // Should have called invalidateQueries for all workspace-scoped keys
-    // (16 workspace-scoped [incl. property definitions] + 6 per-issue
+    // (17 workspace-scoped [incl. property definitions and specs] + 6 per-issue
     // prefixes + the workspace working-agents projection + 5 per-chat
     // prefixes + 1 workspaceKeys.list() + 1 cross-workspace inbox unread
-    // summary = 31 calls).
+    // summary = 32 calls).
     //
     // Awaited rather than counted synchronously: the inbox unread summary
     // refresh cancels any in-flight request before invalidating (see
     // onInboxSummaryInvalidate), so that one lands after the synchronous ones.
-    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledTimes(31));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["specs", "ws-1"] }));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledTimes(32));
   });
 
   it("does not re-invalidate when rerendered with the same ws instance", () => {

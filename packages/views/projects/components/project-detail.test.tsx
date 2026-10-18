@@ -7,6 +7,8 @@ import { renderWithI18n } from "../../test/i18n";
 import { NavigationProvider, type NavigationAdapter } from "../../navigation";
 import { ProjectDetail } from "./project-detail";
 
+vi.mock("../../specs/project-specs", () => ({ ProjectSpecs: () => null }));
+
 const mocks = vi.hoisted(() => ({
   role: "admin",
   copyText: vi.fn(),

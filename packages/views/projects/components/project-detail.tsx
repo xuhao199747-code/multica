@@ -26,6 +26,7 @@ import { currentPath, useNavigation } from "../../navigation";
 import { TitleEditor, ContentEditor, type ContentEditorRef } from "../../editor";
 import { PriorityIcon } from "../../issues/components/priority-icon";
 import { ProjectResourcesSection } from "./project-resources-section";
+import { ProjectSpecs } from "../../specs/project-specs";
 import { ProjectStartDatePicker } from "./project-start-date-picker";
 import { ProjectDueDatePicker } from "./project-due-date-picker";
 import { IssueSurface } from "../../issues/surface/issue-surface";
@@ -470,6 +471,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
 
       {/* Resources */}
       <ProjectResourcesSection projectId={projectId} />
+      <ProjectSpecs projectId={projectId} />
     </div>
   );
 
