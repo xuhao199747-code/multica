@@ -175,6 +175,70 @@ func (q *Queries) DeleteSpec(ctx context.Context, arg DeleteSpecParams) error {
 	return err
 }
 
+const deleteSpecCommentAttachments = `-- name: DeleteSpecCommentAttachments :many
+DELETE FROM attachment a
+WHERE a.workspace_id = $1
+  AND a.comment_id IN (SELECT c.id FROM comment c JOIN spec_version v ON v.id = c.spec_version_id WHERE v.spec_id = $2 AND c.workspace_id = $1)
+RETURNING url
+`
+
+type DeleteSpecCommentAttachmentsParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	SpecID      pgtype.UUID `json:"spec_id"`
+}
+
+func (q *Queries) DeleteSpecCommentAttachments(ctx context.Context, arg DeleteSpecCommentAttachmentsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteSpecCommentAttachments, arg.WorkspaceID, arg.SpecID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, err
+		}
+		items = append(items, url)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteSpecCommentReactions = `-- name: DeleteSpecCommentReactions :exec
+DELETE FROM comment_reaction r
+WHERE r.workspace_id = $1
+  AND r.comment_id IN (SELECT c.id FROM comment c JOIN spec_version v ON v.id = c.spec_version_id WHERE v.spec_id = $2 AND c.workspace_id = $1)
+`
+
+type DeleteSpecCommentReactionsParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	SpecID      pgtype.UUID `json:"spec_id"`
+}
+
+func (q *Queries) DeleteSpecCommentReactions(ctx context.Context, arg DeleteSpecCommentReactionsParams) error {
+	_, err := q.db.Exec(ctx, deleteSpecCommentReactions, arg.WorkspaceID, arg.SpecID)
+	return err
+}
+
+const deleteSpecComments = `-- name: DeleteSpecComments :exec
+DELETE FROM comment
+WHERE workspace_id = $1
+  AND spec_version_id IN (SELECT id FROM spec_version WHERE spec_id = $2)
+`
+
+type DeleteSpecCommentsParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	SpecID      pgtype.UUID `json:"spec_id"`
+}
+
+func (q *Queries) DeleteSpecComments(ctx context.Context, arg DeleteSpecCommentsParams) error {
+	_, err := q.db.Exec(ctx, deleteSpecComments, arg.WorkspaceID, arg.SpecID)
+	return err
+}
+
 const deleteSpecIssuesByIssue = `-- name: DeleteSpecIssuesByIssue :exec
 DELETE FROM spec_issue
 WHERE issue_id = $1
@@ -556,10 +620,12 @@ func (q *Queries) ListSpecVersions(ctx context.Context, specID pgtype.UUID) ([]S
 }
 
 const listSpecs = `-- name: ListSpecs :many
-SELECT id, workspace_id, project_id, title, identifier, status, current_version_id, created_by, created_at, updated_at FROM spec
-WHERE workspace_id = $1
-  AND ($2::uuid IS NULL OR project_id = $2::uuid)
-ORDER BY updated_at DESC, id DESC
+SELECT s.id, s.workspace_id, s.project_id, s.title, s.identifier, s.status, s.current_version_id, s.created_by, s.created_at, s.updated_at, COALESCE(v.number, 0)::integer AS current_version_number
+FROM spec s
+LEFT JOIN spec_version v ON v.id = s.current_version_id AND v.spec_id = s.id
+WHERE s.workspace_id = $1
+  AND ($2::uuid IS NULL OR s.project_id = $2::uuid)
+ORDER BY s.updated_at DESC, s.id DESC
 `
 
 type ListSpecsParams struct {
@@ -567,26 +633,32 @@ type ListSpecsParams struct {
 	ProjectID   pgtype.UUID `json:"project_id"`
 }
 
-func (q *Queries) ListSpecs(ctx context.Context, arg ListSpecsParams) ([]Spec, error) {
+type ListSpecsRow struct {
+	Spec                 Spec  `json:"spec"`
+	CurrentVersionNumber int32 `json:"current_version_number"`
+}
+
+func (q *Queries) ListSpecs(ctx context.Context, arg ListSpecsParams) ([]ListSpecsRow, error) {
 	rows, err := q.db.Query(ctx, listSpecs, arg.WorkspaceID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Spec{}
+	items := []ListSpecsRow{}
 	for rows.Next() {
-		var i Spec
+		var i ListSpecsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.ProjectID,
-			&i.Title,
-			&i.Identifier,
-			&i.Status,
-			&i.CurrentVersionID,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.Spec.ID,
+			&i.Spec.WorkspaceID,
+			&i.Spec.ProjectID,
+			&i.Spec.Title,
+			&i.Spec.Identifier,
+			&i.Spec.Status,
+			&i.Spec.CurrentVersionID,
+			&i.Spec.CreatedBy,
+			&i.Spec.CreatedAt,
+			&i.Spec.UpdatedAt,
+			&i.CurrentVersionNumber,
 		); err != nil {
 			return nil, err
 		}

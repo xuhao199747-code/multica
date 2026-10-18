@@ -72,12 +72,18 @@ func TestSpecList(t *testing.T) {
 			t.Fatalf("ListSpecs: created specs missing from list: %+v", all)
 		}
 
+		if w := publishSpecVersion(t, second.ID, "body", "initial"); w.Code != http.StatusCreated {
+			t.Fatalf("publish: %d", w.Code)
+		}
 		var filtered specListEnvelope
 		testutil.Call(t, testHandler.ListSpecs,
 			newRequest("GET", "/api/specs?project_id="+projectID, nil)).
 			Want(http.StatusOK).JSON(&filtered)
 		if filtered.Total != 1 || len(filtered.Specs) != 1 || filtered.Specs[0].ID != second.ID {
 			t.Fatalf("ListSpecs project_id filter: expected only %s, got %+v", second.ID, filtered)
+		}
+		if filtered.Specs[0].CurrentVersionNumber != 1 {
+			t.Fatalf("current version number = %d, want 1", filtered.Specs[0].CurrentVersionNumber)
 		}
 	})
 }

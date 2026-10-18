@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/testutil"
 )
 
@@ -486,5 +487,30 @@ func TestPublishSpecVersionConcurrent(t *testing.T) {
 	}
 	if count != n || currentNumber != n {
 		t.Fatalf("count = %d, current number = %d, want %d", count, currentNumber, n)
+	}
+}
+
+func TestSpecTransitionPublishesUpdate(t *testing.T) {
+	specID := insertSpecForVersions(t, "draft")
+	if w := publishSpecVersion(t, specID, "body", "initial"); w.Code != http.StatusCreated {
+		t.Fatalf("publish: %d", w.Code)
+	}
+	var mu sync.Mutex
+	seen := false
+	testHandler.Bus.Subscribe("spec:updated", func(e events.Event) {
+		payload, ok := e.Payload.(map[string]any)
+		if ok && payload["spec_id"] == specID {
+			mu.Lock()
+			seen = true
+			mu.Unlock()
+		}
+	})
+	if w := transitionSpec(t, specID, "in_review"); w.Code != http.StatusOK {
+		t.Fatalf("transition: %d", w.Code)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !seen {
+		t.Fatal("status change did not publish spec:updated")
 	}
 }

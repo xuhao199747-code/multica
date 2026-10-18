@@ -37,15 +37,16 @@ type SpecVersionResponse struct {
 // SpecSummaryResponse is the list-endpoint shape. It deliberately carries no
 // version content; clients fetch the detail endpoint for the current version.
 type SpecSummaryResponse struct {
-	ID               string  `json:"id"`
-	WorkspaceID      string  `json:"workspace_id"`
-	ProjectID        *string `json:"project_id"`
-	Title            string  `json:"title"`
-	Identifier       string  `json:"identifier"`
-	Status           string  `json:"status"`
-	CurrentVersionID *string `json:"current_version_id"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID                   string  `json:"id"`
+	WorkspaceID          string  `json:"workspace_id"`
+	ProjectID            *string `json:"project_id"`
+	Title                string  `json:"title"`
+	Identifier           string  `json:"identifier"`
+	Status               string  `json:"status"`
+	CurrentVersionID     *string `json:"current_version_id"`
+	CurrentVersionNumber int32   `json:"current_version_number"`
+	CreatedAt            string  `json:"created_at"`
+	UpdatedAt            string  `json:"updated_at"`
 }
 
 // SpecResponse is the detail shape: the summary fields plus the resolved
@@ -85,6 +86,7 @@ func (h *Handler) specDetailResponse(r *http.Request, s db.Spec) (SpecResponse, 
 	if err != nil {
 		return SpecResponse{}, err
 	}
+	resp.CurrentVersionNumber = version.Number
 	resp.CurrentVersion = &SpecVersionResponse{
 		ID:        uuidToString(version.ID),
 		Number:    version.Number,
@@ -218,8 +220,10 @@ func (h *Handler) ListSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := make([]SpecSummaryResponse, 0, len(specs))
-	for _, spec := range specs {
-		resp = append(resp, specToSummaryResponse(spec))
+	for _, row := range specs {
+		item := specToSummaryResponse(row.Spec)
+		item.CurrentVersionNumber = row.CurrentVersionNumber
+		resp = append(resp, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"specs": resp, "total": len(resp)})
 }
@@ -427,6 +431,30 @@ func (h *Handler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
+	// Publishing and comment creation also lock this row. Recheck the status
+	// after acquiring it so deletion cannot race a transition or new comment.
+	spec, err = qtx.LockSpecInWorkspace(r.Context(), db.LockSpecInWorkspaceParams{ID: spec.ID, WorkspaceID: spec.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "spec not found")
+		return
+	}
+	if spec.Status != "draft" {
+		writeError(w, http.StatusConflict, "only draft specs can be deleted")
+		return
+	}
+	urls, err := qtx.DeleteSpecCommentAttachments(r.Context(), db.DeleteSpecCommentAttachmentsParams{SpecID: spec.ID, WorkspaceID: spec.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to remove spec attachments")
+		return
+	}
+	if err := qtx.DeleteSpecCommentReactions(r.Context(), db.DeleteSpecCommentReactionsParams{SpecID: spec.ID, WorkspaceID: spec.WorkspaceID}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to remove spec comment reactions")
+		return
+	}
+	if err := qtx.DeleteSpecComments(r.Context(), db.DeleteSpecCommentsParams{SpecID: spec.ID, WorkspaceID: spec.WorkspaceID}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to remove spec comments")
+		return
+	}
 
 	for _, cleanup := range []func() error{
 		func() error { return qtx.DeleteSpecVersionsBySpec(r.Context(), spec.ID) },
@@ -451,5 +479,6 @@ func (h *Handler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to commit spec deletion")
 		return
 	}
+	h.deleteS3Objects(r.Context(), urls)
 	w.WriteHeader(http.StatusNoContent)
 }

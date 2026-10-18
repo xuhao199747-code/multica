@@ -516,3 +516,22 @@ func TestSpecCommentDelete(t *testing.T) {
 		t.Fatalf("root tombstone rows after reply delete = %d, want 0 (pruned)", n)
 	}
 }
+
+func TestDeleteDraftSpecCleansUpComments(t *testing.T) {
+	specID := dbfx.Spec(t, "draft spec with comments")
+	versionID := dbfx.SpecVersion(t, specID, 1)
+	comment := mustCreateSpecComment(t, specID, versionID, map[string]any{"content": "review"})
+	dbfx.Exec(t, `INSERT INTO comment_reaction (comment_id, workspace_id, actor_type, actor_id, emoji) VALUES ($1, $2, 'member', $3, '👍')`, comment.ID, testWorkspaceID, testUserID)
+	dbfx.Exec(t, `INSERT INTO attachment (workspace_id, comment_id, uploader_type, uploader_id, filename, url, content_type, size_bytes) VALUES ($1, $2, 'member', $3, 'test.txt', '/test-file', 'text/plain', 4)`, testWorkspaceID, comment.ID, testUserID)
+	req := testutil.WithURLParams(newRequest(http.MethodDelete, "/api/specs/"+specID, nil), "id", specID)
+	testutil.Call(t, testHandler.DeleteSpec, req).Want(http.StatusNoContent)
+	if count := dbfx.Count(t, `SELECT count(*) FROM comment_reaction WHERE comment_id = $1`, comment.ID); count != 0 {
+		t.Fatalf("spec delete left %d reaction(s)", count)
+	}
+	if count := dbfx.Count(t, `SELECT count(*) FROM attachment WHERE comment_id = $1`, comment.ID); count != 0 {
+		t.Fatalf("spec delete left %d attachment(s)", count)
+	}
+	if count := dbfx.Count(t, `SELECT count(*) FROM comment WHERE id = $1`, comment.ID); count != 0 {
+		t.Fatalf("spec delete left %d comment(s)", count)
+	}
+}

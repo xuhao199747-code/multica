@@ -350,5 +350,6 @@ func (h *Handler) TransitionSpecStatus(w http.ResponseWriter, r *http.Request) {
 			"version": specVersionItem(version),
 		})
 	}
+	h.publish(protocol.EventSpecUpdated, workspaceID, actorType, actorID, map[string]any{"spec_id": uuidToString(updated.ID)})
 	writeJSON(w, http.StatusOK, specStateItem(updated))
 }

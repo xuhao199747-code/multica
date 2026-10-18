@@ -76,6 +76,7 @@ const (
 	// name the business facts; these colon-namespaced types are what the
 	// realtime layer broadcasts to workspace clients.
 	EventSpecCreated   = "spec:created"
+	EventSpecUpdated   = "spec:updated"
 	EventSpecApproved  = "spec:approved"
 	EventSpecPublished = "spec:published"
 

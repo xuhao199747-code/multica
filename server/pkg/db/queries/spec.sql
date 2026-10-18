@@ -12,10 +12,12 @@ SELECT * FROM spec
 WHERE identifier = $1 AND workspace_id = $2;
 
 -- name: ListSpecs :many
-SELECT * FROM spec
-WHERE workspace_id = $1
-  AND (sqlc.narg('project_id')::uuid IS NULL OR project_id = sqlc.narg('project_id')::uuid)
-ORDER BY updated_at DESC, id DESC;
+SELECT sqlc.embed(s), COALESCE(v.number, 0)::integer AS current_version_number
+FROM spec s
+LEFT JOIN spec_version v ON v.id = s.current_version_id AND v.spec_id = s.id
+WHERE s.workspace_id = $1
+  AND (sqlc.narg('project_id')::uuid IS NULL OR s.project_id = sqlc.narg('project_id')::uuid)
+ORDER BY s.updated_at DESC, s.id DESC;
 
 -- name: CreateSpec :one
 INSERT INTO spec (
@@ -180,3 +182,20 @@ ON CONFLICT (spec_id, member_id) DO NOTHING;
 -- name: RemoveSpecSubscriber :exec
 DELETE FROM spec_subscriber
 WHERE spec_id = $1 AND member_id = $2;
+
+
+-- name: DeleteSpecCommentAttachments :many
+DELETE FROM attachment a
+WHERE a.workspace_id = sqlc.arg(workspace_id)
+  AND a.comment_id IN (SELECT c.id FROM comment c JOIN spec_version v ON v.id = c.spec_version_id WHERE v.spec_id = sqlc.arg(spec_id) AND c.workspace_id = sqlc.arg(workspace_id))
+RETURNING url;
+
+-- name: DeleteSpecCommentReactions :exec
+DELETE FROM comment_reaction r
+WHERE r.workspace_id = sqlc.arg(workspace_id)
+  AND r.comment_id IN (SELECT c.id FROM comment c JOIN spec_version v ON v.id = c.spec_version_id WHERE v.spec_id = sqlc.arg(spec_id) AND c.workspace_id = sqlc.arg(workspace_id));
+
+-- name: DeleteSpecComments :exec
+DELETE FROM comment
+WHERE workspace_id = sqlc.arg(workspace_id)
+  AND spec_version_id IN (SELECT id FROM spec_version WHERE spec_id = sqlc.arg(spec_id));
