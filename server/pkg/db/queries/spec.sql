@@ -2,6 +2,11 @@
 SELECT * FROM spec
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: LockSpecInWorkspace :one
+SELECT * FROM spec
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE;
+
 -- name: GetSpecByIdentifierInWorkspace :one
 SELECT * FROM spec
 WHERE identifier = $1 AND workspace_id = $2;
@@ -77,9 +82,7 @@ INSERT INTO spec_version (
 RETURNING *;
 
 -- name: CreateSpecVersionNext :one
--- Number assignment is MAX(number)+1 inside the INSERT so concurrent
--- publishes serialize on the unique (spec_id, number) index instead of
--- racing a read-then-write increment.
+-- Callers lock the spec row before assigning the next version number.
 INSERT INTO spec_version (spec_id, number, content, changelog, created_by)
 SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $3, $4
 FROM spec_version

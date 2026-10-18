@@ -139,9 +139,7 @@ type CreateSpecVersionNextParams struct {
 	CreatedBy pgtype.UUID `json:"created_by"`
 }
 
-// Number assignment is MAX(number)+1 inside the INSERT so concurrent
-// publishes serialize on the unique (spec_id, number) index instead of
-// racing a read-then-write increment.
+// Callers lock the spec row before assigning the next version number.
 func (q *Queries) CreateSpecVersionNext(ctx context.Context, arg CreateSpecVersionNextParams) (SpecVersion, error) {
 	row := q.db.QueryRow(ctx, createSpecVersionNext,
 		arg.SpecID,
@@ -649,6 +647,35 @@ func (q *Queries) ListSpecsForIssues(ctx context.Context, arg ListSpecsForIssues
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockSpecInWorkspace = `-- name: LockSpecInWorkspace :one
+SELECT id, workspace_id, project_id, title, identifier, status, current_version_id, created_by, created_at, updated_at FROM spec
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE
+`
+
+type LockSpecInWorkspaceParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) LockSpecInWorkspace(ctx context.Context, arg LockSpecInWorkspaceParams) (Spec, error) {
+	row := q.db.QueryRow(ctx, lockSpecInWorkspace, arg.ID, arg.WorkspaceID)
+	var i Spec
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Title,
+		&i.Identifier,
+		&i.Status,
+		&i.CurrentVersionID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const removeSpecIssue = `-- name: RemoveSpecIssue :exec

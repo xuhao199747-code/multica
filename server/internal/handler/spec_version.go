@@ -136,7 +136,23 @@ func (h *Handler) PublishSpecVersion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := h.Queries.CreateSpecVersionNext(r.Context(), db.CreateSpecVersionNextParams{
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start publish transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+	s, err = qtx.LockSpecInWorkspace(r.Context(), db.LockSpecInWorkspaceParams{ID: s.ID, WorkspaceID: s.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "spec not found")
+		return
+	}
+	if s.Status == "deprecated" {
+		writeError(w, http.StatusConflict, "deprecated specs cannot accept new versions")
+		return
+	}
+	v, err := qtx.CreateSpecVersionNext(r.Context(), db.CreateSpecVersionNextParams{
 		SpecID:    s.ID,
 		Content:   strings.TrimSpace(req.Content),
 		Changelog: strings.TrimSpace(req.Changelog),
@@ -146,12 +162,17 @@ func (h *Handler) PublishSpecVersion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to publish version")
 		return
 	}
-	if _, err := h.Queries.SetSpecCurrentVersion(r.Context(), db.SetSpecCurrentVersionParams{
+	if _, err := qtx.SetSpecCurrentVersion(r.Context(), db.SetSpecCurrentVersionParams{
 		ID:               s.ID,
 		WorkspaceID:      s.WorkspaceID,
 		CurrentVersionID: v.ID,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update spec current version")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit spec version")
 		return
 	}
 

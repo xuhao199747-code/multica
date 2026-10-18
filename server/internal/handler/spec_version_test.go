@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -431,5 +433,58 @@ func TestPublishSpecVersion_TrimsWhitespace(t *testing.T) {
 	}
 	if v.Content != "# Rules" || v.Changelog != "first cut" {
 		t.Fatalf("content/changelog not trimmed: %q/%q", v.Content, v.Changelog)
+	}
+}
+
+func TestPublishSpecVersionRollsBackIfCurrentVersionUpdateFails(t *testing.T) {
+	specID := insertSpecForVersions(t, "draft")
+	_, err := testPool.Exec(context.Background(), `CREATE OR REPLACE FUNCTION test_reject_spec_current_version() RETURNS trigger AS $$ BEGIN IF NEW.current_version_id IS DISTINCT FROM OLD.current_version_id THEN RAISE EXCEPTION 'test failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = testPool.Exec(context.Background(), fmt.Sprintf(`CREATE TRIGGER test_reject_spec_current_version BEFORE UPDATE ON spec FOR EACH ROW WHEN (NEW.id = %s::uuid) EXECUTE FUNCTION test_reject_spec_current_version()`, "'"+specID+"'"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_reject_spec_current_version ON spec`)
+		_, _ = testPool.Exec(context.Background(), `DROP FUNCTION IF EXISTS test_reject_spec_current_version()`)
+	})
+	w := publishSpecVersion(t, specID, "body", "change")
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	var count int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM spec_version WHERE spec_id = $1`, specID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("failed publish left %d version(s)", count)
+	}
+}
+
+func TestPublishSpecVersionConcurrent(t *testing.T) {
+	specID := insertSpecForVersions(t, "draft")
+	const n = 5
+	results := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); results <- publishSpecVersion(t, specID, "body", "change").Code }()
+	}
+	wg.Wait()
+	close(results)
+	for status := range results {
+		if status != http.StatusCreated {
+			t.Errorf("publish status = %d", status)
+		}
+	}
+	var count, currentNumber int
+	err := testPool.QueryRow(context.Background(), `SELECT count(*), (SELECT number FROM spec_version WHERE id = (SELECT current_version_id FROM spec WHERE id = $1)) FROM spec_version WHERE spec_id = $1`, specID).Scan(&count, &currentNumber)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != n || currentNumber != n {
+		t.Fatalf("count = %d, current number = %d, want %d", count, currentNumber, n)
 	}
 }
