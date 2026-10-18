@@ -211,6 +211,8 @@
     "status_deprecated": "已废弃",
     "loading": "加载中…",
     "version_number": "版本 {{number}}",
+    "resolve_comment": "解决",
+    "reopen_comment": "重新打开",
     "edit_comment": "编辑评论",
     "save": "保存",
     "deprecate_confirm": "废弃后不能再发布新版本。"

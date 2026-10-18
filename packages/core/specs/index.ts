@@ -32,5 +32,6 @@ export function useSpecActions(id: string) {
   const transition = useMutation({ mutationFn: (to: "draft" | "in_review" | "approved" | "deprecated") => api.transitionSpec(id, to), onSuccess: refresh });
   const comment = useMutation({ mutationFn: ({ versionId, content, parentId }: { versionId: string; content: string; parentId?: string }) => api.createSpecComment(id, versionId, { content, parentId }), onSuccess: refresh });
   const editComment = useMutation({ mutationFn: ({ id: commentId, content, attachmentIds, revision }: { id: string; content: string; attachmentIds: string[]; revision?: number }) => api.updateComment(commentId, content, attachmentIds, undefined, undefined, revision), onSuccess: refresh });
-  return { publish, transition, comment, editComment };
+  const resolveComment = useMutation({ mutationFn: ({ id: commentId, resolved }: { id: string; resolved: boolean }) => resolved ? api.unresolveComment(commentId) : api.resolveComment(commentId), onSuccess: refresh });
+  return { publish, transition, comment, editComment, resolveComment };
 }

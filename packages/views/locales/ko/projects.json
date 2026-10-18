@@ -211,6 +211,8 @@
     "status_deprecated": "폐기됨",
     "loading": "불러오는 중…",
     "version_number": "버전 {{number}}",
+    "resolve_comment": "해결",
+    "reopen_comment": "다시 열기",
     "edit_comment": "댓글 수정",
     "save": "저장",
     "deprecate_confirm": "폐기된 명세서에는 새 버전을 게시할 수 없습니다."

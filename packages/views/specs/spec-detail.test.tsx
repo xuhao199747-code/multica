@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../test/i18n";
 import { SpecDetail } from "./spec-detail";
 
-const mocks = vi.hoisted(() => ({ publish: vi.fn(), edit: vi.fn(), comments: [] as unknown[] }));
+const mocks = vi.hoisted(() => ({ publish: vi.fn(), edit: vi.fn(), resolve: vi.fn(), comments: [] as unknown[] }));
 
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws1" }));
 vi.mock("@multica/core/auth", () => ({ useAuthStore: (selector: (state: { user: { id: string } }) => unknown) => selector({ user: { id: "u1" } }) }));
@@ -14,7 +14,7 @@ vi.mock("@multica/core/workspace/hooks", () => ({ useActorName: () => ({ getActo
 vi.mock("@multica/core/specs", () => ({
   specDetailOptions: () => ({ queryKey: ["detail"] }), specVersionsOptions: () => ({ queryKey: ["versions"] }),
   specIssuesOptions: () => ({ queryKey: ["issues"] }), specCommentsOptions: () => ({ queryKey: ["comments"] }),
-  useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() }, editComment: { mutateAsync: mocks.edit } }),
+  useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() }, editComment: { mutateAsync: mocks.edit }, resolveComment: { mutateAsync: mocks.resolve } }),
 }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: ({ queryKey }: { queryKey: string[] }) => {
   switch (queryKey[0]) {
@@ -38,6 +38,16 @@ vi.mock("../editor", async () => {
 });
 
 describe("spec detail", () => {
+  it("resolves an open comment", async () => {
+    mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "Review", parent_id: null, attachments: [], reactions: [], resolved_at: null }];
+    mocks.resolve.mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    renderWithI18n(<SpecDetail id="s1" />);
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(mocks.resolve).toHaveBeenCalledWith({ id: "c1", resolved: false });
+    mocks.comments = [];
+  });
+
   it("allows authors to edit their comment while preserving attachments", async () => {
     mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "Original", parent_id: null, attachments: [{ id: "a1" }], reactions: [], resolved_at: null, revision: 2 }];
     mocks.edit.mockResolvedValueOnce(undefined);

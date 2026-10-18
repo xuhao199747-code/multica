@@ -211,6 +211,8 @@
     "status_deprecated": "廃止",
     "loading": "読み込み中…",
     "version_number": "バージョン {{number}}",
+    "resolve_comment": "解決",
+    "reopen_comment": "再開",
     "edit_comment": "コメントを編集",
     "save": "保存",
     "deprecate_confirm": "廃止後は新しいバージョンを公開できません。"
