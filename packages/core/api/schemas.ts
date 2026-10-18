@@ -496,13 +496,13 @@ export const EMPTY_LIST_LABELS_RESPONSE: ListLabelsResponse = {
 // is an immutable snapshot; editing the latest version of a draft spec is the
 // only mutation and it never changes number or id, so `number` stays a plain
 // integer here. This is deliberately a separate schema from the detail
-// shape's SpecVersionSchema: the version endpoints return no `created_by`,
-// while the spec detail's `current_version` does.
+// shape's SpecVersionSchema to allow older backends to omit the creator.
 export const SpecVersionItemSchema = z.object({
   id: z.string(),
   number: z.number().int(),
   content: z.string(),
   changelog: z.string(),
+  created_by: z.string().default(""),
   created_at: z.string(),
 }).loose();
 
@@ -513,6 +513,7 @@ export const EMPTY_SPEC_VERSION_ITEM: SpecVersionItem = {
   number: 0,
   content: "",
   changelog: "",
+  created_by: "",
   created_at: "",
 };
 
@@ -3543,6 +3544,13 @@ export const SpecSummarySchema = z.object({
   created_at: z.string().optional().default(""),
   updated_at: z.string().optional().default(""),
 }).loose();
+
+export const SpecTransitionSchema = SpecSummarySchema.pick({
+  id: true, identifier: true, title: true, status: true,
+  current_version_id: true, updated_at: true,
+});
+
+export type SpecTransition = z.infer<typeof SpecTransitionSchema>;
 
 export const EMPTY_SPEC_SUMMARY: SpecSummary = {
   id: "",

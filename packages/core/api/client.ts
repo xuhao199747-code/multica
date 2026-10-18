@@ -1,4 +1,5 @@
 import type { ZodType } from "zod";
+import type { SpecTransition, SpecVersionItem } from "./schemas";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
 import type { WorkspaceWakeupPage, WorkspaceWakeupFilters } from "../types/issue-wakeup";
 import { WorkspaceWakeupPageSchema, IssueWakeupSchema, IssueWakeupSummaryRowSchema, PausedWakeupSchema, SystemWakeupSchema, WakeupRunSchema, WorkspaceSystemWakeupSchema } from "./schemas";
@@ -450,6 +451,10 @@ import {
   SkillImportResultSchema,
   EMPTY_SKILL_IMPORT_RESULT,
   SpecDetailSchema,
+  SpecTransitionSchema,
+  SpecVersionItemSchema,
+  SpecVersionListResponseSchema,
+  EMPTY_SPEC_VERSION_LIST_RESPONSE,
   SpecListEnvelopeSchema,
   EMPTY_SPEC_LIST_ENVELOPE,
   SpecIssueRefSchema,
@@ -3657,6 +3662,35 @@ export class ApiClient {
 
   async deleteSpec(id: string): Promise<void> {
     await this.fetch(`/api/specs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  async listSpecVersions(id: string) {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}/versions`);
+    return parseWithFallback(raw, SpecVersionListResponseSchema, EMPTY_SPEC_VERSION_LIST_RESPONSE, {
+      endpoint: "GET /api/specs/:id/versions",
+    });
+  }
+
+  async publishSpecVersion(id: string, data: { content: string; changelog: string }) {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}/versions`, {
+      method: "POST", body: JSON.stringify(data),
+    });
+    const version = parseWithFallback<SpecVersionItem | null>(raw, SpecVersionItemSchema.nullable(), null, {
+      endpoint: "POST /api/specs/:id/versions",
+    });
+    if (!version || !version.id) throw new Error("POST /api/specs/:id/versions returned a malformed version");
+    return version;
+  }
+
+  async transitionSpec(id: string, to: "draft" | "in_review" | "approved" | "deprecated") {
+    const raw = await this.fetch<unknown>(`/api/specs/${encodeURIComponent(id)}/transition`, {
+      method: "POST", body: JSON.stringify({ to }),
+    });
+    const spec = parseWithFallback<SpecTransition | null>(raw, SpecTransitionSchema.nullable(), null, {
+      endpoint: "POST /api/specs/:id/transition",
+    });
+    if (!spec || !spec.id) throw new Error("POST /api/specs/:id/transition returned a malformed spec");
+    return spec;
   }
 
   // Spec ↔ issue links (DAWE-7). The list envelope degrades one malformed

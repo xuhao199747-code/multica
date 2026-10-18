@@ -210,6 +210,31 @@ describe("ApiClient schema fallback", () => {
     });
   });
 
+  describe("spec versions", () => {
+    it("lists versions and drops malformed entries", async () => {
+      stubFetchJson({ versions: [{ id: "v1", number: 1, content: "body", changelog: "first", created_at: "now" }, { id: 4 }], total: 2 });
+      const client = new ApiClient("https://api.example.test");
+      const result = await client.listSpecVersions("spec/1");
+      expect(result.versions.map((v) => v.id)).toEqual(["v1"]);
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith("https://api.example.test/api/specs/spec%2F1/versions", expect.any(Object));
+    });
+
+    it("transitions a spec and rejects malformed responses", async () => {
+      const client = new ApiClient("https://api.example.test");
+      stubFetchJson({ id: "s1", identifier: "S-1", title: "A", status: "in_review", current_version_id: "v1", updated_at: "now" });
+      expect((await client.transitionSpec("s1", "in_review")).status).toBe("in_review");
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith("https://api.example.test/api/specs/s1/transition", expect.objectContaining({ method: "POST", body: JSON.stringify({ to: "in_review" }) }));
+      stubFetchJson({ id: "s1" });
+      await expect(client.transitionSpec("s1", "approved")).rejects.toThrow();
+    });
+
+    it("rejects a malformed published version", async () => {
+      stubFetchJson({ id: "v1" });
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.publishSpecVersion("s1", { content: "body", changelog: "first" })).rejects.toThrow();
+    });
+  });
+
   describe("getSpec", () => {
     // Unlike the list, a single spec has no safe-empty shape: detail screens
     // key off its id, so a malformed 2xx must fail the call rather than

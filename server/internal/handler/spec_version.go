@@ -30,6 +30,7 @@ type SpecVersionItem struct {
 	Number    int32  `json:"number"`
 	Content   string `json:"content"`
 	Changelog string `json:"changelog"`
+	CreatedBy string `json:"created_by"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -64,6 +65,7 @@ func specVersionItem(v db.SpecVersion) SpecVersionItem {
 		Number:    v.Number,
 		Content:   v.Content,
 		Changelog: v.Changelog,
+		CreatedBy: uuidToString(v.CreatedBy),
 		CreatedAt: timestampToString(v.CreatedAt),
 	}
 }
@@ -156,8 +158,8 @@ func (h *Handler) PublishSpecVersion(w http.ResponseWriter, r *http.Request) {
 	workspaceID := uuidToString(s.WorkspaceID)
 	actorType, actorID := h.resolveActor(r, user, workspaceID)
 	h.publish(protocol.EventSpecPublished, workspaceID, actorType, actorID, map[string]any{
-		"spec_id":  uuidToString(s.ID),
-		"version":  specVersionItem(v),
+		"spec_id": uuidToString(s.ID),
+		"version": specVersionItem(v),
 	})
 	// A new snapshot on an already-approved spec changes its effective
 	// content, which is the same signal as entering approved: notify watchers

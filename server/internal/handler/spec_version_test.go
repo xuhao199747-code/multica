@@ -101,6 +101,9 @@ func TestPublishSpecVersion_AppendsAndBumpsCurrent(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&v1); err != nil {
 		t.Fatalf("decode v1: %v", err)
 	}
+	if v1.CreatedBy != testUserID {
+		t.Fatalf("v1 creator = %q, want %q", v1.CreatedBy, testUserID)
+	}
 	if v1.Number != 1 {
 		t.Fatalf("v1 number = %d, want 1", v1.Number)
 	}
