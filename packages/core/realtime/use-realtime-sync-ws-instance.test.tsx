@@ -97,6 +97,22 @@ describe("useRealtimeSync — ws instance change", () => {
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["specs", "ws-1"] }));
   });
 
+  it.each([
+    ["comment:updated", { comment: { id: "c1", issue_id: "", spec_version_id: "v1" } }],
+    ["comment:deleted", { comment_id: "c1", issue_id: "" }],
+    ["comment:resolved", { comment: { id: "c1", issue_id: "", spec_version_id: "v1" } }],
+    ["comment:unresolved", { comment: { id: "c1", issue_id: "", spec_version_id: "v1" } }],
+    ["reaction:added", { comment_id: "c1", issue_id: "" }],
+    ["reaction:removed", { comment_id: "c1", issue_id: "" }],
+  ])("refreshes spec comments on %s", async (name, payload) => {
+    const ws = createMockWs();
+    renderHook(() => useRealtimeSync(ws, stores), { wrapper: createWrapper(qc) });
+    const handler = vi.mocked(ws.on).mock.calls.find(([event]) => event === name)?.[1];
+    expect(handler).toBeDefined();
+    handler!(payload as never);
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["specs", "ws-1"] }));
+  });
+
   it("skips invalidation on first non-null ws instance", () => {
     const ws = createMockWs();
     renderHook(() => useRealtimeSync(ws, stores), {

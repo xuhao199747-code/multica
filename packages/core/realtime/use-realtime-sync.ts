@@ -1226,9 +1226,17 @@ export function useRealtimeSync(
       }
     });
 
+    const invalidateSpecComments = () => {
+      const wsId = getCurrentWsId();
+      if (wsId) qc.invalidateQueries({ queryKey: specKeys.all(wsId) });
+    };
+
     const unsubCommentUpdated = ws.on("comment:updated", (p) => {
       const { comment, issue_revision } = p as CommentUpdatedPayload;
-      if (!comment?.issue_id) return;
+      if (!comment?.issue_id) {
+        if (comment?.spec_version_id) invalidateSpecComments();
+        return;
+      }
       invalidateTimeline(comment.issue_id);
       const wsId = getCurrentWsId();
       if (wsId) {
@@ -1243,7 +1251,7 @@ export function useRealtimeSync(
 
     const unsubCommentDeleted = ws.on("comment:deleted", (p) => {
       const { issue_id, issue_revision } = p as CommentDeletedPayload;
-      if (!issue_id) return;
+      if (!issue_id) { invalidateSpecComments(); return; }
       invalidateTimeline(issue_id);
       const wsId = getCurrentWsId();
       if (wsId) {
@@ -1259,11 +1267,13 @@ export function useRealtimeSync(
     const unsubCommentResolved = ws.on("comment:resolved", (p) => {
       const { comment } = p as CommentResolvedPayload;
       if (comment?.issue_id) invalidateTimeline(comment.issue_id);
+      else if (comment?.spec_version_id) invalidateSpecComments();
     });
 
     const unsubCommentUnresolved = ws.on("comment:unresolved", (p) => {
       const { comment } = p as CommentUnresolvedPayload;
       if (comment?.issue_id) invalidateTimeline(comment.issue_id);
+      else if (comment?.spec_version_id) invalidateSpecComments();
     });
 
     const unsubActivityCreated = ws.on("activity:created", (p) => {
@@ -1274,11 +1284,13 @@ export function useRealtimeSync(
     const unsubReactionAdded = ws.on("reaction:added", (p) => {
       const { issue_id } = p as ReactionAddedPayload;
       if (issue_id) invalidateTimeline(issue_id);
+      else invalidateSpecComments();
     });
 
     const unsubReactionRemoved = ws.on("reaction:removed", (p) => {
       const { issue_id } = p as ReactionRemovedPayload;
       if (issue_id) invalidateTimeline(issue_id);
+      else invalidateSpecComments();
     });
 
     // --- Issue-level reactions & subscribers (global fallback) ---
