@@ -1347,6 +1347,19 @@ type QuickAction struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ReviewAgentEvent struct {
+	ID               pgtype.UUID        `json:"id"`
+	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
+	AgentID          pgtype.UUID        `json:"agent_id"`
+	IssueID          pgtype.UUID        `json:"issue_id"`
+	EventKey         string             `json:"event_key"`
+	EventType        string             `json:"event_type"`
+	SourceTaskID     pgtype.UUID        `json:"source_task_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ProcessedAt      pgtype.Timestamptz `json:"processed_at"`
+	DispatchedTaskID pgtype.UUID        `json:"dispatched_task_id"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
