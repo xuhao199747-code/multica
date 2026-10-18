@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../test/i18n";
 import { SpecDetail } from "./spec-detail";
 
-const mocks = vi.hoisted(() => ({ publish: vi.fn(), edit: vi.fn(), resolve: vi.fn(), remove: vi.fn(), comments: [] as unknown[] }));
+const mocks = vi.hoisted(() => ({ publish: vi.fn(), edit: vi.fn(), resolve: vi.fn(), remove: vi.fn(), reaction: vi.fn(), comments: [] as unknown[] }));
 
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws1" }));
 vi.mock("@multica/core/auth", () => ({ useAuthStore: (selector: (state: { user: { id: string } }) => unknown) => selector({ user: { id: "u1" } }) }));
@@ -15,8 +15,9 @@ vi.mock("@multica/core/workspace/hooks", () => ({ useActorName: () => ({ getActo
 vi.mock("@multica/core/specs", () => ({
   specDetailOptions: () => ({ queryKey: ["detail"] }), specVersionsOptions: () => ({ queryKey: ["versions"] }),
   specIssuesOptions: () => ({ queryKey: ["issues"] }), specCommentsOptions: () => ({ queryKey: ["comments"] }),
-  useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() }, editComment: { mutateAsync: mocks.edit }, resolveComment: { mutateAsync: mocks.resolve }, deleteComment: { mutateAsync: mocks.remove } }),
+  useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() }, editComment: { mutateAsync: mocks.edit }, resolveComment: { mutateAsync: mocks.resolve }, deleteComment: { mutateAsync: mocks.remove }, reaction: { mutateAsync: mocks.reaction } }),
 }));
+vi.mock("@multica/ui/components/common/reaction-bar", () => ({ ReactionBar: ({ onToggle }: { onToggle: (emoji: string) => void }) => <button onClick={() => onToggle("👍")}>React</button> }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: ({ queryKey }: { queryKey: string[] }) => {
   switch (queryKey[0]) {
     case "detail": return { data: { id: "s1", identifier: "AC-S-1", title: "Requirements", status: "draft", current_version_id: "v1", current_version: { id: "v1", number: 1, content: "Body", changelog: "Initial", created_by: "u1", created_at: "2026-01-01T00:00:00Z" } }, isLoading: false };
@@ -39,6 +40,16 @@ vi.mock("../editor", async () => {
 });
 
 describe("spec detail", () => {
+  it("toggles an existing reaction for the current user", async () => {
+    mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "Review", parent_id: null, attachments: [], reactions: [{ emoji: "👍", actor_type: "member", actor_id: "u1" }], resolved_at: null }];
+    mocks.reaction.mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    renderWithI18n(<SpecDetail id="s1" />);
+    await user.click(screen.getByRole("button", { name: "React" }));
+    expect(mocks.reaction).toHaveBeenCalledWith({ id: "c1", emoji: "👍", reacted: true });
+    mocks.comments = [];
+  });
+
   it("asks before deleting a comment and retains its replies when supported", async () => {
     mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "Review", parent_id: null, attachments: [], reactions: [], resolved_at: null }];
     mocks.remove.mockResolvedValueOnce(undefined);

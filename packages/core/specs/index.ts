@@ -34,5 +34,6 @@ export function useSpecActions(id: string) {
   const editComment = useMutation({ mutationFn: ({ id: commentId, content, attachmentIds, revision }: { id: string; content: string; attachmentIds: string[]; revision?: number }) => api.updateComment(commentId, content, attachmentIds, undefined, undefined, revision), onSuccess: refresh });
   const resolveComment = useMutation({ mutationFn: ({ id: commentId, resolved }: { id: string; resolved: boolean }) => resolved ? api.unresolveComment(commentId) : api.resolveComment(commentId), onSuccess: refresh });
   const deleteComment = useMutation({ mutationFn: ({ id: commentId, keepReplies }: { id: string; keepReplies: boolean }) => api.deleteComment(commentId, { keepReplies }), onSuccess: refresh });
-  return { publish, transition, comment, editComment, resolveComment, deleteComment };
+  const reaction = useMutation({ mutationFn: async ({ id: commentId, emoji, reacted }: { id: string; emoji: string; reacted: boolean }) => { if (reacted) await api.removeReaction(commentId, emoji); else await api.addReaction(commentId, emoji); }, onSuccess: refresh });
+  return { publish, transition, comment, editComment, resolveComment, deleteComment, reaction };
 }
