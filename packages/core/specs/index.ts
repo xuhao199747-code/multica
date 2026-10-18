@@ -30,7 +30,7 @@ export function useSpecActions(id: string) {
   const refresh = () => qc.invalidateQueries({ queryKey: specKeys.all(wsId) });
   const publish = useMutation({ mutationFn: (data: { content: string; changelog: string }) => api.publishSpecVersion(id, data), onSuccess: refresh });
   const transition = useMutation({ mutationFn: (to: "draft" | "in_review" | "approved" | "deprecated") => api.transitionSpec(id, to), onSuccess: refresh });
-  const comment = useMutation({ mutationFn: ({ versionId, content, parentId }: { versionId: string; content: string; parentId?: string }) => api.createSpecComment(id, versionId, { content, parentId }), onSuccess: refresh });
+  const comment = useMutation({ mutationFn: ({ versionId, content, parentId, attachmentIds }: { versionId: string; content: string; parentId?: string; attachmentIds?: string[] }) => api.createSpecComment(id, versionId, { content, parentId, attachmentIds }), onSuccess: refresh });
   const editComment = useMutation({ mutationFn: ({ id: commentId, content, attachmentIds, revision }: { id: string; content: string; attachmentIds: string[]; revision?: number }) => api.updateComment(commentId, content, attachmentIds, undefined, undefined, revision), onSuccess: refresh });
   const resolveComment = useMutation({ mutationFn: ({ id: commentId, resolved }: { id: string; resolved: boolean }) => resolved ? api.unresolveComment(commentId) : api.resolveComment(commentId), onSuccess: refresh });
   const deleteComment = useMutation({ mutationFn: ({ id: commentId, keepReplies }: { id: string; keepReplies: boolean }) => api.deleteComment(commentId, { keepReplies }), onSuccess: refresh });

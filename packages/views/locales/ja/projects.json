@@ -199,6 +199,7 @@
     "deprecate": "廃止",
     "related_issues": "関連タスク",
     "comments": "コメント",
+    "attach_file": "ファイルを添付",
     "comment_label": "コメント内容",
     "send": "送信",
     "reply": "返信",

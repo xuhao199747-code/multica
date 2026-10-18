@@ -15,6 +15,7 @@ import { ContentEditor, ReadonlyContent, type ContentEditorRef } from "../editor
 import { useT } from "../i18n";
 import { AppLink } from "../navigation";
 import { orderSpecComments } from "./comment-order";
+import { SpecCommentComposer } from "./spec-comment-composer";
 
 export function SpecDetail({ id }: { id: string }) {
   const { t } = useT("projects");
@@ -35,7 +36,6 @@ export function SpecDetail({ id }: { id: string }) {
   const [changelog, setChangelog] = useState("");
   const changelogRef = useRef("");
   const editorRef = useRef<ContentEditorRef>(null);
-  const [comment, setComment] = useState("");
   const [replyTo, setReplyTo] = useState<string | undefined>();
   const [editingComment, setEditingComment] = useState<string | null>(null);
   const [commentEdit, setCommentEdit] = useState("");
@@ -81,11 +81,8 @@ export function SpecDetail({ id }: { id: string }) {
     {selected && <section className="space-y-3"><h2 className="font-medium">{t($ => $.specs.comments)}</h2>
       {comments.isError && <p role="alert">{t($ => $.specs.load_error)}</p>}
       {orderSpecComments(comments.data ?? []).map(({ comment: item, depth }) => <div key={item.id} className={depth ? "ml-6 border-l pl-3" : "border-t pt-3"}><div className="text-caption text-muted-foreground">{getActorName(item.author_type, item.author_id)}</div>{item.deleted_at ? <p className="text-muted-foreground">{tIssues($ => $.comment.deleted_placeholder)}</p> : editingComment === item.id ? <form onSubmit={event => { event.preventDefault(); void run(async () => { await actions.editComment.mutateAsync({ id: item.id, content: commentEdit, attachmentIds: item.attachments.map(a => a.id), revision: item.revision }); setEditingComment(null); }); }}><label>{t($ => $.specs.edit_comment)}<textarea className="block w-full rounded border bg-background p-2" value={commentEdit} disabled={actions.editComment.isPending} onChange={event => setCommentEdit(event.target.value)} /></label><Button type="submit" size="xs" disabled={!commentEdit.trim() || actions.editComment.isPending}>{t($ => $.specs.save)}</Button><Button type="button" size="xs" variant="ghost" onClick={() => setEditingComment(null)}>{t($ => $.specs.cancel)}</Button></form> : <ReadonlyContent content={item.content} attachments={item.attachments} />}{!item.deleted_at && <ReactionBar reactions={item.reactions} currentUserId={userId} getActorName={getActorName} onToggle={emoji => { if (!actions.reaction.isPending) void run(() => actions.reaction.mutateAsync({ id: item.id, emoji, reacted: item.reactions.some(reaction => reaction.emoji === emoji && reaction.actor_type === "member" && reaction.actor_id === userId) })); }} />}{!item.deleted_at && <Button size="xs" variant="ghost" onClick={() => setReplyTo(item.id)}>{t($ => $.specs.reply)}</Button>}{!item.deleted_at && <Button size="xs" variant="ghost" disabled={actions.resolveComment.isPending} onClick={() => void run(() => actions.resolveComment.mutateAsync({ id: item.id, resolved: !!item.resolved_at }))}>{item.resolved_at ? t($ => $.specs.reopen_comment) : t($ => $.specs.resolve_comment)}</Button>}{item.author_type === "member" && item.author_id === userId && !item.deleted_at && editingComment !== item.id && <Button size="xs" variant="ghost" onClick={() => { setEditingComment(item.id); setCommentEdit(item.content); }}>{t($ => $.specs.edit_comment)}</Button>}{item.author_type === "member" && item.author_id === userId && !item.deleted_at && <Button size="xs" variant="ghost" onClick={() => { setError(false); setDeleteCommentId(item.id); }}>{t($ => $.specs.delete_comment)}</Button>}</div>)}
-      <form onSubmit={event => { event.preventDefault(); void run(async () => { await actions.comment.mutateAsync({ versionId: selected.id, content: comment, parentId: replyTo }); setComment(""); setReplyTo(undefined); }); }}>
-        {replyTo && <Button type="button" size="xs" variant="ghost" onClick={() => setReplyTo(undefined)}>{t($ => $.specs.cancel)}</Button>}
-        <label className="block">{t($ => $.specs.comment_label)}<textarea className="mt-1 block w-full rounded border bg-background p-2" value={comment} disabled={actions.comment.isPending} onChange={event => setComment(event.target.value)} /></label>
-        <Button type="submit" size="sm" disabled={!comment.trim() || actions.comment.isPending}>{t($ => $.specs.send)}</Button>
-      </form>
+      {replyTo && <Button type="button" size="xs" variant="ghost" onClick={() => setReplyTo(undefined)}>{t($ => $.specs.cancel)}</Button>}
+      <SpecCommentComposer key={selected.id} specId={id} versionId={selected.id} onSend={async (body, attachmentIds) => { await actions.comment.mutateAsync({ versionId: selected.id, content: body, parentId: replyTo, attachmentIds }); setReplyTo(undefined); }} />
     </section>}
   </div></main>;
 }

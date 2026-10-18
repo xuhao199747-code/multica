@@ -199,6 +199,7 @@
     "deprecate": "废弃",
     "related_issues": "关联任务",
     "comments": "评论",
+    "attach_file": "添加附件",
     "comment_label": "评论内容",
     "send": "发送",
     "reply": "回复",

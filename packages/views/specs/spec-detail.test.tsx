@@ -18,6 +18,7 @@ vi.mock("@multica/core/specs", () => ({
   useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() }, editComment: { mutateAsync: mocks.edit }, resolveComment: { mutateAsync: mocks.resolve }, deleteComment: { mutateAsync: mocks.remove }, reaction: { mutateAsync: mocks.reaction } }),
 }));
 vi.mock("@multica/ui/components/common/reaction-bar", () => ({ ReactionBar: ({ onToggle }: { onToggle: (emoji: string) => void }) => <button onClick={() => onToggle("👍")}>React</button> }));
+vi.mock("./spec-comment-composer", () => ({ SpecCommentComposer: () => null }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: ({ queryKey }: { queryKey: string[] }) => {
   switch (queryKey[0]) {
     case "detail": return { data: { id: "s1", identifier: "AC-S-1", title: "Requirements", status: "draft", current_version_id: "v1", current_version: { id: "v1", number: 1, content: "Body", changelog: "Initial", created_by: "u1", created_at: "2026-01-01T00:00:00Z" } }, isLoading: false };

@@ -199,6 +199,7 @@
     "deprecate": "폐기",
     "related_issues": "관련 작업",
     "comments": "댓글",
+    "attach_file": "파일 첨부",
     "comment_label": "댓글 내용",
     "send": "보내기",
     "reply": "답글",
