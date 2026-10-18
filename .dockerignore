@@ -39,6 +39,8 @@ coverage
 # app workspaces so they do not silently enter the build context.
 /apps/*
 !/apps/web/
+/apps/web/.next/
+/apps/web/node_modules/
 
 # Repository-only tooling
 /.github/
