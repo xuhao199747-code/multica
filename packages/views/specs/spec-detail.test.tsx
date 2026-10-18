@@ -40,6 +40,14 @@ vi.mock("../editor", async () => {
 });
 
 describe("spec detail", () => {
+  it("does not offer actions on a deleted comment retained for its replies", () => {
+    mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "", parent_id: null, attachments: [], reactions: [], resolved_at: null, deleted_at: "2026-01-01T00:00:00Z" }];
+    renderWithI18n(<SpecDetail id="s1" />);
+    expect(screen.getByText("This comment was deleted")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reply" })).not.toBeInTheDocument();
+    mocks.comments = [];
+  });
+
   it("toggles an existing reaction for the current user", async () => {
     mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "Review", parent_id: null, attachments: [], reactions: [{ emoji: "👍", actor_type: "member", actor_id: "u1" }], resolved_at: null }];
     mocks.reaction.mockResolvedValueOnce(undefined);
