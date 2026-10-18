@@ -63,9 +63,12 @@ func TestReviewAgentRejectsForeignRecipient(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
+	foreignWorkspace := dbfx.Workspace(t, "Foreign review workspace", fmt.Sprintf("foreign-review-recipient-%d", time.Now().UnixNano()))
+	foreignUser := dbfx.User(t, fmt.Sprintf("foreign-review-%d@example.test", time.Now().UnixNano()), "Foreign reviewer")
+	dbfx.Member(t, foreignWorkspace, foreignUser, "owner")
 	testutil.Call(t, testHandler.CreateAgent, newRequest(http.MethodPost, "/api/agents", map[string]any{
 		"name": "invalid-review-recipient", "runtime_id": handlerTestRuntimeID(t),
-		"review_config": map[string]any{"recipient_id": "2b8d7763-a611-43f6-b354-d978a8193319", "scope": "workspace"},
+		"review_config": map[string]any{"recipient_id": foreignUser, "scope": "workspace"},
 	})).Want(http.StatusBadRequest)
 }
 
@@ -73,8 +76,10 @@ func TestReviewAgentRejectsForeignProject(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
+	foreignWorkspace := dbfx.Workspace(t, "Foreign review workspace", fmt.Sprintf("foreign-review-project-%d", time.Now().UnixNano()))
+	foreignProject := dbfx.Project(t, "Foreign review project", testutil.Cols{"workspace_id": foreignWorkspace})
 	testutil.Call(t, testHandler.CreateAgent, newRequest(http.MethodPost, "/api/agents", map[string]any{
 		"name": "invalid-review-project", "runtime_id": handlerTestRuntimeID(t),
-		"review_config": map[string]any{"recipient_id": testUserID, "scope": "projects", "project_ids": []string{"2b8d7763-a611-43f6-b354-d978a8193319"}},
+		"review_config": map[string]any{"recipient_id": testUserID, "scope": "projects", "project_ids": []string{foreignProject}},
 	})).Want(http.StatusBadRequest)
 }
