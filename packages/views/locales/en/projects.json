@@ -213,6 +213,8 @@
     "status_deprecated": "Deprecated",
     "loading": "Loading…",
     "version_number": "Version {{number}}",
+    "edit_comment": "Edit comment",
+    "save": "Save",
     "deprecate_confirm": "Deprecated specs cannot accept new versions."
   }
 }

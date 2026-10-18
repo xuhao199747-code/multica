@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useAuthStore } from "@multica/core/auth";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { specCommentsOptions, specDetailOptions, specIssuesOptions, specVersionsOptions, useSpecActions } from "@multica/core/specs";
@@ -16,6 +17,7 @@ import { orderSpecComments } from "./comment-order";
 export function SpecDetail({ id }: { id: string }) {
   const { t } = useT("projects");
   const wsId = useWorkspaceId();
+  const userId = useAuthStore(s => s.user?.id);
   const paths = useWorkspacePaths();
   const { getActorName } = useActorName();
   const detail = useQuery(specDetailOptions(wsId, id));
@@ -31,6 +33,8 @@ export function SpecDetail({ id }: { id: string }) {
   const editorRef = useRef<ContentEditorRef>(null);
   const [comment, setComment] = useState("");
   const [replyTo, setReplyTo] = useState<string | undefined>();
+  const [editingComment, setEditingComment] = useState<string | null>(null);
+  const [commentEdit, setCommentEdit] = useState("");
   const [error, setError] = useState(false);
   const selected = versions.data?.versions.find((v) => v.id === selectedId) ?? versions.data?.versions.find((v) => v.id === detail.data?.current_version_id);
   const comments = useQuery(specCommentsOptions(wsId, id, selected?.id ?? ""));
@@ -68,7 +72,7 @@ export function SpecDetail({ id }: { id: string }) {
     <section><h2 className="font-medium">{t($ => $.specs.related_issues)}</h2>{issues.isError && <p role="alert">{t($ => $.specs.load_error)}</p>}{issues.data?.issues.map(issue => <AppLink key={issue.id} href={paths.issueDetail(issue.id)} className="block hover:underline">{issue.identifier} {issue.title}</AppLink>)}</section>
     {selected && <section className="space-y-3"><h2 className="font-medium">{t($ => $.specs.comments)}</h2>
       {comments.isError && <p role="alert">{t($ => $.specs.load_error)}</p>}
-      {orderSpecComments(comments.data ?? []).map(({ comment: item, depth }) => <div key={item.id} className={depth ? "ml-6 border-l pl-3" : "border-t pt-3"}><div className="text-caption text-muted-foreground">{getActorName(item.author_type, item.author_id)}</div><ReadonlyContent content={item.content} attachments={item.attachments} /><Button size="xs" variant="ghost" onClick={() => setReplyTo(item.id)}>{t($ => $.specs.reply)}</Button></div>)}
+      {orderSpecComments(comments.data ?? []).map(({ comment: item, depth }) => <div key={item.id} className={depth ? "ml-6 border-l pl-3" : "border-t pt-3"}><div className="text-caption text-muted-foreground">{getActorName(item.author_type, item.author_id)}</div>{editingComment === item.id ? <form onSubmit={event => { event.preventDefault(); void run(async () => { await actions.editComment.mutateAsync({ id: item.id, content: commentEdit, attachmentIds: item.attachments.map(a => a.id), revision: item.revision }); setEditingComment(null); }); }}><label>{t($ => $.specs.edit_comment)}<textarea className="block w-full rounded border bg-background p-2" value={commentEdit} disabled={actions.editComment.isPending} onChange={event => setCommentEdit(event.target.value)} /></label><Button type="submit" size="xs" disabled={!commentEdit.trim() || actions.editComment.isPending}>{t($ => $.specs.save)}</Button><Button type="button" size="xs" variant="ghost" onClick={() => setEditingComment(null)}>{t($ => $.specs.cancel)}</Button></form> : <ReadonlyContent content={item.content} attachments={item.attachments} />}<Button size="xs" variant="ghost" onClick={() => setReplyTo(item.id)}>{t($ => $.specs.reply)}</Button>{item.author_type === "member" && item.author_id === userId && !item.deleted_at && editingComment !== item.id && <Button size="xs" variant="ghost" onClick={() => { setEditingComment(item.id); setCommentEdit(item.content); }}>{t($ => $.specs.edit_comment)}</Button>}</div>)}
       <form onSubmit={event => { event.preventDefault(); void run(async () => { await actions.comment.mutateAsync({ versionId: selected.id, content: comment, parentId: replyTo }); setComment(""); setReplyTo(undefined); }); }}>
         {replyTo && <Button type="button" size="xs" variant="ghost" onClick={() => setReplyTo(undefined)}>{t($ => $.specs.cancel)}</Button>}
         <label className="block">{t($ => $.specs.comment_label)}<textarea className="mt-1 block w-full rounded border bg-background p-2" value={comment} disabled={actions.comment.isPending} onChange={event => setComment(event.target.value)} /></label>

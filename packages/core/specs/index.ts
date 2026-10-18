@@ -31,5 +31,6 @@ export function useSpecActions(id: string) {
   const publish = useMutation({ mutationFn: (data: { content: string; changelog: string }) => api.publishSpecVersion(id, data), onSuccess: refresh });
   const transition = useMutation({ mutationFn: (to: "draft" | "in_review" | "approved" | "deprecated") => api.transitionSpec(id, to), onSuccess: refresh });
   const comment = useMutation({ mutationFn: ({ versionId, content, parentId }: { versionId: string; content: string; parentId?: string }) => api.createSpecComment(id, versionId, { content, parentId }), onSuccess: refresh });
-  return { publish, transition, comment };
+  const editComment = useMutation({ mutationFn: ({ id: commentId, content, attachmentIds, revision }: { id: string; content: string; attachmentIds: string[]; revision?: number }) => api.updateComment(commentId, content, attachmentIds, undefined, undefined, revision), onSuccess: refresh });
+  return { publish, transition, comment, editComment };
 }

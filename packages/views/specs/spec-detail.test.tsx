@@ -5,22 +5,23 @@ import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../test/i18n";
 import { SpecDetail } from "./spec-detail";
 
-const mocks = vi.hoisted(() => ({ publish: vi.fn() }));
+const mocks = vi.hoisted(() => ({ publish: vi.fn(), edit: vi.fn(), comments: [] as unknown[] }));
 
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws1" }));
+vi.mock("@multica/core/auth", () => ({ useAuthStore: (selector: (state: { user: { id: string } }) => unknown) => selector({ user: { id: "u1" } }) }));
 vi.mock("@multica/core/paths", () => ({ useWorkspacePaths: () => ({ issueDetail: (id: string) => `/acme/issues/${id}` }) }));
 vi.mock("@multica/core/workspace/hooks", () => ({ useActorName: () => ({ getActorName: () => "Alice" }) }));
 vi.mock("@multica/core/specs", () => ({
   specDetailOptions: () => ({ queryKey: ["detail"] }), specVersionsOptions: () => ({ queryKey: ["versions"] }),
   specIssuesOptions: () => ({ queryKey: ["issues"] }), specCommentsOptions: () => ({ queryKey: ["comments"] }),
-  useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() } }),
+  useSpecActions: () => ({ publish: { mutateAsync: mocks.publish }, transition: { mutateAsync: vi.fn() }, comment: { mutateAsync: vi.fn() }, editComment: { mutateAsync: mocks.edit } }),
 }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: ({ queryKey }: { queryKey: string[] }) => {
   switch (queryKey[0]) {
     case "detail": return { data: { id: "s1", identifier: "AC-S-1", title: "Requirements", status: "draft", current_version_id: "v1", current_version: { id: "v1", number: 1, content: "Body", changelog: "Initial", created_by: "u1", created_at: "2026-01-01T00:00:00Z" } }, isLoading: false };
     case "versions": return { data: { versions: [{ id: "v1", number: 1, content: "Body", changelog: "Initial", created_by: "u1", created_at: "2026-01-01T00:00:00Z" }] } };
     case "issues": return { data: { issues: [{ id: "i1", identifier: "AC-1", title: "Task", status: "open" }] } };
-    default: return { data: [] };
+    default: return { data: mocks.comments };
   }
 } }));
 vi.mock("../navigation", () => ({ AppLink: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
@@ -37,6 +38,20 @@ vi.mock("../editor", async () => {
 });
 
 describe("spec detail", () => {
+  it("allows authors to edit their comment while preserving attachments", async () => {
+    mocks.comments = [{ id: "c1", author_type: "member", author_id: "u1", content: "Original", parent_id: null, attachments: [{ id: "a1" }], reactions: [], resolved_at: null, revision: 2 }];
+    mocks.edit.mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    renderWithI18n(<SpecDetail id="s1" />);
+    await user.click(screen.getByRole("button", { name: "Edit comment" }));
+    const input = screen.getByLabelText("Edit comment");
+    await user.clear(input);
+    await user.type(input, "Updated");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mocks.edit).toHaveBeenCalledWith({ id: "c1", content: "Updated", attachmentIds: ["a1"], revision: 2 });
+    mocks.comments = [];
+  });
+
   it("keeps changes made while a version is publishing", async () => {
     let finish!: () => void;
     mocks.publish.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));

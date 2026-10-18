@@ -213,6 +213,8 @@
     "status_deprecated": "Dépréciée",
     "loading": "Chargement…",
     "version_number": "Version {{number}}",
+    "edit_comment": "Modifier le commentaire",
+    "save": "Enregistrer",
     "deprecate_confirm": "Une spécification dépréciée ne peut plus recevoir de nouvelle version."
   }
 }
