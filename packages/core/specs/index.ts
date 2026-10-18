@@ -33,5 +33,6 @@ export function useSpecActions(id: string) {
   const comment = useMutation({ mutationFn: ({ versionId, content, parentId }: { versionId: string; content: string; parentId?: string }) => api.createSpecComment(id, versionId, { content, parentId }), onSuccess: refresh });
   const editComment = useMutation({ mutationFn: ({ id: commentId, content, attachmentIds, revision }: { id: string; content: string; attachmentIds: string[]; revision?: number }) => api.updateComment(commentId, content, attachmentIds, undefined, undefined, revision), onSuccess: refresh });
   const resolveComment = useMutation({ mutationFn: ({ id: commentId, resolved }: { id: string; resolved: boolean }) => resolved ? api.unresolveComment(commentId) : api.resolveComment(commentId), onSuccess: refresh });
-  return { publish, transition, comment, editComment, resolveComment };
+  const deleteComment = useMutation({ mutationFn: ({ id: commentId, keepReplies }: { id: string; keepReplies: boolean }) => api.deleteComment(commentId, { keepReplies }), onSuccess: refresh });
+  return { publish, transition, comment, editComment, resolveComment, deleteComment };
 }
