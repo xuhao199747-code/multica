@@ -407,6 +407,7 @@ export const GitHubPullRequestSchema = z.object({
   number: z.number(),
   title: z.string(),
   state: z.string(),
+  head_sha: z.string().optional().catch(undefined),
   html_url: z.string(),
   branch: z.string().nullable(),
   author_login: z.string().nullable(),
@@ -3916,3 +3917,28 @@ export const RuntimeProfileSchema = z
     runtime_type: profile.runtime_type || profile.protocol_family,
   }));
 export const RuntimeProfileListSchema = z.array(RuntimeProfileSchema);
+
+// DAWE-20 review decisions. Every field falls back on its own so a malformed
+// row cannot hide the rest of an issue's decision history.
+export const ReviewDecisionSchema = z
+  .object({
+    id: z.string().catch(""),
+    issue_id: z.string().catch(""),
+    pull_request_id: z.string().nullish().transform((v) => v ?? null),
+    head_sha: z.string().catch(""),
+    // Unknown future decision values stay readable as strings.
+    decision: z.string().catch(""),
+    note: z.string().nullish().transform((v) => v ?? null),
+    decided_by: z.string().catch(""),
+    created_at: z.string().catch(""),
+    superseded_at: z.string().nullish().transform((v) => v ?? null),
+    resolved_at: z.string().nullish().transform((v) => v ?? null),
+    // Conservative default: a row too malformed to carry its staleness flag
+    // must never be read as a valid approval of the current head.
+    stale: z.boolean().catch(true),
+  })
+  .loose();
+
+export const ListReviewDecisionsResponseSchema = z.object({
+  decisions: z.array(ReviewDecisionSchema).catch([]),
+});

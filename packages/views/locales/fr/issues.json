@@ -1441,5 +1441,20 @@
     "overview_close": "Fermer",
     "overview_empty": "Aucun livrable de ce type.",
     "group_comment_by": "Commentaire de {{name}}"
+  },
+  "review_decisions": {
+    "section_title": "Décisions de révision",
+    "current_approved": "Approuvé",
+    "current_changes": "Modifications demandées",
+    "current_deferred": "Reporté",
+    "current_none": "Aucune décision",
+    "stale_badge": "head obsolète",
+    "menu_label": "Enregistrer la décision",
+    "decide_approved": "Approuver",
+    "decide_changes": "Demander des modifications",
+    "decide_deferred": "Reporter",
+    "resolve": "Marquer comme résolu",
+    "approved_deploy_hint": "Approuvé — vous décidez du déploiement.",
+    "error": "Échec de l'enregistrement de la décision"
   }
 }

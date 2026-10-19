@@ -4399,6 +4399,10 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 	// task inside the completion transaction below. It is broadcast (chat:done)
 	// only after the transaction commits.
 	var chatAssistantMsg *db.ChatMessage
+	// reviewItem is the review-agent result notification written inside the
+	// same transaction as the status flip; broadcast after commit.
+	var reviewItem *db.InboxItem
+	var reviewIssueStatus string
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 			return err
@@ -4472,6 +4476,16 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 			}
 			chatAssistantMsg = msg
 		}
+		// Review-agent runs: deliver the outcome to the configured recipient
+		// atomically with the status flip. A nil item means nothing to
+		// deliver; an error rolls the completion back so the daemon retries
+		// the terminal callback rather than dropping the outcome.
+		item, status, err := (&ReviewAgentService{Tasks: s}).reviewResultInboxTx(ctx, qtx, t, result, false, "", "")
+		if err != nil {
+			return fmt.Errorf("write review result notification: %w", err)
+		}
+		reviewItem = item
+		reviewIssueStatus = status
 		return nil
 	}); err != nil {
 		// When parallel agents race, a task may already be completed,
@@ -4566,6 +4580,12 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 	// parsing the agent's stdout for an identifier.
 	if qc, ok := s.parseQuickCreateContext(task); ok {
 		s.notifyQuickCreateCompleted(ctx, task, qc, result)
+	}
+
+	// Review-agent runs: the outcome notification committed with the status
+	// flip above; publish it now, after the commit.
+	if reviewItem != nil {
+		(&ReviewAgentService{Tasks: s}).publishReviewInbox(*reviewItem, reviewIssueStatus)
 	}
 
 	// For chat tasks, broadcast chat:done AFTER commit. The single assistant
@@ -4889,6 +4909,11 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 
 	var task db.AgentTaskQueue
 	var retried *db.AgentTaskQueue
+	// reviewItem is the review-agent failure notification written inside the
+	// same transaction as the status flip when no auto-retry supersedes this
+	// outcome; broadcast after commit.
+	var reviewItem *db.InboxItem
+	var reviewIssueStatus string
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 			return err
@@ -5107,6 +5132,18 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 				return fmt.Errorf("write chat failure outcome: %w", err)
 			}
 		}
+		// Review-agent runs: a terminal failure (no auto-retry pending)
+		// notifies the configured recipient atomically with the status flip.
+		// A retry child owns the outcome delivery instead, so a retried
+		// failure stays silent here.
+		if retried == nil {
+			item, status, err := (&ReviewAgentService{Tasks: s}).reviewResultInboxTx(ctx, qtx, t, nil, true, errMsg, failureReason)
+			if err != nil {
+				return fmt.Errorf("write review failure notification: %w", err)
+			}
+			reviewItem = item
+			reviewIssueStatus = status
+		}
 		return nil
 	}); err != nil {
 		if existing, lookupErr := s.Queries.GetAgentTask(ctx, taskID); lookupErr == nil {
@@ -5210,6 +5247,13 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 			}
 		}
 	}
+
+	// Review-agent runs: the failure notification committed with the status
+	// flip above; publish it now, after the commit.
+	if reviewItem != nil {
+		(&ReviewAgentService{Tasks: s}).publishReviewInbox(*reviewItem, reviewIssueStatus)
+	}
+
 	// Reconcile agent status
 	s.ReconcileAgentStatus(ctx, task.AgentID)
 

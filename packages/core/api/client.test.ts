@@ -3141,3 +3141,89 @@ describe("ApiClient shared credential across windows", () => {
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ApiClient review decisions", () => {
+  const jsonResponse = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  it("parses a valid decision response", async () => {
+    const decision = {
+      id: "d1", issue_id: "i1", pull_request_id: "p1", head_sha: "abc",
+      decision: "approved", note: null, decided_by: "u1",
+      created_at: "2026-10-19T00:00:00Z", stale: false,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(decision)));
+    const client = new ApiClient("https://api.example.test");
+    const result = await client.createIssueReviewDecision("i1", { head_sha: "abc", decision: "approved" });
+    expect(result.decision).toBe("approved");
+    expect(result.stale).toBe(false);
+  });
+
+  it("rejects a malformed create response instead of surfacing a fabricated decision", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ garbage: true })));
+    const client = new ApiClient("https://api.example.test");
+    await expect(
+      client.createIssueReviewDecision("i1", { head_sha: "abc", decision: "approved" }),
+    ).rejects.toThrow(ApiError);
+  });
+
+  it("rejects a malformed resolve response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ garbage: true })));
+    const client = new ApiClient("https://api.example.test");
+    await expect(client.resolveIssueReviewDecision("i1", "d1")).rejects.toThrow(ApiError);
+  });
+
+  it("falls back to an empty list for a malformed list response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ decisions: "invalid" })));
+    const client = new ApiClient("https://api.example.test");
+    const result = await client.listIssueReviewDecisions("i1");
+    expect(result.decisions).toEqual([]);
+  });
+
+  it("never reads a malformed row as a valid approval: stale defaults true", async () => {
+    const row = {
+      id: "d1", issue_id: "i1", pull_request_id: null, head_sha: "abc",
+      decision: "approved", note: null, decided_by: "u1",
+      created_at: "2026-10-19T00:00:00Z",
+      // stale flag missing (malformed row)
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ decisions: [row] })));
+    const client = new ApiClient("https://api.example.test");
+    const result = await client.listIssueReviewDecisions("i1");
+    expect(result.decisions).toHaveLength(1);
+    expect(result.decisions[0]?.stale).toBe(true);
+  });
+});
+
+describe("ApiClient review decision malformed responses with an id", () => {
+  const jsonResponse = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  it("rejects a create response whose id is present but decision is invalid", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      id: "d1", issue_id: "i1", pull_request_id: null, head_sha: "abc",
+      decision: "bogus", note: null, decided_by: "u1",
+      created_at: "2026-10-19T00:00:00Z", stale: false,
+    })));
+    const client = new ApiClient("https://api.example.test");
+    await expect(
+      client.createIssueReviewDecision("i1", { head_sha: "abc", decision: "approved" }),
+    ).rejects.toThrow(ApiError);
+  });
+
+  it("rejects a resolve response whose head is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      id: "d1", issue_id: "i1", pull_request_id: null, head_sha: "",
+      decision: "approved", note: null, decided_by: "u1",
+      created_at: "2026-10-19T00:00:00Z", stale: false,
+    })));
+    const client = new ApiClient("https://api.example.test");
+    await expect(client.resolveIssueReviewDecision("i1", "d1")).rejects.toThrow(ApiError);
+  });
+});

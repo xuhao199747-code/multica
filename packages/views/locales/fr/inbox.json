@@ -81,7 +81,10 @@
     "quick_create_unconfirmed": "Création avec un agent non confirmée",
     "autopilot_paused": "Automatisation en pause",
     "children_done": "Sous-tâches terminées",
-    "autopilot_quota_exceeded": "Limite d'exécutions d'automatisation atteinte"
+    "autopilot_quota_exceeded": "Limite d'exécutions d'automatisation atteinte",
+    "review_agent_instant": "Révision mise en file",
+    "review_agent_summary": "Résumé de révision mis en file",
+    "review_agent_result": "Résultat de révision"
   },
   "labels": {
     "set_status_to": "Statut défini sur",

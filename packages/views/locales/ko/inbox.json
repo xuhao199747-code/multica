@@ -79,7 +79,10 @@
     "quick_create_unconfirmed": "에이전트 생성 결과 미확인",
     "autopilot_paused": "자동화 일시 중지됨",
     "children_done": "하위 태스크가 모두 끝났습니다",
-    "autopilot_quota_exceeded": "자동화 실행 한도 도달"
+    "autopilot_quota_exceeded": "자동화 실행 한도 도달",
+    "review_agent_instant": "리뷰 작업이 대기열에 있음",
+    "review_agent_summary": "리뷰 요약이 대기열에 있음",
+    "review_agent_result": "리뷰 결과"
   },
   "labels": {
     "set_status_to": "상태 변경:",

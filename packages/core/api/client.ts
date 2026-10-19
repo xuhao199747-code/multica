@@ -181,6 +181,8 @@ import type {
   PluginInstallRequest,
   PluginConfigRequest,
   IssuePullRequestsResponse,
+  ListReviewDecisionsResponse,
+  ReviewDecision,
   ListGitHubInstallationsResponse,
   ListGitHubRepositoriesResponse,
   GitHubConnectResponse,
@@ -240,6 +242,7 @@ import type {
   CreateCommentSubIssueAgentRequest,
   CreateCommentSubIssueRequest,
 } from "../types";
+import { EMPTY_REVIEW_DECISIONS_RESPONSE } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
   CreateFeedbackResponse,
@@ -430,6 +433,8 @@ import {
   EMPTY_ISSUE_PROPERTIES_RESPONSE,
   EMPTY_ISSUE_PULL_REQUESTS_RESPONSE,
   IssuePullRequestsResponseSchema,
+  ListReviewDecisionsResponseSchema,
+  ReviewDecisionSchema,
   ResourceLabelsResponseSchema,
   EMPTY_LABEL,
   EMPTY_LIST_LABELS_RESPONSE,
@@ -582,6 +587,36 @@ function assertAgentConversationStartersWriteSupported(data: {
     );
   }
 }
+
+// A malformed decision success-body must never surface as a real call (a
+// fabricated "deferred", or worse something a caller could read as an
+// approval): the mutation would cache it as a successful write. Parse through
+// the shared fallback (so contract drift is logged), then refuse to return
+// the placeholder unless the critical fields are intact — the caller's error
+// path runs instead. The placeholder itself pins stale=true so a damaged row
+// can never read as a valid approval.
+function parseReviewDecisionResponse(raw: unknown, endpoint: string): ReviewDecision {
+  const fallback: ReviewDecision = { id: "", issue_id: "", pull_request_id: null, head_sha: "", decision: "deferred", note: null, decided_by: "", created_at: "", stale: true };
+  const parsed = parseWithFallback(
+    raw,
+    ReviewDecisionSchema,
+    fallback,
+    { endpoint },
+  );
+  if (
+    parsed.id === "" ||
+    parsed.head_sha === "" ||
+    !VALID_REVIEW_DECISIONS.has(parsed.decision as ReviewDecision["decision"])
+  ) {
+    throw new ApiError(`Malformed response from ${endpoint}`, 502, "Bad Gateway", raw);
+  }
+  return parsed;
+}
+const VALID_REVIEW_DECISIONS: ReadonlySet<string> = new Set([
+  "approved",
+  "changes_requested",
+  "deferred",
+]);
 
 function requestedIssueCreateProperties(
   data: CreateIssueRequest,
@@ -5018,6 +5053,40 @@ export class ApiClient {
       EMPTY_ISSUE_PULL_REQUESTS_RESPONSE,
       { endpoint: "GET /api/issues/:id/pull-requests" },
     );
+  }
+
+  async listIssueReviewDecisions(issueId: string): Promise<ListReviewDecisionsResponse> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/review-decisions`);
+    return parseWithFallback(
+      raw,
+      ListReviewDecisionsResponseSchema,
+      EMPTY_REVIEW_DECISIONS_RESPONSE,
+      { endpoint: "GET /api/issues/:id/review-decisions" },
+    );
+  }
+
+  async createIssueReviewDecision(
+    issueId: string,
+    body: {
+      pull_request_id?: string;
+      head_sha: string;
+      decision: string;
+      note?: string;
+    },
+  ): Promise<ReviewDecision> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/review-decisions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return parseReviewDecisionResponse(raw, "POST /api/issues/:id/review-decisions");
+  }
+
+  async resolveIssueReviewDecision(issueId: string, decisionId: string): Promise<ReviewDecision> {
+    const raw = await this.fetch<unknown>(
+      `/api/issues/${issueId}/review-decisions/${decisionId}/resolve`,
+      { method: "POST" },
+    );
+    return parseReviewDecisionResponse(raw, "POST /api/issues/:id/review-decisions/:decisionID/resolve");
   }
 
   /** Link a PR the workspace already mirrors, by pasted URL or by id (undo). */

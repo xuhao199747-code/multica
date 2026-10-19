@@ -481,6 +481,9 @@ WITH target AS (
 cleared_review_events AS (
  DELETE FROM review_agent_event WHERE issue_id IN (SELECT target.id FROM target)
 ),
+cleared_review_decisions AS (
+ DELETE FROM review_decision WHERE issue_id IN (SELECT target.id FROM target)
+),
 cleared_wakeup_receipts AS (
  DELETE FROM issue_wakeup_receipt WHERE wakeup_id IN (SELECT id FROM issue_wakeup WHERE issue_id IN (SELECT target.id FROM target))
 ),

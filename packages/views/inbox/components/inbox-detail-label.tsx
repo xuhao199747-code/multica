@@ -38,6 +38,9 @@ export function useTypeLabels(): Record<InboxItemType, string> {
     autopilot_paused: t(($) => $.types.autopilot_paused),
     autopilot_quota_exceeded: t(($) => $.types.autopilot_quota_exceeded),
     children_done: t(($) => $.types.children_done),
+    review_agent_instant: t(($) => $.types.review_agent_instant),
+    review_agent_summary: t(($) => $.types.review_agent_summary),
+    review_agent_result: t(($) => $.types.review_agent_result),
   };
 }
 

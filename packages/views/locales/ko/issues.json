@@ -1394,5 +1394,20 @@
     "overview_close": "닫기",
     "overview_empty": "이 유형의 산출물이 없습니다.",
     "group_comment_by": "{{name}}의 댓글"
+  },
+  "review_decisions": {
+    "section_title": "리뷰 결정",
+    "current_approved": "승인됨",
+    "current_changes": "수정 요청",
+    "current_deferred": "보류",
+    "current_none": "결정 없음",
+    "stale_badge": "헤드 만료",
+    "menu_label": "결정 기록",
+    "decide_approved": "승인",
+    "decide_changes": "수정 요청",
+    "decide_deferred": "보류",
+    "resolve": "해결됨으로 표시",
+    "approved_deploy_hint": "승인됨 — 배포 여부는 직접 결정하세요.",
+    "error": "결정 저장에 실패했습니다"
   }
 }

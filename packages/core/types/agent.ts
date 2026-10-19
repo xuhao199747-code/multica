@@ -1,5 +1,6 @@
 import type { ChatSession } from "./chat";
 import type { Label } from "./label";
+import type { ReviewAgentConfig } from "./review";
 
 export type AgentStatus = "idle" | "working" | "blocked" | "error" | "offline";
 
@@ -581,8 +582,14 @@ export interface Agent {
    * field; treat `undefined` as false.
    */
   composio_toolkit_allowlist_redacted?: boolean;
-  visibility: AgentVisibility;
   /**
+   * DAWE-20 review role configuration. Absent (or null) on older backends and
+   * on agents without the review role — treat `undefined` as "no review
+   * configuration". Editing requires workspace-member recipients and projects
+   * validated server-side.
+   */
+  review_config?: ReviewAgentConfig | null;
+  visibility: AgentVisibility;  /**
    * Authoritative invocation permission mode (MUL-3963). The `visibility`
    * field above is DERIVED from this on the backend. The current backend
    * always returns this field.
@@ -695,6 +702,11 @@ export interface CreateAgentRequest {
   template?: string;
   /** Workspace skill IDs attached atomically with the agent row. */
   skill_ids?: string[];
+  /**
+   * DAWE-20 review role configuration. Omit to create an ordinary agent;
+   * send `null` on update to clear the review role.
+   */
+  review_config?: ReviewAgentConfig | null;
 }
 
 export interface AgentBuilderSession {
@@ -827,6 +839,14 @@ export interface UpdateAgentRequest {
    * clears it, and a non-empty value stores a runtime-catalog ID.
    */
   service_tier?: string;
+  /**
+   * DAWE-20 review role configuration. Tri-state semantics:
+   *   - field omitted → no change
+   *   - `null` → clear the review role (the agent keeps ordinary identity)
+   *   - object → wholesale replace; the server validates the recipient,
+   *     scope and project membership before persisting
+   */
+  review_config?: ReviewAgentConfig | null;
 }
 
 /**

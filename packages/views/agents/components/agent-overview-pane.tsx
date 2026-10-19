@@ -37,6 +37,7 @@ import { McpConfigTab } from "./tabs/mcp-config-tab";
 import { AgentMcpTab } from "./tabs/agent-mcp-tab";
 import { IntegrationsTab } from "./tabs/integrations-tab";
 import { RuntimeConfigTab } from "./tabs/runtime-config-tab";
+import { ReviewTab } from "./tabs/review-tab";
 import { AgentDetailInspector } from "./agent-detail-inspector";
 import { AgentAccessSettings } from "./agent-access-settings";
 import { AgentOverviewSummary } from "./agent-overview-summary";
@@ -58,7 +59,8 @@ export type DetailTab =
   | "access"
   | "env"
   | "custom_args"
-  | "runtime_config";
+  | "runtime_config"
+  | "review";
 
 type SecondaryTab = {
   id: DetailTab;
@@ -72,7 +74,8 @@ type SecondaryTab = {
     | "access"
     | "environment"
     | "custom_args"
-    | "runtime_config";
+    | "runtime_config"
+    | "review";
 };
 
 const CAPABILITY_TABS: SecondaryTab[] = [
@@ -86,6 +89,7 @@ const CAPABILITY_TABS: SecondaryTab[] = [
 const SETTINGS_TABS: SecondaryTab[] = [
   { id: "general", labelKey: "general" },
   { id: "access", labelKey: "access" },
+  { id: "review", labelKey: "review" },
   { id: "env", labelKey: "environment" },
   { id: "custom_args", labelKey: "custom_args" },
   { id: "runtime_config", labelKey: "runtime_config" },
@@ -497,6 +501,14 @@ export function AgentOverviewPane({
                       currentUserId={currentUserId ?? null}
                       onDirtyChange={setActiveDirty}
                       onUpdate={onUpdate}
+                    />
+                  )}
+                  {effectiveView === "review" && (
+                    <ReviewTab
+                      agent={agent}
+                      members={members}
+                      onDirtyChange={setActiveDirty}
+                      onSave={(updates) => onUpdate(agent.id, updates)}
                     />
                   )}
                   {effectiveView === "env" && (

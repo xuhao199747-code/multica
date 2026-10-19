@@ -1394,5 +1394,20 @@
     "overview_close": "关闭",
     "overview_empty": "没有这类产物。",
     "group_comment_by": "{{name}} 的评论"
+  },
+  "review_decisions": {
+    "section_title": "审核决定",
+    "current_approved": "已通过",
+    "current_changes": "请求修改",
+    "current_deferred": "暂缓",
+    "current_none": "暂无决定",
+    "stale_badge": "head 已过期",
+    "menu_label": "记录决定",
+    "decide_approved": "通过",
+    "decide_changes": "请求修改",
+    "decide_deferred": "暂缓",
+    "resolve": "标记为已解决",
+    "approved_deploy_hint": "已通过——由你决定何时部署。",
+    "error": "保存决定失败"
   }
 }

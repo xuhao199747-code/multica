@@ -25,6 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { PullRequestList } from "./pull-request-list";
+import { ReviewDecisions } from "./review-decisions";
 
 /**
  * The issue sidebar's Pull requests section: the linked PRs, what merging them
@@ -82,6 +83,7 @@ export function PullRequestsSection({
       {open && (
         <div className="pl-2">
           <PullRequestList issueId={issueId} identifier={identifier} />
+          <ReviewDecisions issueId={issueId} prs={data?.pull_requests ?? []} />
         </div>
       )}
     </div>

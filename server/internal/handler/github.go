@@ -82,6 +82,10 @@ type GitHubPullRequestResponse struct {
 	ClosedAt        *string `json:"closed_at"`
 	PRCreatedAt     string  `json:"pr_created_at"`
 	PRUpdatedAt     string  `json:"pr_updated_at"`
+	// HeadSha is the PR's current head commit. The review-decision UI pins a
+	// user's decision to this exact head so a stale call cannot pass for a
+	// fresh one (DAWE-20). Empty when the mirror predates head tracking.
+	HeadSha string `json:"head_sha"`
 	// LinkSource explains why the PR is on the issue: "manual", "title",
 	// "branch", or "auto" (an older rule). Only set on the issue PR list.
 	LinkSource string `json:"link_source,omitempty"`
@@ -210,6 +214,7 @@ func githubPullRequestToResponse(p db.GithubPullRequest, snapshotEnabled bool) G
 		ClosedAt:          timestampToPtr(p.ClosedAt),
 		PRCreatedAt:       timestampToString(p.PrCreatedAt),
 		PRUpdatedAt:       timestampToString(p.PrUpdatedAt),
+		HeadSha:           p.HeadSha,
 		MergeableState:    textToPtr(p.MergeableState),
 		SnapshotAvailable: &snapshotAvailable,
 		// A bare PR row has no aggregated check counts — webhook broadcasts of a
@@ -258,6 +263,7 @@ func issuePullRequestRowToResponse(p db.ListPullRequestsByIssueRow, snapshotEnab
 		ClosedAt:          timestampToPtr(p.ClosedAt),
 		PRCreatedAt:       timestampToString(p.PrCreatedAt),
 		PRUpdatedAt:       timestampToString(p.PrUpdatedAt),
+		HeadSha:           p.HeadSha,
 		MergeableState:    textToPtr(p.MergeableState),
 		SnapshotAvailable: &snapshotAvailable,
 		FailedCheckNames:  []string{},

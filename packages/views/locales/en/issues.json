@@ -1441,5 +1441,20 @@
     "overview_close": "Close",
     "overview_empty": "No deliverables of this type.",
     "group_comment_by": "Comment by {{name}}"
+  },
+  "review_decisions": {
+    "section_title": "Review decisions",
+    "current_approved": "Approved",
+    "current_changes": "Changes requested",
+    "current_deferred": "Deferred",
+    "current_none": "No decision",
+    "stale_badge": "stale head",
+    "menu_label": "Record decision",
+    "decide_approved": "Approve",
+    "decide_changes": "Request changes",
+    "decide_deferred": "Defer",
+    "resolve": "Mark resolved",
+    "approved_deploy_hint": "Approved — you decide when to deploy.",
+    "error": "Failed to save the decision"
   }
 }

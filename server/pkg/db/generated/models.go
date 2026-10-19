@@ -1360,6 +1360,27 @@ type ReviewAgentEvent struct {
 	DispatchedTaskID pgtype.UUID        `json:"dispatched_task_id"`
 }
 
+type ReviewAgentSummaryState struct {
+	AgentID     pgtype.UUID        `json:"agent_id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	LastDate    string             `json:"last_date"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ReviewDecision struct {
+	ID            pgtype.UUID        `json:"id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	IssueID       pgtype.UUID        `json:"issue_id"`
+	PullRequestID pgtype.UUID        `json:"pull_request_id"`
+	HeadSha       string             `json:"head_sha"`
+	Decision      string             `json:"decision"`
+	Note          pgtype.Text        `json:"note"`
+	DecidedBy     pgtype.UUID        `json:"decided_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	SupersededAt  pgtype.Timestamptz `json:"superseded_at"`
+	ResolvedAt    pgtype.Timestamptz `json:"resolved_at"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`

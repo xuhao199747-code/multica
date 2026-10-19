@@ -1394,5 +1394,20 @@
     "overview_close": "閉じる",
     "overview_empty": "この種類の成果物はありません。",
     "group_comment_by": "{{name}} のコメント"
+  },
+  "review_decisions": {
+    "section_title": "レビュー判断",
+    "current_approved": "承認済み",
+    "current_changes": "変更依頼",
+    "current_deferred": "保留",
+    "current_none": "未判断",
+    "stale_badge": "head が古い",
+    "menu_label": "判断を記録",
+    "decide_approved": "承認",
+    "decide_changes": "変更依頼",
+    "decide_deferred": "保留",
+    "resolve": "解決済みにする",
+    "approved_deploy_hint": "承認済み — デプロイするかはあなたが決めてください。",
+    "error": "判断の保存に失敗しました"
   }
 }

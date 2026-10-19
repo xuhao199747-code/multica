@@ -31,7 +31,15 @@ export type InboxItemType =
   | "autopilot_quota_exceeded"
   // Sub-issues of an issue assigned to the recipient closed (the child_done
   // system rule notifies a member assignee instead of waking an agent).
-  | "children_done";
+  | "children_done"
+  // DAWE-20 review agent deliveries: one per dispatched instant review run,
+  // one per daily summary. Both are informational tracking pings for the
+  // configured recipient.
+  | "review_agent_instant"
+  | "review_agent_summary"
+  // Terminal outcome of a review run, delivered to the recipient: the report
+  // excerpt on success, the failure reason on failure.
+  | "review_agent_result";
 
 /**
  * One workspace's unread inbox count in the cross-workspace summary

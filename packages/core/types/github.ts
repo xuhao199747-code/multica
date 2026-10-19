@@ -112,6 +112,12 @@ export interface GitHubPullRequest {
   closed_at: string | null;
   pr_created_at: string;
   pr_updated_at: string;
+  /**
+   * The PR's current head commit. The review-decision UI pins a decision to
+   * this exact head (DAWE-20). Older backends omit it; treat missing as
+   * "unknown head" and skip head-pinned decisions for that PR.
+   */
+  head_sha?: string;
   /** Only set on an issue's PR list. Older backends omit it. */
   link_source?: PullRequestLinkSource;
   /** Conflict verdict from the GitHub API snapshot. Answers ONLY

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
@@ -28,7 +29,14 @@ func (s *ReviewAgentService) TickWorkspace(ctx context.Context, ws pgtype.UUID) 
 	if err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT id,workspace_id,agent_id,issue_id FROM review_agent_event WHERE processed_at IS NULL AND ($1::uuid IS NULL OR workspace_id=$1) ORDER BY created_at,id LIMIT 100`, ws)
+	// Scan only rows that can dispatch right now. Events sitting behind an
+	// active review task or the per-issue hourly rate cap would otherwise
+	// occupy the scan window forever and starve processable events behind
+	// them; they stay pending and become visible once the gate clears.
+	rows, err := tx.Query(ctx, `SELECT e.id,e.workspace_id,e.agent_id,e.issue_id FROM review_agent_event e WHERE e.processed_at IS NULL AND ($1::uuid IS NULL OR e.workspace_id=$1)
+	 AND NOT EXISTS (SELECT 1 FROM agent_task_queue t WHERE t.agent_id=e.agent_id AND t.issue_id=e.issue_id AND t.context->>'review_agent'='true' AND t.status IN ('queued','dispatched','running'))
+	 AND (SELECT count(*) FROM agent_task_queue r WHERE r.agent_id=e.agent_id AND r.issue_id=e.issue_id AND r.context->>'review_agent'='true' AND r.created_at>now()-interval '1 hour') < 6
+	 ORDER BY e.created_at,e.id LIMIT 100`, ws)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		return err
@@ -50,20 +58,37 @@ func (s *ReviewAgentService) TickWorkspace(ctx context.Context, ws pgtype.UUID) 
 		return err
 	}
 	for _, c := range candidates {
-		if err = s.dispatch(ctx, c); err != nil {
-			return err
+		if dispatchErr := s.dispatch(ctx, c); dispatchErr != nil {
+			// One bad candidate must not starve the candidates queued behind
+			// it; the event stays pending and is retried on the next tick.
+			err = errors.Join(err, fmt.Errorf("review event %s: %w", util.UUIDToString(c.ID), dispatchErr))
 		}
 	}
-	return nil
+	return err
+}
+
+// discard marks events as processed without dispatching. Terminal skips —
+// archived agents, disabled or invalid configuration, recipients who left —
+// can never dispatch later; leaving them pending would re-scan them every
+// tick and eventually starve live events behind the scan limit.
+func (s *ReviewAgentService) discard(ctx context.Context, ids []pgtype.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.Tasks.Queries.DiscardReviewAgentEvents(ctx, ids)
+	return err
 }
 
 func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) error {
 	candidate, err := s.Tasks.Queries.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{ID: c.AgentID, WorkspaceID: c.WorkspaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return s.discard(ctx, []pgtype.UUID{c.ID})
 	}
 	if err != nil {
 		return err
+	}
+	if candidate.ArchivedAt.Valid {
+		return s.discard(ctx, []pgtype.UUID{c.ID})
 	}
 	tx, err := s.Tasks.TxStarter.Begin(ctx)
 	if err != nil {
@@ -93,6 +118,9 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 	if err != nil {
 		return err
 	}
+	if issue.Status == "cancelled" {
+		return s.discardTx(ctx, tx, c)
+	}
 	var id pgtype.UUID
 	err = tx.QueryRow(ctx, `SELECT id FROM review_agent_event WHERE id=$1 AND processed_at IS NULL FOR UPDATE SKIP LOCKED`, c.ID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -106,7 +134,14 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 		return err
 	}
 	var cfg ReviewAgentConfig
-	if json.Unmarshal(agent.ReviewConfig, &cfg) != nil || cfg.Validate() != nil || !cfg.InstantEnabled || agent.RuntimeID != candidate.RuntimeID {
+	if json.Unmarshal(agent.ReviewConfig, &cfg) != nil || cfg.Validate() != nil || !cfg.InstantEnabled {
+		return s.discardTx(ctx, tx, c)
+	}
+	// A runtime rebind that commits between the pre-lock read and this
+	// re-check is a recoverable race, not stale work: the next tick re-reads
+	// the new runtime and dispatches then. Discarding here would lose a
+	// review trigger the rebound runtime could have run.
+	if agent.RuntimeID != candidate.RuntimeID {
 		return nil
 	}
 	if cfg.Scope == "projects" {
@@ -118,7 +153,7 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 			}
 		}
 		if !found {
-			return nil
+			return s.discardTx(ctx, tx, c)
 		}
 	}
 	recipient, err := util.ParseUUID(cfg.RecipientID)
@@ -126,10 +161,19 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 		return err
 	}
 	if _, err = q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{UserID: recipient, WorkspaceID: c.WorkspaceID}); err != nil {
-		return nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return s.discardTx(ctx, tx, c)
+		}
+		return err
 	}
 	if err = (&IssueWakeupService{Tasks: s.Tasks}).authorize(ctx, q, c.WorkspaceID, agent.OwnerID, agent); err != nil {
-		return nil
+		// Only a definitive authorization refusal makes the event stale.
+		// A database error from the permission lookups is transient: the
+		// event stays pending and is retried, not discarded.
+		if errors.Is(err, ErrWakeupForbidden) {
+			return s.discardTx(ctx, tx, c)
+		}
+		return err
 	}
 	var active, recent int
 	if err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status IN ('queued','dispatched','running')),count(*) FILTER (WHERE created_at>now()-interval '1 hour') FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true'`, c.AgentID, c.IssueID).Scan(&active, &recent); err != nil {
@@ -175,10 +219,68 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 	if _, err = tx.Exec(ctx, `UPDATE review_agent_event SET processed_at=now(),dispatched_task_id=$2 WHERE id=ANY($1::uuid[]) AND processed_at IS NULL`, ids, task.ID); err != nil {
 		return err
 	}
+	item, err := q.CreateInboxItem(ctx, reviewInboxParams(c.WorkspaceID, recipient, issue.ID, issue.Title, "review_agent_instant", reviewInboxSeverity(kinds), "Review run queued for this issue.", map[string]any{
+		"agent_id": util.UUIDToString(agent.ID), "issue_id": util.UUIDToString(issue.ID), "events": kinds, "head_sha": head,
+	}, agent.ID))
+	if err != nil {
+		return err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
 	s.Tasks.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
 	s.Tasks.NotifyTaskEnqueued(ctx, task)
+	s.publishReviewInbox(item, issue.Status)
 	return nil
+}
+
+func (s *ReviewAgentService) discardTx(ctx context.Context, tx pgx.Tx, c reviewCandidate) error {
+	if _, err := tx.Exec(ctx, `UPDATE review_agent_event SET processed_at=now() WHERE id=$1 AND processed_at IS NULL`, c.ID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func reviewInboxSeverity(kinds []string) string {
+	for _, kind := range kinds {
+		if kind == "issue.blocked" || kind == "task.failed" {
+			return "attention"
+		}
+	}
+	return "info"
+}
+
+func reviewInboxParams(workspaceID, recipient, issueID pgtype.UUID, title, itemType, severity, body string, details map[string]any, actor pgtype.UUID) db.CreateInboxItemParams {
+	encoded, _ := json.Marshal(details)
+	return db.CreateInboxItemParams{
+		ID:            dbid.NewV7(),
+		WorkspaceID:   workspaceID,
+		RecipientType: "member",
+		RecipientID:   recipient,
+		Type:          itemType,
+		Severity:      severity,
+		IssueID:       issueID,
+		Title:         title,
+		Body:          pgtype.Text{String: body, Valid: body != ""},
+		ActorType:     pgtype.Text{String: "agent", Valid: true},
+		ActorID:       actor,
+		Details:       encoded,
+	}
+}
+
+func (s *ReviewAgentService) publishReviewInbox(item db.InboxItem, issueStatus string) {
+	if s.Tasks == nil || s.Tasks.Bus == nil {
+		return
+	}
+	s.Tasks.Bus.Publish(events.Event{
+		Type: protocol.EventInboxNew, WorkspaceID: util.UUIDToString(item.WorkspaceID), ActorType: "system",
+		Payload: map[string]any{"item": map[string]any{
+			"id": util.UUIDToString(item.ID), "workspace_id": util.UUIDToString(item.WorkspaceID),
+			"recipient_type": item.RecipientType, "recipient_id": util.UUIDToString(item.RecipientID),
+			"type": item.Type, "severity": item.Severity, "issue_id": util.UUIDToPtr(item.IssueID),
+			"title": item.Title, "body": util.TextToPtr(item.Body), "read": item.Read, "archived": item.Archived,
+			"created_at": util.TimestampToString(item.CreatedAt), "actor_type": util.TextToPtr(item.ActorType),
+			"actor_id": util.UUIDToPtr(item.ActorID), "details": json.RawMessage(item.Details), "issue_status": issueStatus,
+		}},
+	})
 }
