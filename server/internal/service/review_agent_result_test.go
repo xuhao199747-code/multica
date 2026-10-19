@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/testutil"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // dispatchedReviewRun dispatches one instant review run and returns its task id.
@@ -117,5 +119,340 @@ func TestReviewAgentOrdinaryTaskSendsNoResultNotification(t *testing.T) {
 	}
 	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE recipient_id=$1 AND type='review_agent_result'`, f.UserID); n != 0 {
 		t.Fatalf("ordinary task sent %d review notifications", n)
+	}
+}
+
+func TestActionableReviewCreatesRepairRequest(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	result := []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix the failing test\"}"}`)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), result, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE review_task_id=$1 AND status='pending'`, taskID); n != 1 {
+		t.Fatalf("expected one pending repair, got %d", n)
+	}
+}
+
+func TestReviewTaskRequestsStructuredVerdict(t *testing.T) {
+	f, _, taskID := dispatchedReviewRun(t)
+	var note string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT handoff_note FROM agent_task_queue WHERE id=$1`, taskID).Scan(&note); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(note, `needs_changes`) || !strings.Contains(note, `findings`) {
+		t.Fatalf("review instructions do not request a structured verdict: %s", note)
+	}
+}
+
+func TestRepairDispatcherRoutesToOriginalExecutor(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "repair-worker")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent', assignee_id=$2 WHERE id=$1`, issue, worker)
+	var runtime string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": runtime, "issue_id": issue, "status": "completed", "priority": 0})
+	result := []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix the failing test\"}"}`)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), result, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	svc := ReviewAgentService{Tasks: f.svc.TaskSvc}
+	workspaceID := parseTestUUID(t, f.WorkspaceID)
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { results <- svc.TickRepairs(context.Background(), workspaceID) }()
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_repair'='true'`, worker, issue); n != 1 {
+		t.Fatalf("expected one repair task for original executor, got %d", n)
+	}
+	if err := svc.TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_repair'='true'`, worker, issue); n != 1 {
+		t.Fatalf("duplicate repair tasks: %d", n)
+	}
+	var repairID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_repair'='true'`, worker, issue).Scan(&repairID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='dispatched' WHERE id=$1`, repairID)
+	if _, err := f.svc.TaskSvc.StartTask(context.Background(), parseTestUUID(t, repairID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM issue WHERE id=$1 AND status='in_progress'`, issue); n != 1 {
+		t.Fatalf("repair did not move issue to in_progress: %d", n)
+	}
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, repairID), []byte(`{"output":"fixed and tested"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM issue WHERE id=$1 AND status='in_review'`, issue); n != 1 {
+		t.Fatalf("completed repair did not return issue to in_review: %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_agent_event WHERE issue_id=$1 AND processed_at IS NULL`, issue); n != 0 {
+		t.Fatalf("automatic status transitions triggered %d redundant reviews", n)
+	}
+	if err := svc.TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE issue_id=$1 AND context->>'review_repair_round'='1' AND context->>'review_agent'='true'`, issue); n != 1 {
+		t.Fatalf("expected one rereview, got %d", n)
+	}
+	var rereviewID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE issue_id=$1 AND context->>'review_repair_round'='1' AND context->>'review_agent'='true'`, issue).Scan(&rereviewID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, rereviewID)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, rereviewID), []byte(`{"output":"{\"verdict\":\"pass\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1 AND status='passed'`, issue); n != 1 {
+		t.Fatalf("expected passed repair, got %d", n)
+	}
+}
+
+func TestRepairWithoutAssignedExecutorEscalates(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	result := []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix it\"}"}`)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), result, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&ReviewAgentService{Tasks: f.svc.TaskSvc}).TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1 AND status='blocked'`, issue); n != 1 {
+		t.Fatalf("expected blocked repair, got %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE issue_id=$1 AND type='review_repair_blocked'`, issue); n != 1 {
+		t.Fatalf("expected escalation notification, got %d", n)
+	}
+}
+
+func TestRepairStopsWhenReviewDisabled(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix it\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent SET review_config=review_config || '{"instant_enabled":false}'::jsonb WHERE id=(SELECT agent_id FROM agent_task_queue WHERE id=$1)`, taskID)
+	if err := (&ReviewAgentService{Tasks: f.svc.TaskSvc}).TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1 AND status='blocked'`, issue); n != 1 {
+		t.Fatalf("expected blocked repair when review is disabled, got %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE issue_id=$1 AND type='review_repair_blocked'`, issue); n != 1 {
+		t.Fatalf("expected notification, got %d", n)
+	}
+}
+
+func TestRepairPreservesHumanStatusChange(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "repair-manual-status")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent', assignee_id=$2 WHERE id=$1`, issue, worker)
+	var runtime string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": runtime, "issue_id": issue, "status": "completed", "priority": 0})
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix it\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&ReviewAgentService{Tasks: f.svc.TaskSvc}).TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var repairID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_repair'='true'`, worker, issue).Scan(&repairID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='dispatched' WHERE id=$1`, repairID)
+	if _, err := f.svc.TaskSvc.StartTask(context.Background(), parseTestUUID(t, repairID)); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE issue SET status='blocked', revision=revision+1 WHERE id=$1`, issue)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, repairID), []byte(`{"output":"fixed"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM issue WHERE id=$1 AND status='blocked'`, issue); n != 1 {
+		t.Fatalf("human status change was overwritten: %d", n)
+	}
+}
+
+func TestRepairFailureNotifiesRecipient(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "repair-fail")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent', assignee_id=$2 WHERE id=$1`, issue, worker)
+	var runtime string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": runtime, "issue_id": issue, "status": "completed", "priority": 0})
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix it\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&ReviewAgentService{Tasks: f.svc.TaskSvc}).TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var repairID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_repair'='true'`, worker, issue).Scan(&repairID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, repairID)
+	if _, err := f.svc.TaskSvc.FailTask(context.Background(), parseTestUUID(t, repairID), "cannot fix", "", "", "", "manual", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1 AND status='failed'`, issue); n != 1 {
+		t.Fatalf("expected failed repair, got %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE issue_id=$1 AND type='review_repair_failed'`, issue); n != 1 {
+		t.Fatalf("expected failure notification, got %d", n)
+	}
+}
+
+func TestRepairSweeperFailureNotifiesRecipient(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "repair-sweeper")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent', assignee_id=$2 WHERE id=$1`, issue, worker)
+	var runtime string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": runtime, "issue_id": issue, "status": "completed", "priority": 0})
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix it\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&ReviewAgentService{Tasks: f.svc.TaskSvc}).TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var repairID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_repair'='true'`, worker, issue).Scan(&repairID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='failed', failure_reason='manual', error='runtime stopped' WHERE id=$1`, repairID)
+	task, err := f.svc.TaskSvc.Queries.GetAgentTask(context.Background(), parseTestUUID(t, repairID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.svc.TaskSvc.HandleFailedTasks(context.Background(), []db.AgentTaskQueue{task})
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1 AND status='failed'`, issue); n != 1 {
+		t.Fatalf("expected failed repair, got %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE issue_id=$1 AND type='review_repair_failed'`, issue); n != 1 {
+		t.Fatalf("expected failure notification, got %d", n)
+	}
+}
+
+func TestRepairRoundLimitNotifiesRecipient(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	f.Exec(t, `UPDATE agent_task_queue SET context=context || '{"review_repair_round":3}'::jsonb WHERE id=$1`, taskID)
+	result := []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Still failing\"}"}`)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), result, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1 AND status='pending'`, issue); n != 0 {
+		t.Fatalf("unexpected repair after limit: %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE issue_id=$1 AND type='review_agent_result' AND severity='attention'`, issue); n != 1 {
+		t.Fatalf("expected attention notification at limit, got %d", n)
+	}
+}
+
+func TestRepairThreeRoundsEndInAttention(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "repair-three-rounds")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent', assignee_id=$2 WHERE id=$1`, issue, worker)
+	var runtime string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": runtime, "issue_id": issue, "status": "completed", "priority": 0})
+	verdict := []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Still failing\"}"}`)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), verdict, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	svc := ReviewAgentService{Tasks: f.svc.TaskSvc}
+	for round := 1; round <= 3; round++ {
+		if err := svc.TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+			t.Fatal(err)
+		}
+		var repairID string
+		if err := f.Pool.QueryRow(context.Background(), `SELECT repair_task_id::text FROM review_repair WHERE issue_id=$1 AND round=$2`, issue, round).Scan(&repairID); err != nil {
+			t.Fatal(err)
+		}
+		f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, repairID)
+		if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, repairID), []byte(`{"output":"fixed and tested"}`), "", "", "", false, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+			t.Fatal(err)
+		}
+		var rereviewID string
+		if err := f.Pool.QueryRow(context.Background(), `SELECT rereview_task_id::text FROM review_repair WHERE issue_id=$1 AND round=$2`, issue, round).Scan(&rereviewID); err != nil {
+			t.Fatal(err)
+		}
+		f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, rereviewID)
+		if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, rereviewID), verdict, "", "", "", false, "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_repair WHERE issue_id=$1`, issue); n != 3 {
+		t.Fatalf("expected exactly three rounds, got %d", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE issue_id=$1 AND type='review_agent_result' AND severity='attention'`, issue); n != 1 {
+		t.Fatalf("expected one escalation, got %d", n)
+	}
+}
+
+func TestRepairRetryCompletionContinuesToRereview(t *testing.T) {
+	f, issue, taskID := dispatchedReviewRun(t)
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, issue)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "repair-retry")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent', assignee_id=$2 WHERE id=$1`, issue, worker)
+	var runtime string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": runtime, "issue_id": issue, "status": "completed", "priority": 0})
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, taskID), []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"Fix it\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	svc := ReviewAgentService{Tasks: f.svc.TaskSvc}
+	if err := svc.TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var repairID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE agent_id=$1 AND context->>'review_repair'='true'`, worker).Scan(&repairID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, repairID)
+	if _, err := f.svc.TaskSvc.FailTask(context.Background(), parseTestUUID(t, repairID), "offline", "", "", "", "runtime_offline", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	var retryID string
+	if err := f.Pool.QueryRow(context.Background(), `SELECT id::text FROM agent_task_queue WHERE retry_of_task_id=$1`, repairID).Scan(&retryID); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, retryID)
+	if _, err := f.svc.TaskSvc.CompleteTask(context.Background(), parseTestUUID(t, retryID), []byte(`{"output":"fixed"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.TickRepairs(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE issue_id=$1 AND context->>'review_agent'='true' AND context->>'review_repair_round'='1'`, issue); n != 1 {
+		t.Fatalf("retry did not trigger rereview: %d", n)
 	}
 }

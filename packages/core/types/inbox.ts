@@ -39,7 +39,11 @@ export type InboxItemType =
   | "review_agent_summary"
   // Terminal outcome of a review run, delivered to the recipient: the report
   // excerpt on success, the failure reason on failure.
-  | "review_agent_result";
+  | "review_agent_result"
+  | "review_repair_queued"
+  | "review_repair_rereview"
+  | "review_repair_blocked"
+  | "review_repair_failed";
 
 /**
  * One workspace's unread inbox count in the cross-workspace summary

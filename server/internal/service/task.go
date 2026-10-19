@@ -4187,15 +4187,25 @@ func (s *TaskService) maybeLogClaimSlow(agentID pgtype.UUID, outcome string, sta
 }
 
 // StartTask transitions a dispatched task to running.
-// Issue status is NOT changed here — the agent manages it via the CLI.
+// Automatic repair runs also update the issue when the start commits.
 func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID, supplementSupport ...bool) (*db.AgentTaskQueue, error) {
 	enableTaskSupplement := len(supplementSupport) > 0 && supplementSupport[0]
-	task, err := s.Queries.StartAgentTaskWithSupplement(ctx, db.StartAgentTaskWithSupplementParams{
-		TaskID:               taskID,
-		EnableTaskSupplement: enableTaskSupplement,
+	var task db.AgentTaskQueue
+	var repairIssue *db.Issue
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		var err error
+		task, err = qtx.StartAgentTaskWithSupplement(ctx, db.StartAgentTaskWithSupplementParams{TaskID: taskID, EnableTaskSupplement: enableTaskSupplement})
+		if err != nil {
+			return err
+		}
+		repairIssue, err = (&ReviewAgentService{Tasks: s}).transitionRepairIssueTx(ctx, qtx, task, true)
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
+	}
+	if repairIssue != nil {
+		s.broadcastIssueUpdated(ctx, *repairIssue, "in_review")
 	}
 	s.taskStarted(ctx, task)
 	return &task, nil
@@ -4219,6 +4229,7 @@ func (s *TaskService) StartTaskForClaim(ctx context.Context, claim db.LockAgentT
 		return nil, fmt.Errorf("lock task start claim: %w", err)
 	}
 	replay := task.Status == "running"
+	var repairIssue *db.Issue
 	if !replay {
 		task, err = qtx.StartAgentTaskWithSupplement(ctx, db.StartAgentTaskWithSupplementParams{
 			TaskID:               task.ID,
@@ -4227,11 +4238,18 @@ func (s *TaskService) StartTaskForClaim(ctx context.Context, claim db.LockAgentT
 		if err != nil {
 			return nil, fmt.Errorf("start claimed task: %w", err)
 		}
+		repairIssue, err = (&ReviewAgentService{Tasks: s}).transitionRepairIssueTx(ctx, qtx, task, true)
+		if err != nil {
+			return nil, fmt.Errorf("start repair issue: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit task start: %w", err)
 	}
 	if !replay {
+		if repairIssue != nil {
+			s.broadcastIssueUpdated(ctx, *repairIssue, "in_review")
+		}
 		s.taskStarted(ctx, task)
 	}
 	return &task, nil
@@ -4403,6 +4421,7 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 	// same transaction as the status flip; broadcast after commit.
 	var reviewItem *db.InboxItem
 	var reviewIssueStatus string
+	var repairedIssue *db.Issue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 			return err
@@ -4476,6 +4495,28 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 			}
 			chatAssistantMsg = msg
 		}
+		// A finished repair is re-reviewed; this transition is atomic with completion.
+		var repairContext struct {
+			Repair bool `json:"review_repair"`
+		}
+		if json.Unmarshal(t.Context, &repairContext) == nil && repairContext.Repair {
+			var payload protocol.TaskCompletedPayload
+			if json.Unmarshal(result, &payload) != nil || strings.TrimSpace(payload.Output) == "" {
+				item, status, err := (&ReviewAgentService{Tasks: s}).recordRepairFailureTx(ctx, qtx, t, "Repair finished without a report; user review is required.")
+				if err != nil {
+					return fmt.Errorf("record empty repair result: %w", err)
+				}
+				reviewItem, reviewIssueStatus = item, status
+			} else {
+				repairedIssue, err = (&ReviewAgentService{Tasks: s}).transitionRepairIssueTx(ctx, qtx, t, false)
+				if err != nil {
+					return fmt.Errorf("transition repaired issue: %w", err)
+				}
+				if _, err := qtx.CompleteReviewRepairTask(ctx, t.ID); err != nil {
+					return fmt.Errorf("complete review repair: %w", err)
+				}
+			}
+		}
 		// Review-agent runs: deliver the outcome to the configured recipient
 		// atomically with the status flip. A nil item means nothing to
 		// deliver; an error rolls the completion back so the daemon retries
@@ -4484,8 +4525,10 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 		if err != nil {
 			return fmt.Errorf("write review result notification: %w", err)
 		}
-		reviewItem = item
-		reviewIssueStatus = status
+		if item != nil {
+			reviewItem = item
+			reviewIssueStatus = status
+		}
 		return nil
 	}); err != nil {
 		// When parallel agents race, a task may already be completed,
@@ -4519,6 +4562,9 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 	}
 
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
+	if repairedIssue != nil {
+		s.broadcastIssueUpdated(ctx, *repairedIssue, "in_progress")
+	}
 	s.captureTaskCompleted(ctx, task)
 
 	// Invariant: every completed issue task must have at least one agent
@@ -5079,6 +5125,9 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 					}); err != nil {
 						return fmt.Errorf("copy retry channel delivery: %w", err)
 					}
+					if err := qtx.RepointReviewRepairRetry(ctx, db.RepointReviewRepairRetryParams{RepairTaskID: taskID, RepairTaskID_2: child.ID}); err != nil {
+						return fmt.Errorf("repoint review repair retry: %w", err)
+					}
 					retried = &child
 				}
 			case errors.Is(cerr, pgx.ErrNoRows):
@@ -5137,12 +5186,22 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 		// A retry child owns the outcome delivery instead, so a retried
 		// failure stays silent here.
 		if retried == nil {
+			repairItem, repairStatus, err := (&ReviewAgentService{Tasks: s}).recordRepairFailureTx(ctx, qtx, t, errMsg)
+			if err != nil {
+				return fmt.Errorf("record repair failure: %w", err)
+			}
+			if repairItem != nil {
+				reviewItem = repairItem
+				reviewIssueStatus = repairStatus
+			}
 			item, status, err := (&ReviewAgentService{Tasks: s}).reviewResultInboxTx(ctx, qtx, t, nil, true, errMsg, failureReason)
 			if err != nil {
 				return fmt.Errorf("write review failure notification: %w", err)
 			}
-			reviewItem = item
-			reviewIssueStatus = status
+			if item != nil {
+				reviewItem = item
+				reviewIssueStatus = status
+			}
 		}
 		return nil
 	}); err != nil {
@@ -5598,6 +5657,9 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentT
 		ChildTaskID: child.ID, ParentTaskID: parent.ID,
 	}); err != nil {
 		return nil, fmt.Errorf("copy auto-retry channel delivery: %w", err)
+	}
+	if err := qtx.RepointReviewRepairRetry(ctx, db.RepointReviewRepairRetryParams{RepairTaskID: parent.ID, RepairTaskID_2: child.ID}); err != nil {
+		return nil, fmt.Errorf("repoint review repair retry: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("task auto-retry: commit: %w", err)
@@ -6086,6 +6148,23 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 			}
 		}
 		if !retryPending {
+			// Bulk failure paths do not pass through FailTask. Settle repair
+			// tracking after retry selection so a retry can retain ownership.
+			var repairItem *db.InboxItem
+			var repairStatus string
+			err := s.runInTx(ctx, func(qtx *db.Queries) error {
+				var err error
+				repairItem, repairStatus, err = (&ReviewAgentService{Tasks: s}).recordRepairFailureTx(ctx, qtx, t, t.Error.String)
+				if err == nil && repairItem == nil {
+					repairItem, repairStatus, err = (&ReviewAgentService{Tasks: s}).recordRereviewFailureTx(ctx, qtx, t)
+				}
+				return err
+			})
+			if err != nil {
+				slog.Warn("handle failed tasks: repair settlement failed", "task_id", util.UUIDToString(t.ID), "error", err)
+			} else if repairItem != nil {
+				(&ReviewAgentService{Tasks: s}).publishReviewInbox(*repairItem, repairStatus)
+			}
 			if _, err := s.recoverDelegatedTaskFailure(ctx, t); err != nil {
 				slog.Warn("handle failed tasks: delegated failure recovery failed",
 					"task_id", util.UUIDToString(t.ID),

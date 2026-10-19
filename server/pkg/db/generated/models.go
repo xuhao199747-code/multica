@@ -1381,6 +1381,24 @@ type ReviewDecision struct {
 	ResolvedAt    pgtype.Timestamptz `json:"resolved_at"`
 }
 
+type ReviewRepair struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	IssueID        pgtype.UUID        `json:"issue_id"`
+	ReviewTaskID   pgtype.UUID        `json:"review_task_id"`
+	ReviewAgentID  pgtype.UUID        `json:"review_agent_id"`
+	RecipientID    pgtype.UUID        `json:"recipient_id"`
+	Round          int32              `json:"round"`
+	Status         string             `json:"status"`
+	RepairTaskID   pgtype.UUID        `json:"repair_task_id"`
+	RereviewTaskID pgtype.UUID        `json:"rereview_task_id"`
+	Findings       []byte             `json:"findings"`
+	BlockedReason  pgtype.Text        `json:"blocked_reason"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	IssueRevision  pgtype.Int8        `json:"issue_revision"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`

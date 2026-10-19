@@ -82,7 +82,11 @@
     "autopilot_quota_exceeded": "自动化执行次数已用完",
     "review_agent_instant": "审核任务已排队",
     "review_agent_summary": "审核日报已排队",
-    "review_agent_result": "审核结果"
+    "review_agent_result": "审核结果",
+    "review_repair_queued": "修复任务已排队",
+    "review_repair_rereview": "复审任务已排队",
+    "review_repair_blocked": "修复受阻",
+    "review_repair_failed": "修复失败"
   },
   "labels": {
     "set_status_to": "状态设为",

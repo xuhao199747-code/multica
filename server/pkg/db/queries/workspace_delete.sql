@@ -567,7 +567,9 @@ DELETE FROM lark_installation WHERE lark_installation.workspace_id = $1;
 DELETE FROM comment WHERE comment.workspace_id = $1;
 
 -- name: DeleteWorkspaceIssueRoots :exec
-WITH deleted_review_events AS (
+WITH deleted_review_repairs AS (
+ DELETE FROM review_repair WHERE workspace_id=$1
+), deleted_review_events AS (
  DELETE FROM review_agent_event WHERE workspace_id=$1
 ), deleted_review_decisions AS (
  DELETE FROM review_decision WHERE workspace_id=$1

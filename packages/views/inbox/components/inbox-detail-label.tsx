@@ -41,6 +41,10 @@ export function useTypeLabels(): Record<InboxItemType, string> {
     review_agent_instant: t(($) => $.types.review_agent_instant),
     review_agent_summary: t(($) => $.types.review_agent_summary),
     review_agent_result: t(($) => $.types.review_agent_result),
+    review_repair_queued: t(($) => $.types.review_repair_queued),
+    review_repair_rereview: t(($) => $.types.review_repair_rereview),
+    review_repair_blocked: t(($) => $.types.review_repair_blocked),
+    review_repair_failed: t(($) => $.types.review_repair_failed),
   };
 }
 

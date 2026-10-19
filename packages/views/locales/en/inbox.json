@@ -84,7 +84,11 @@
     "autopilot_quota_exceeded": "Autopilot run limit reached",
     "review_agent_instant": "Review queued",
     "review_agent_summary": "Review summary queued",
-    "review_agent_result": "Review result"
+    "review_agent_result": "Review result",
+    "review_repair_queued": "Repair queued",
+    "review_repair_rereview": "Re-review queued",
+    "review_repair_blocked": "Repair blocked",
+    "review_repair_failed": "Repair failed"
   },
   "labels": {
     "set_status_to": "Set status to",

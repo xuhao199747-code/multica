@@ -82,7 +82,11 @@
     "autopilot_quota_exceeded": "자동화 실행 한도 도달",
     "review_agent_instant": "리뷰 작업이 대기열에 있음",
     "review_agent_summary": "리뷰 요약이 대기열에 있음",
-    "review_agent_result": "리뷰 결과"
+    "review_agent_result": "리뷰 결과",
+    "review_repair_queued": "수정 대기 중",
+    "review_repair_rereview": "재검토 대기 중",
+    "review_repair_blocked": "수정 보류",
+    "review_repair_failed": "수정 실패"
   },
   "labels": {
     "set_status_to": "상태 변경:",

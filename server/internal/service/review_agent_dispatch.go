@@ -20,7 +20,7 @@ type ReviewAgentService struct{ Tasks *TaskService }
 type reviewCandidate struct{ ID, WorkspaceID, AgentID, IssueID pgtype.UUID }
 
 func (s *ReviewAgentService) Tick(ctx context.Context) error {
-	return s.TickWorkspace(ctx, pgtype.UUID{})
+	return errors.Join(s.TickWorkspace(ctx, pgtype.UUID{}), s.TickRepairs(ctx, pgtype.UUID{}))
 }
 
 // TickWorkspace bounds each scan; a workspace argument allows isolated tests.
@@ -211,7 +211,7 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 		return err
 	}
 	contextJSON, _ := json.Marshal(map[string]any{"review_agent": true, "review_recipient_id": cfg.RecipientID, "review_events": kinds})
-	note := fmt.Sprintf("Review this issue using its current state. Events: %v. Recipient: %s. Report the issue, evidence, tests, linked PR and exact head; explicitly identify missing, failed or unknown checks. Do not merge or deploy without explicit user authorization.", kinds, cfg.RecipientID)
+	note := fmt.Sprintf("Review this issue using its current state. Events: %v. Recipient: %s. Report the issue, evidence, tests, linked PR and exact head; explicitly identify missing, failed or unknown checks. Do not merge or deploy without explicit user authorization. Your final output must be exactly one JSON object with exactly two fields, for example {\"verdict\":\"needs_changes\",\"findings\":\"Describe the evidence and required changes here.\"}. verdict must be pass, needs_changes, or needs_decision. findings must be one JSON string, never an array or object, and must describe the evidence and required changes when not pass. Do not include markdown or other text.", kinds, cfg.RecipientID)
 	task, err := q.CreateWakeupTask(ctx, db.CreateWakeupTaskParams{ID: dbid.NewV7(), AgentID: agent.ID, RuntimeID: agent.RuntimeID, IssueID: issue.ID, Priority: priorityToInt(issue.Priority), TriggerSummary: pgtype.Text{String: "Review agent", Valid: true}, HandoffNote: pgtype.Text{String: note, Valid: true}, OriginatorUserID: agent.OwnerID, AccountableUserID: agent.OwnerID, OriginatorSource: pgtype.Text{String: "trigger_owner", Valid: true}, HeadSha: headShaText(head), WakeupContext: contextJSON})
 	if err != nil {
 		return err

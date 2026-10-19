@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/dbid"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 )
@@ -26,8 +27,8 @@ func reviewTaskRecipient(task db.AgentTaskQueue) (pgtype.UUID, bool) {
 		return pgtype.UUID{}, false
 	}
 	var context struct {
-		ReviewAgent         bool   `json:"review_agent"`
-		ReviewRecipientID   string `json:"review_recipient_id"`
+		ReviewAgent       bool   `json:"review_agent"`
+		ReviewRecipientID string `json:"review_recipient_id"`
 	}
 	if json.Unmarshal(task.Context, &context) != nil || !context.ReviewAgent {
 		return pgtype.UUID{}, false
@@ -82,11 +83,63 @@ func (s *ReviewAgentService) reviewResultInboxTx(ctx context.Context, qtx *db.Qu
 		}
 		return nil, "", err
 	}
+	if failed {
+		if _, err := qtx.CompleteReviewRepairRereview(ctx, db.CompleteReviewRepairRereviewParams{RereviewTaskID: task.ID, Status: "failed"}); err != nil {
+			return nil, "", err
+		}
+	}
+	var escalation string
+	if !failed {
+		var metadata struct {
+			Summary bool  `json:"review_summary"`
+			Round   int32 `json:"review_repair_round"`
+		}
+		var payload protocol.TaskCompletedPayload
+		if json.Unmarshal(task.Context, &metadata) == nil && !metadata.Summary && json.Unmarshal(result, &payload) == nil {
+			verdict, valid := parseReviewRepairVerdict(payload.Output)
+			if metadata.Round > 0 {
+				status := "blocked"
+				if valid && verdict.Verdict == "pass" {
+					status = "passed"
+				}
+				if valid && verdict.Verdict == "needs_changes" && metadata.Round < 3 {
+					status = "superseded"
+				}
+				if _, err := qtx.CompleteReviewRepairRereview(ctx, db.CompleteReviewRepairRereviewParams{RereviewTaskID: task.ID, Status: status}); err != nil {
+					return nil, "", err
+				}
+			}
+			if valid && verdict.Verdict == "needs_changes" && metadata.Round >= 3 {
+				escalation = "Repair reached the three-round limit; user review is required. " + verdict.Findings
+			}
+			if valid && verdict.Verdict == "needs_decision" {
+				escalation = "User decision required. " + verdict.Findings
+			}
+			if !valid {
+				escalation = "Review result was not structured; user review is required."
+			}
+			if valid && verdict.Verdict == "needs_changes" && metadata.Round < 3 {
+				findings, err := json.Marshal(verdict)
+				if err != nil {
+					return nil, "", err
+				}
+				_, err = qtx.CreateReviewRepair(ctx, db.CreateReviewRepairParams{ID: dbid.NewV7(), WorkspaceID: issue.WorkspaceID, IssueID: issue.ID, ReviewTaskID: task.ID, ReviewAgentID: task.AgentID, RecipientID: recipient, Round: metadata.Round + 1, Status: "pending", Findings: findings})
+				if err != nil {
+					return nil, "", fmt.Errorf("create review repair request: %w", err)
+				}
+			}
+		}
+	}
 	outcome := "completed"
 	severity := "info"
 	body := reviewResultExcerpt(result)
 	if body == "" {
 		body = "Review run finished. Open the issue for the full report."
+	}
+	if escalation != "" {
+		outcome = "needs_attention"
+		severity = "attention"
+		body = redact.Text(escalation)
 	}
 	if failed {
 		outcome = "failed"

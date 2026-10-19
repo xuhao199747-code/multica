@@ -82,7 +82,11 @@
     "autopilot_quota_exceeded": "自動化の実行上限に達しました",
     "review_agent_instant": "レビューがキューに入りました",
     "review_agent_summary": "レビューサマリーがキューに入りました",
-    "review_agent_result": "レビュー結果"
+    "review_agent_result": "レビュー結果",
+    "review_repair_queued": "修正を予約",
+    "review_repair_rereview": "再レビューを予約",
+    "review_repair_blocked": "修正が保留中",
+    "review_repair_failed": "修正に失敗"
   },
   "labels": {
     "set_status_to": "ステータスを変更:",
