@@ -4521,6 +4521,9 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 		// atomically with the status flip. A nil item means nothing to
 		// deliver; an error rolls the completion back so the daemon retries
 		// the terminal callback rather than dropping the outcome.
+		if err := (&ReviewAgentService{Tasks: s}).queueManualReviewTargetsTx(ctx, qtx, t, result, &reviewItem, &reviewIssueStatus); err != nil {
+			return fmt.Errorf("queue manual review targets: %w", err)
+		}
 		item, status, err := (&ReviewAgentService{Tasks: s}).reviewResultInboxTx(ctx, qtx, t, result, false, "", "")
 		if err != nil {
 			return fmt.Errorf("write review result notification: %w", err)

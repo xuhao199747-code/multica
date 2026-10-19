@@ -2542,6 +2542,10 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	if agent.SystemKey.String == service.MikaSystemKey {
 		resp.Agent.Instructions = service.ComposeMikaInstructions(agent.Name, agent.Instructions)
 	}
+	var manualReviewConfig service.ReviewAgentConfig
+	if task.TriggerCommentID.Valid && json.Unmarshal(agent.ReviewConfig, &manualReviewConfig) == nil && manualReviewConfig.Validate() == nil && manualReviewConfig.InstantEnabled {
+		resp.Agent.Instructions += "\n\n" + service.ManualReviewInstructions
+	}
 	if useSkillRefs {
 		_, skillRefs, err := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID, agent.SystemKey.String)
 		if err != nil {

@@ -250,7 +250,6 @@ func (q *Queries) ListReviewScopeIssues(ctx context.Context, arg ListReviewScope
 }
 
 const listReviewSummaryAgents = `-- name: ListReviewSummaryAgents :many
-
 SELECT id, workspace_id, review_config FROM agent
 WHERE archived_at IS NULL AND kind = 'user' AND review_config->>'summary_enabled' = 'true'
 `
@@ -261,8 +260,6 @@ type ListReviewSummaryAgentsRow struct {
 	ReviewConfig []byte      `json:"review_config"`
 }
 
-// Review-agent summary watermark. Persisted atomically with summary dispatch
-// so a repeated local hour or a scheduler restart cannot double-deliver.
 func (q *Queries) ListReviewSummaryAgents(ctx context.Context) ([]ListReviewSummaryAgentsRow, error) {
 	rows, err := q.db.Query(ctx, listReviewSummaryAgents)
 	if err != nil {
@@ -281,6 +278,70 @@ func (q *Queries) ListReviewSummaryAgents(ctx context.Context) ([]ListReviewSumm
 		return nil, err
 	}
 	return items, nil
+}
+
+const manualReviewComments = `-- name: ManualReviewComments :many
+
+SELECT content FROM comment WHERE source_task_id = $1 AND author_type = 'agent' AND author_id = $2 ORDER BY created_at, id
+`
+
+type ManualReviewCommentsParams struct {
+	SourceTaskID pgtype.UUID `json:"source_task_id"`
+	AuthorID     pgtype.UUID `json:"author_id"`
+}
+
+// Review-agent summary watermark. Persisted atomically with summary dispatch
+// so a repeated local hour or a scheduler restart cannot double-deliver.
+func (q *Queries) ManualReviewComments(ctx context.Context, arg ManualReviewCommentsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, manualReviewComments, arg.SourceTaskID, arg.AuthorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			return nil, err
+		}
+		items = append(items, content)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queueManualReviewTarget = `-- name: QueueManualReviewTarget :execrows
+INSERT INTO review_agent_event (workspace_id, agent_id, issue_id, event_key, event_type, source_task_id)
+SELECT i.workspace_id, $1, i.id, $2, 'manual.review', $3
+FROM issue i JOIN agent a ON a.id = $1 AND a.workspace_id = i.workspace_id
+WHERE i.id = $4 AND i.workspace_id = $5 AND i.status IN ('in_review', 'in_progress')
+  AND a.archived_at IS NULL AND a.review_config->>'instant_enabled' = 'true'
+  AND (a.review_config->>'scope' = 'workspace' OR (a.review_config->>'scope' = 'projects' AND a.review_config->'project_ids' ? i.project_id::text))
+ON CONFLICT (agent_id, event_key) DO NOTHING
+`
+
+type QueueManualReviewTargetParams struct {
+	AgentID      pgtype.UUID `json:"agent_id"`
+	EventKey     string      `json:"event_key"`
+	SourceTaskID pgtype.UUID `json:"source_task_id"`
+	IssueID      pgtype.UUID `json:"issue_id"`
+	WorkspaceID  pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) QueueManualReviewTarget(ctx context.Context, arg QueueManualReviewTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, queueManualReviewTarget,
+		arg.AgentID,
+		arg.EventKey,
+		arg.SourceTaskID,
+		arg.IssueID,
+		arg.WorkspaceID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const resolveReviewDecision = `-- name: ResolveReviewDecision :one

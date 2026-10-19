@@ -182,20 +182,25 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 	if active > 0 || recent >= 6 {
 		return nil
 	}
-	rows, err := tx.Query(ctx, `SELECT id,event_type FROM review_agent_event WHERE agent_id=$1 AND issue_id=$2 AND processed_at IS NULL ORDER BY id FOR UPDATE`, c.AgentID, c.IssueID)
+	rows, err := tx.Query(ctx, `SELECT id,event_type,source_task_id FROM review_agent_event WHERE agent_id=$1 AND issue_id=$2 AND processed_at IS NULL ORDER BY id FOR UPDATE`, c.AgentID, c.IssueID)
 	if err != nil {
 		return err
 	}
 	var ids []pgtype.UUID
 	var kinds []string
+	var manualSources []pgtype.UUID
 	for rows.Next() {
 		var eventID pgtype.UUID
 		var kind string
-		if err = rows.Scan(&eventID, &kind); err != nil {
+		var source pgtype.UUID
+		if err = rows.Scan(&eventID, &kind, &source); err != nil {
 			break
 		}
 		ids = append(ids, eventID)
 		kinds = append(kinds, kind)
+		if kind == "manual.review" && source.Valid {
+			manualSources = append(manualSources, source)
+		}
 	}
 	if err == nil {
 		err = rows.Err()
@@ -212,6 +217,15 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 	}
 	contextJSON, _ := json.Marshal(map[string]any{"review_agent": true, "review_recipient_id": cfg.RecipientID, "review_events": kinds})
 	note := fmt.Sprintf("Review this issue using its current state. Events: %v. Recipient: %s. Report the issue, evidence, tests, linked PR and exact head; explicitly identify missing, failed or unknown checks. Do not merge or deploy without explicit user authorization. Your final output must be exactly one JSON object with exactly two fields, for example {\"verdict\":\"needs_changes\",\"findings\":\"Describe the evidence and required changes here.\"}. verdict must be pass, needs_changes, or needs_decision. findings must be one JSON string, never an array or object, and must describe the evidence and required changes when not pass. Do not include markdown or other text.", kinds, cfg.RecipientID)
+	for _, source := range manualSources {
+		findings, lookupErr := manualReviewFindings(ctx, q, source, agent.ID, issue.ID)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if findings != "" {
+			note += "\nPreviously reported findings to verify: " + findings
+		}
+	}
 	task, err := q.CreateWakeupTask(ctx, db.CreateWakeupTaskParams{ID: dbid.NewV7(), AgentID: agent.ID, RuntimeID: agent.RuntimeID, IssueID: issue.ID, Priority: priorityToInt(issue.Priority), TriggerSummary: pgtype.Text{String: "Review agent", Valid: true}, HandoffNote: pgtype.Text{String: note, Valid: true}, OriginatorUserID: agent.OwnerID, AccountableUserID: agent.OwnerID, OriginatorSource: pgtype.Text{String: "trigger_owner", Valid: true}, HeadSha: headShaText(head), WakeupContext: contextJSON})
 	if err != nil {
 		return err

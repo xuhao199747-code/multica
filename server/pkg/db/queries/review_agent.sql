@@ -1,6 +1,18 @@
 -- Review-agent summary watermark. Persisted atomically with summary dispatch
 -- so a repeated local hour or a scheduler restart cannot double-deliver.
 
+-- name: ManualReviewComments :many
+SELECT content FROM comment WHERE source_task_id = $1 AND author_type = 'agent' AND author_id = $2 ORDER BY created_at, id;
+
+-- name: QueueManualReviewTarget :execrows
+INSERT INTO review_agent_event (workspace_id, agent_id, issue_id, event_key, event_type, source_task_id)
+SELECT i.workspace_id, @agent_id, i.id, @event_key, 'manual.review', @source_task_id
+FROM issue i JOIN agent a ON a.id = @agent_id AND a.workspace_id = i.workspace_id
+WHERE i.id = @issue_id AND i.workspace_id = @workspace_id AND i.status IN ('in_review', 'in_progress')
+  AND a.archived_at IS NULL AND a.review_config->>'instant_enabled' = 'true'
+  AND (a.review_config->>'scope' = 'workspace' OR (a.review_config->>'scope' = 'projects' AND a.review_config->'project_ids' ? i.project_id::text))
+ON CONFLICT (agent_id, event_key) DO NOTHING;
+
 -- name: ListReviewSummaryAgents :many
 SELECT id, workspace_id, review_config FROM agent
 WHERE archived_at IS NULL AND kind = 'user' AND review_config->>'summary_enabled' = 'true';

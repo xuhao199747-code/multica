@@ -88,3 +88,58 @@ func TestRealReviewRepairSmoke(t *testing.T) {
 	}
 	check(run(reviewer, "gpt-5.6-luna", `Review the repair and its tests in this directory. Return exactly one JSON object with exactly two fields, for example {"verdict":"pass","findings":"Evidence and test results."}. verdict must be pass, needs_changes, or needs_decision. findings must be one JSON string, never an array or object. Do not include markdown or other text. Do not modify files.`), "pass")
 }
+
+// TestRealManualReviewReportSmoke checks the structured report contract with a
+// real reviewer and disposable files, without contacting the user's workspace.
+func TestRealManualReviewReportSmoke(t *testing.T) {
+	requireRealAgentSmoke(t)
+	codexPath, err := exec.LookPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "calculator.py"), []byte("def add(a, b):\n    return a - b\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reviewer, err := New("codex", Config{ExecutablePath: codexPath, Logger: slog.Default()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	prompt := `Review calculator.py for issue 01900000-0000-7000-8000-000000000001. It should add two numbers. Do not modify files. At the end of your reply include an HTML comment exactly in this format: <!-- multica-review {"reviews":[{"issue_id":"ISSUE_UUID","verdict":"needs_changes","findings":"specific issue"}]} -->. Use the actual issue UUID. Include only issues needing code changes.`
+	session, err := reviewer.Execute(ctx, prompt, ExecOptions{Cwd: dir, Model: "gpt-5.6-luna", Timeout: 3 * time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for range session.Messages {
+		}
+	}()
+	result := <-session.Result
+	if result.Status != "completed" {
+		t.Fatalf("review failed: %s %s", result.Status, result.Error)
+	}
+	start := strings.Index(result.Output, "<!-- multica-review ")
+	if start < 0 {
+		t.Fatalf("structured marker missing from reviewer output: %s", result.Output)
+	}
+	data := result.Output[start+len("<!-- multica-review "):]
+	end := strings.Index(data, "-->")
+	if end < 0 {
+		t.Fatal("unterminated marker")
+	}
+	var report struct {
+		Reviews []struct {
+			IssueID  string `json:"issue_id"`
+			Verdict  string `json:"verdict"`
+			Findings string `json:"findings"`
+		} `json:"reviews"`
+	}
+	if err := json.Unmarshal([]byte(data[:end]), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Reviews) != 1 || report.Reviews[0].IssueID != "01900000-0000-7000-8000-000000000001" || report.Reviews[0].Verdict != "needs_changes" || strings.TrimSpace(report.Reviews[0].Findings) == "" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}

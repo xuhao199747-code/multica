@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -119,6 +120,171 @@ func TestReviewAgentOrdinaryTaskSendsNoResultNotification(t *testing.T) {
 	}
 	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE recipient_id=$1 AND type='review_agent_result'`, f.UserID); n != 0 {
 		t.Fatalf("ordinary task sent %d review notifications", n)
+	}
+}
+
+func TestManualReviewQueuesActionableIssues(t *testing.T) {
+	f, _, _, agent := wakeFixture(t)
+	ctx := context.Background()
+	target := f.Issue(t, "review target")
+	f.Exec(t, `UPDATE issue SET status='in_review' WHERE id=$1`, target)
+	worker := f.privateAgentOwnedBy(t, f.UserID, "manual-review-worker")
+	f.Exec(t, `UPDATE issue SET assignee_type='agent',assignee_id=$2 WHERE id=$1`, target, worker)
+	var workerRuntime string
+	if err := f.Pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id=$1`, worker).Scan(&workerRuntime); err != nil {
+		t.Fatal(err)
+	}
+	f.Insert(t, "agent_task_queue", testutil.Cols{"agent_id": worker, "runtime_id": workerRuntime, "issue_id": target, "status": "completed", "priority": 0})
+	f.Cleanup(t, `DELETE FROM review_repair WHERE issue_id=$1`, target)
+	f.Exec(t, `UPDATE agent SET review_config=jsonb_build_object('recipient_id',$2::text,'scope','workspace','instant_enabled',true) WHERE id=$1`, agent, f.UserID)
+	issue := f.Issue(t, "review summary")
+	comment := f.Comment(t, issue, "Please review and fix the findings")
+	var runtime string
+	if err := f.Pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id=$1`, agent).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	task := f.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "running", "trigger_comment_id": comment, "originator_user_id": f.UserID, "accountable_user_id": f.UserID})
+	f.Cleanup(t, `DELETE FROM review_agent_event WHERE agent_id=$1`, agent)
+	f.Cleanup(t, `DELETE FROM agent_task_queue WHERE id=$1`, task)
+	result := []byte(fmt.Sprintf(`{"output":%q}`, fmt.Sprintf(`{"reviews":[{"issue_id":%q,"verdict":"needs_changes","findings":"fix test"}]}`, target)))
+	if _, err := f.svc.TaskSvc.CompleteTask(ctx, parseTestUUID(t, task), result, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_agent_event WHERE source_task_id=$1 AND issue_id=$2 AND processed_at IS NULL`, task, target); n != 1 {
+		t.Fatalf("expected one review event, got %d", n)
+	}
+	svc := ReviewAgentService{Tasks: f.svc.TaskSvc}
+	if err := svc.TickWorkspace(ctx, parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true' AND status='queued'`, agent, target); n != 1 {
+		t.Fatalf("expected targeted review task, got %d", n)
+	}
+	var note string
+	if err := f.Pool.QueryRow(ctx, `SELECT handoff_note FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true'`, agent, target).Scan(&note); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(note, "fix test") {
+		t.Fatalf("review did not receive original findings: %s", note)
+	}
+	var reviewTask string
+	if err := f.Pool.QueryRow(ctx, `SELECT id::text FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true'`, agent, target).Scan(&reviewTask); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='running' WHERE id=$1`, reviewTask)
+	if _, err := f.svc.TaskSvc.CompleteTask(ctx, parseTestUUID(t, reviewTask), []byte(`{"output":"{\"verdict\":\"needs_changes\",\"findings\":\"fix test\"}"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.TickRepairs(ctx, parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var repairTask string
+	if err := f.Pool.QueryRow(ctx, `SELECT id::text FROM agent_task_queue WHERE issue_id=$1 AND agent_id=$2 AND context->>'review_repair'='true'`, target, worker).Scan(&repairTask); err != nil {
+		t.Fatal(err)
+	}
+	f.Exec(t, `UPDATE agent_task_queue SET status='dispatched' WHERE id=$1`, repairTask)
+	if _, err := f.svc.TaskSvc.StartTask(ctx, parseTestUUID(t, repairTask)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM issue WHERE id=$1 AND status='in_progress'`, target); n != 1 {
+		t.Fatal("repair start did not update status")
+	}
+	if _, err := f.svc.TaskSvc.CompleteTask(ctx, parseTestUUID(t, repairTask), []byte(`{"output":"fixed"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM issue WHERE id=$1 AND status='in_review'`, target); n != 1 {
+		t.Fatal("repair completion did not update status")
+	}
+	if err := svc.TickRepairs(ctx, parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE issue_id=$1 AND context->>'review_agent'='true' AND context->>'review_repair_round'='1'`, target); n != 1 {
+		t.Fatalf("expected one re-review, got %d", n)
+	}
+}
+
+func TestManualReviewAcceptsReportInPostedComment(t *testing.T) {
+	f, _, _, agent := wakeFixture(t)
+	ctx := context.Background()
+	target := f.Issue(t, "review target")
+	f.Exec(t, `UPDATE issue SET status='in_review' WHERE id=$1`, target)
+	f.Exec(t, `UPDATE agent SET review_config=jsonb_build_object('recipient_id',$2::text,'scope','workspace','instant_enabled',true) WHERE id=$1`, agent, f.UserID)
+	issue := f.Issue(t, "review summary")
+	trigger := f.Comment(t, issue, "Review and fix")
+	var runtime string
+	if err := f.Pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id=$1`, agent).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	task := f.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "running", "trigger_comment_id": trigger, "originator_user_id": f.UserID, "accountable_user_id": f.UserID})
+	f.Comment(t, issue, fmt.Sprintf(`Report <!-- multica-review {"reviews":[{"issue_id":%q,"verdict":"needs_changes","findings":"fix it"}]} -->`, target), testutil.Cols{"author_type": "agent", "author_id": agent, "source_task_id": task})
+	f.Cleanup(t, `DELETE FROM review_agent_event WHERE agent_id=$1`, agent)
+	f.Cleanup(t, `DELETE FROM agent_task_queue WHERE id=$1`, task)
+	if _, err := f.svc.TaskSvc.CompleteTask(ctx, parseTestUUID(t, task), []byte(`{"output":""}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_agent_event WHERE source_task_id=$1 AND issue_id=$2`, task, target); n != 1 {
+		t.Fatalf("expected one event from posted comment, got %d", n)
+	}
+	svc := ReviewAgentService{Tasks: f.svc.TaskSvc}
+	if err := svc.TickWorkspace(ctx, parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var note string
+	if err := f.Pool.QueryRow(ctx, `SELECT handoff_note FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true'`, agent, target).Scan(&note); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(note, "fix it") {
+		t.Fatalf("review did not receive posted findings: %s", note)
+	}
+}
+
+func TestManualReviewWithoutStructuredReportNotifiesRecipient(t *testing.T) {
+	f, _, _, agent := wakeFixture(t)
+	ctx := context.Background()
+	f.Exec(t, `UPDATE agent SET review_config=jsonb_build_object('recipient_id',$2::text,'scope','workspace','instant_enabled',true) WHERE id=$1`, agent, f.UserID)
+	issue := f.Issue(t, "review summary")
+	trigger := f.Comment(t, issue, "Review and fix")
+	var runtime string
+	if err := f.Pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id=$1`, agent).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	task := f.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "running", "trigger_comment_id": trigger, "originator_user_id": f.UserID, "accountable_user_id": f.UserID})
+	f.Cleanup(t, `DELETE FROM inbox_item WHERE recipient_id=$1`, f.UserID)
+	f.Cleanup(t, `DELETE FROM agent_task_queue WHERE id=$1`, task)
+	if _, err := f.svc.TaskSvc.CompleteTask(ctx, parseTestUUID(t, task), []byte(`{"output":"Needs fixes"}`), "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE recipient_id=$1 AND issue_id=$2 AND severity='attention'`, f.UserID, issue); n != 1 {
+		t.Fatalf("expected attention notification, got %d", n)
+	}
+}
+
+func TestManualReviewDoesNotQueueBlockedIssue(t *testing.T) {
+	f, _, _, agent := wakeFixture(t)
+	ctx := context.Background()
+	target := f.Issue(t, "blocked target")
+	f.Exec(t, `UPDATE issue SET status='blocked' WHERE id=$1`, target)
+	f.Exec(t, `UPDATE agent SET review_config=jsonb_build_object('recipient_id',$2::text,'scope','workspace','instant_enabled',true) WHERE id=$1`, agent, f.UserID)
+	issue := f.Issue(t, "review summary")
+	trigger := f.Comment(t, issue, "Review and fix")
+	var runtime string
+	if err := f.Pool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id=$1`, agent).Scan(&runtime); err != nil {
+		t.Fatal(err)
+	}
+	task := f.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "running", "trigger_comment_id": trigger, "originator_user_id": f.UserID, "accountable_user_id": f.UserID})
+	f.Cleanup(t, `DELETE FROM inbox_item WHERE recipient_id=$1`, f.UserID)
+	f.Cleanup(t, `DELETE FROM review_agent_event WHERE agent_id=$1`, agent)
+	f.Cleanup(t, `DELETE FROM agent_task_queue WHERE id=$1`, task)
+	output := fmt.Sprintf(`{"reviews":[{"issue_id":%q,"verdict":"needs_changes","findings":"fix"}]}`, target)
+	result := []byte(fmt.Sprintf(`{"output":%q}`, output))
+	if _, err := f.svc.TaskSvc.CompleteTask(ctx, parseTestUUID(t, task), result, "", "", "", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_agent_event WHERE source_task_id=$1`, task); n != 0 {
+		t.Fatalf("blocked issue queued %d times", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM inbox_item WHERE recipient_id=$1 AND issue_id=$2 AND severity='attention'`, f.UserID, issue); n != 1 {
+		t.Fatalf("expected attention notification, got %d", n)
 	}
 }
 
