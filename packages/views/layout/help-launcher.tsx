@@ -51,6 +51,7 @@ export function HelpLauncher({ compactRail = false }: { compactRail?: boolean })
       <Tooltip>
       <TooltipTrigger render={<DropdownMenuTrigger
         aria-label={t(($) => $.help.trigger)}
+        title={compactRail ? undefined : t(($) => $.help.trigger)}
         className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors cursor-pointer hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
       >
         <CircleHelp className="size-4" />
