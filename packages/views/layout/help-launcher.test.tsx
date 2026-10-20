@@ -73,7 +73,7 @@ vi.mock("@multica/ui/components/ui/dropdown-menu", async () => {
       return <div>{children}</div>;
     },
     DropdownMenuSeparator: () => null,
-    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+    DropdownMenuTrigger: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
   };
 });
 
@@ -87,6 +87,10 @@ afterEach(() => {
 });
 
 describe("HelpLauncher", () => {
+  it("retains a localized title outside the compact rail", () => {
+    render(<HelpLauncher />);
+    expect(screen.getByRole("button", { name: "Help" })).toHaveAttribute("title", "Help");
+  });
   it("does not show a version row when the server omits it", () => {
     render(<HelpLauncher />);
     expect(screen.queryByText(/Server version/)).not.toBeInTheDocument();

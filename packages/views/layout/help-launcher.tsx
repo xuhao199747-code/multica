@@ -22,6 +22,7 @@ import { useConfigStore } from "@multica/core/config";
 import { isDesktopShell } from "../platform/local-directory";
 import { DISCORD_URL, DiscordIcon } from "./discord";
 import { useT } from "../i18n";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@multica/ui/components/ui/tooltip";
 import { docsLocalePrefix } from "../common/docs-locale";
 
 const DOCS_URL = "https://multica.ai/docs";
@@ -32,7 +33,7 @@ const CHANGELOG_URL = "https://multica.ai/changelog";
 // only serve a copy of this page that still has to reach our release assets.
 const DOWNLOAD_URL = "https://multica.ai/download";
 
-export function HelpLauncher() {
+export function HelpLauncher({ compactRail = false }: { compactRail?: boolean }) {
   const { t, i18n } = useT("layout");
   const serverVersion = useConfigStore((state) => state.serverVersion);
   // Web-only: offering "download the desktop app" inside the desktop app is
@@ -47,13 +48,16 @@ export function HelpLauncher() {
   const desktop = isDesktopShell();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
+      <Tooltip>
+      <TooltipTrigger render={<DropdownMenuTrigger
         aria-label={t(($) => $.help.trigger)}
-        title={t(($) => $.help.trigger)}
+        title={compactRail ? undefined : t(($) => $.help.trigger)}
         className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors cursor-pointer hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
       >
         <CircleHelp className="size-4" />
-      </DropdownMenuTrigger>
+      </DropdownMenuTrigger>} />
+      <TooltipContent side="right" hidden={!compactRail}>{t(($) => $.help.trigger)}</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         align="end"
         side="top"

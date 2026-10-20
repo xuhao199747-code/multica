@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
+import { useT } from "../i18n";
 import {
   SidebarMenuButton,
   SidebarMenuItem,
@@ -38,6 +39,7 @@ async function loadCommit(url: string): Promise<GitHubCommit> {
 }
 
 export function UpdateStatus() {
+  const { t } = useT("layout");
   const [state, setState] = useState<UpdateState | "checking">("checking");
 
   const checkForUpdates = useCallback(async () => {
@@ -58,18 +60,19 @@ export function UpdateStatus() {
   }, [checkForUpdates]);
 
   const label = {
-    checking: "正在检查更新",
-    current: "已是最新版本",
-    "update-available": "有官方更新",
-    unknown: "检查更新失败",
+    checking: t(($) => $.sidebar.update_checking),
+    current: t(($) => $.sidebar.update_current),
+    "update-available": t(($) => $.sidebar.update_available),
+    unknown: t(($) => $.sidebar.update_unknown),
   }[state];
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         className="text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
+        tooltip={label}
         onClick={() => void checkForUpdates()}
-        title="检查 Multica 更新"
+        title={t(($) => $.sidebar.update_check)}
       >
         <RefreshCw className={state === "checking" ? "animate-spin" : undefined} />
         <span className="flex-1">{label}</span>
@@ -78,7 +81,7 @@ export function UpdateStatus() {
             href={UPSTREAM_HISTORY_URL}
             target="_blank"
             rel="noreferrer"
-            aria-label="查看官方更新"
+            aria-label={t(($) => $.sidebar.update_view)}
             className="rounded-sm p-1 hover:bg-sidebar-accent"
             onClick={(event) => event.stopPropagation()}
           >

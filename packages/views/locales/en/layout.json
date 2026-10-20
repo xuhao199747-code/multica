@@ -41,6 +41,12 @@
     "loading_named_prefix": "Loading"
   },
   "sidebar": {
+    "update_checking": "Checking for updates",
+    "update_current": "Up to date",
+    "update_available": "Official update available",
+    "update_unknown": "Update check failed",
+    "update_check": "Check for Multica updates",
+    "update_view": "View official updates",
     "unpin_tooltip": "Unpin",
     "workspaces_label": "Workspaces",
     "create_workspace": "Create workspace",

@@ -640,7 +640,7 @@ export function ChatThreadList({
                         type="button"
                         aria-label={`${project.title}项目操作`}
                         title="项目操作"
-                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 data-popup-open:opacity-100 group-hover/project:opacity-100"
+                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <MoreHorizontal className="size-4" />
                       </button>

@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useChatStore } from "@multica/core/chat";
 import { useWorkspacePaths } from "@multica/core/paths";
+import { useIsMobile } from "@multica/ui/hooks/use-mobile";
 import { useNavigation } from "../navigation";
 import { ChatFab } from "./components/chat-fab";
 import { ChatWindow } from "./components/chat-window";
@@ -20,8 +22,18 @@ import { isFloatingChatRouteSuppressed } from "./floating-chat-visibility";
  */
 export function FloatingChat() {
   const enabled = useChatStore((s) => s.floatingChatEnabled);
+  const isOpen = useChatStore((s) => s.isOpen);
+  const setOpen = useChatStore((s) => s.setOpen);
   const { pathname } = useNavigation();
   const wsPaths = useWorkspacePaths();
+  const isMobile = useIsMobile();
+  const previousPath = useRef(pathname);
+
+  useEffect(() => {
+    const changed = previousPath.current !== pathname;
+    previousPath.current = pathname;
+    if (changed && isMobile && isOpen) setOpen(false);
+  }, [pathname, isMobile, isOpen, setOpen]);
 
   if (!enabled) return null;
   // Suppress on the Chat tab — it renders the same conversation full-page.
