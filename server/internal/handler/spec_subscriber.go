@@ -46,9 +46,10 @@ func (h *Handler) ListSpecSubscribers(w http.ResponseWriter, r *http.Request) {
 }
 
 // SubscribeToSpec subscribes a member to a spec. The default target is the
-// caller (an agent caller subscribes its underlying member, mirroring
-// SubscribeToIssue's resolveActor flow); a request body may name another
-// member of the same workspace. Subscribing is idempotent.
+// caller; a request body may name another member of the same workspace.
+// Subscribing is idempotent. Spec subscriptions are member-only — the inbox
+// notification they feed has no agent surface — so an agent target (explicit
+// user_type, or an agent caller subscribing itself) is rejected with 400.
 func (h *Handler) SubscribeToSpec(w http.ResponseWriter, r *http.Request) {
 	spec, ok := h.loadSpecForUser(w, r, chi.URLParam(r, "id"))
 	if !ok {
@@ -73,6 +74,15 @@ func (h *Handler) SubscribeToSpec(w http.ResponseWriter, r *http.Request) {
 		targetUserType = *req.UserType
 	}
 
+	if targetUserType != "member" {
+		writeError(w, http.StatusBadRequest, "spec subscriptions are member-only")
+		return
+	}
+	targetUUID, ok := parseUUIDOrBadRequest(w, targetUserID, "user_id")
+	if !ok {
+		return
+	}
+
 	if !h.isWorkspaceEntity(r.Context(), targetUserType, targetUserID, workspaceID) {
 		writeError(w, http.StatusForbidden, "target user is not a member of this workspace")
 		return
@@ -80,7 +90,7 @@ func (h *Handler) SubscribeToSpec(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.Queries.AddSpecSubscriber(r.Context(), db.AddSpecSubscriberParams{
 		SpecID:   spec.ID,
-		MemberID: parseUUID(targetUserID),
+		MemberID: targetUUID,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to subscribe")
 		return
@@ -116,6 +126,15 @@ func (h *Handler) UnsubscribeFromSpec(w http.ResponseWriter, r *http.Request) {
 		targetUserType = *req.UserType
 	}
 
+	if targetUserType != "member" {
+		writeError(w, http.StatusBadRequest, "spec subscriptions are member-only")
+		return
+	}
+	targetUUID, ok := parseUUIDOrBadRequest(w, targetUserID, "user_id")
+	if !ok {
+		return
+	}
+
 	if !h.isWorkspaceEntity(r.Context(), targetUserType, targetUserID, workspaceID) {
 		writeError(w, http.StatusForbidden, "target user is not a member of this workspace")
 		return
@@ -123,7 +142,7 @@ func (h *Handler) UnsubscribeFromSpec(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.Queries.RemoveSpecSubscriber(r.Context(), db.RemoveSpecSubscriberParams{
 		SpecID:   spec.ID,
-		MemberID: parseUUID(targetUserID),
+		MemberID: targetUUID,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to unsubscribe")
 		return

@@ -105,3 +105,62 @@ func TestSpecSubscribeUnsubscribe(t *testing.T) {
 			Want(http.StatusForbidden)
 	})
 }
+
+// TestSpecSubscribeRejectsAgentTarget covers the DAWE-7 review finding that a
+// spec subscription is member-only: an explicit user_type=agent target must be
+// rejected before any write, not verified as a workspace entity and then
+// stored in the member-only spec_subscriber.member_id column.
+func TestSpecSubscribeRejectsAgentTarget(t *testing.T) {
+	specID := dbfx.Spec(t, "Spec agent-target fixture")
+	runtimeID := dbfx.Runtime(t, "spec-sub-agent-runtime")
+	agentID := dbfx.Agent(t, "spec subscribe agent", runtimeID)
+
+	t.Run("subscribe with user_type=agent is rejected and writes nothing", func(t *testing.T) {
+		testutil.Call(t, testHandler.SubscribeToSpec,
+			testutil.WithURLParams(newRequest("POST", "/api/specs/"+specID+"/subscribe", map[string]any{
+				"user_id":   agentID,
+				"user_type": "agent",
+			}), "id", specID)).
+			Want(http.StatusBadRequest)
+		if got := dbfx.Count(t, `SELECT count(*) FROM spec_subscriber WHERE spec_id = $1`, specID); got != 0 {
+			t.Fatalf("agent-targeted subscribe must not write rows, got %d", got)
+		}
+	})
+
+	t.Run("unsubscribe with user_type=agent is rejected", func(t *testing.T) {
+		testutil.Call(t, testHandler.UnsubscribeFromSpec,
+			testutil.WithURLParams(newRequest("POST", "/api/specs/"+specID+"/unsubscribe", map[string]any{
+				"user_id":   agentID,
+				"user_type": "agent",
+			}), "id", specID)).
+			Want(http.StatusBadRequest)
+	})
+}
+
+// TestSpecSubscribeRejectsMalformedUserID covers the DAWE-7 review finding that
+// a malformed user_id must yield 400 (via parseUUIDOrBadRequest) rather than
+// the membership gate's 403 or the panicking parseUUID path.
+func TestSpecSubscribeRejectsMalformedUserID(t *testing.T) {
+	specID := dbfx.Spec(t, "Spec malformed-user fixture")
+
+	t.Run("subscribe with malformed user_id is rejected and writes nothing", func(t *testing.T) {
+		testutil.Call(t, testHandler.SubscribeToSpec,
+			testutil.WithURLParams(newRequest("POST", "/api/specs/"+specID+"/subscribe", map[string]any{
+				"user_id":   "not-a-uuid",
+				"user_type": "member",
+			}), "id", specID)).
+			Want(http.StatusBadRequest)
+		if got := dbfx.Count(t, `SELECT count(*) FROM spec_subscriber WHERE spec_id = $1`, specID); got != 0 {
+			t.Fatalf("malformed-user_id subscribe must not write rows, got %d", got)
+		}
+	})
+
+	t.Run("unsubscribe with malformed user_id is rejected", func(t *testing.T) {
+		testutil.Call(t, testHandler.UnsubscribeFromSpec,
+			testutil.WithURLParams(newRequest("POST", "/api/specs/"+specID+"/unsubscribe", map[string]any{
+				"user_id":   "not-a-uuid",
+				"user_type": "member",
+			}), "id", specID)).
+			Want(http.StatusBadRequest)
+	})
+}
