@@ -25,7 +25,10 @@ func TestSkillBundleResolveTimeout(t *testing.T) {
 		{"zero size floors to min", 0, skillBundleResolveMinTimeout},
 		{"negative size floors to min", -5, skillBundleResolveMinTimeout},
 		{"tiny bundle floors to min", 1024, skillBundleResolveMinTimeout},
-		{"scales with size above the floor", 2 * 1024 * 1024, 40 * time.Second},
+		{"scales with size above the floor", 2 * 1024 * 1024, 2*time.Minute + 8*time.Second},
+		// Regression for the production failure: a 3.42 MB bundle must not get
+		// the former ~69 second deadline implied by a 50 KiB/s assumption.
+		{"large bundle allows slow tailnet transfer", 3420 * 1024, 3*time.Minute + 33*time.Second},
 		{"huge bundle caps at max", 100 * 1024 * 1024, skillBundleResolveMaxTimeout},
 	}
 	for _, tc := range cases {

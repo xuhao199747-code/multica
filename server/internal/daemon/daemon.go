@@ -7163,12 +7163,17 @@ const (
 	// tiny bundle still tolerates connection setup and round-trip latency.
 	skillBundleResolveMinTimeout = 30 * time.Second
 	// skillBundleResolveMaxTimeout caps it so a wedged download cannot pin a
-	// task in prepare indefinitely.
-	skillBundleResolveMaxTimeout = 5 * time.Minute
+	// task in prepare indefinitely. Keep it below defaultTaskPrepareTimeout so
+	// the daemon still has time to create the execution environment and start
+	// the task after a slow, successful download.
+	skillBundleResolveMaxTimeout = 4 * time.Minute
 	// skillBundleResolveMinThroughput is the pessimistic floor throughput
-	// (bytes/sec) used to scale the deadline to bundle size — deliberately low
-	// to cover slow, jittery links rather than ideal bandwidth.
-	skillBundleResolveMinThroughput = 50 * 1024
+	// (bytes/sec) used to scale the deadline to bundle size. This must model
+	// the tail of real daemon links, not a healthy LAN: 50 KiB/s gave a 3.42 MB
+	// bundle only 69 seconds, exactly long enough to fail while bytes were still
+	// arriving. 16 KiB/s gives that bundle about 3m39s without allowing a
+	// stalled transfer to consume the whole prepare budget.
+	skillBundleResolveMinThroughput = 16 * 1024
 )
 
 // skillBundleResolveTimeout returns the deadline budget for downloading a
