@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/internal/testutil"
 )
 
@@ -384,6 +385,44 @@ func TestSpecVersions_OnlyLatestDraftEditable(t *testing.T) {
 	dbfx.QueryRow(t, `SELECT content FROM spec_version WHERE spec_id = $1 AND number = 2`, specID).Scan(&content)
 	if content != "v2 again" {
 		t.Fatalf("published snapshot mutated after transitions: %q", content)
+	}
+}
+
+func TestSpecVersions_StaleLatestUpdateConflicts(t *testing.T) {
+	specID := insertSpecForVersions(t, "draft")
+	w := publishSpecVersion(t, specID, "v1 body", "c1")
+	var v1 SpecVersionItem
+	if err := json.NewDecoder(w.Body).Decode(&v1); err != nil {
+		t.Fatalf("decode v1: %v", err)
+	}
+	w = publishSpecVersion(t, specID, "v2 body", "c2")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("publish v2: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Simulate the race the route guard exists for: an edit request read v1
+	// as latest, then a concurrent publish created v2. Updating v1 by its own
+	// id/number must now fail (the handler surfaces that as 409), not rewrite
+	// the older snapshot.
+	_, err := testHandler.Queries.UpdateSpecVersionContentWhereNumber(context.Background(), db.UpdateSpecVersionContentWhereNumberParams{
+		ID:      parseUUID(v1.ID),
+		SpecID:  parseUUID(specID),
+		Content: "stale rewrite",
+		Number:  v1.Number,
+	})
+	if err == nil {
+		t.Fatalf("stale latest update succeeded; expected no-rows conflict")
+	}
+	var v1Content string
+	dbfx.QueryRow(t, `SELECT content FROM spec_version WHERE spec_id = $1 AND number = 1`, specID).Scan(&v1Content)
+	if v1Content != "v1 body" {
+		t.Fatalf("stale update mutated v1: %q", v1Content)
+	}
+
+	// The current latest still edits cleanly through the route.
+	w = patchLatestSpecVersion(t, specID, map[string]any{"content": "v2 revised"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("edit latest after guard: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -603,7 +603,8 @@ const updateSpecVersionContentWhereNumber = `-- name: UpdateSpecVersionContentWh
 UPDATE spec_version
 SET content = $3,
     changelog = COALESCE($5, changelog)
-WHERE id = $1 AND spec_id = $2 AND number = $4
+WHERE spec_version.id = $1 AND spec_version.spec_id = $2 AND spec_version.number = $4
+  AND spec_version.number = (SELECT MAX(v2.number) FROM spec_version v2 WHERE v2.spec_id = $2)
 RETURNING id, spec_id, number, content, changelog, created_by, created_at
 `
 
@@ -615,8 +616,11 @@ type UpdateSpecVersionContentWhereNumberParams struct {
 	Changelog pgtype.Text `json:"changelog"`
 }
 
-// Guards on number so an edit aimed at the latest version fails instead of
-// silently rewriting a newer snapshot when a publish races it.
+// Guards on number and on the row still being the spec's latest version, so
+// an edit aimed at the latest version fails instead of silently rewriting an
+// older snapshot when a publish races it: the caller read vN as latest, a
+// concurrent publish created vN+1, and vN no longer matches the MAX(number)
+// predicate even though its own id/number still do.
 func (q *Queries) UpdateSpecVersionContentWhereNumber(ctx context.Context, arg UpdateSpecVersionContentWhereNumberParams) (SpecVersion, error) {
 	row := q.db.QueryRow(ctx, updateSpecVersionContentWhereNumber,
 		arg.ID,
