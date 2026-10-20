@@ -17,10 +17,12 @@ switch to board, table, swimlane, or Gantt views.
 
 ## Design
 
-The shared issue view store becomes the invariant boundary: its initial
-`viewMode` is `list`, and `setViewMode` always stores `list` regardless of an
-incoming mode. This makes stale persisted state and calls from any existing
-entry point resolve consistently.
+The shared issue view store starts in `list` and normalizes persisted legacy
+mode selections to `list`. Every production task-surface caller supplies
+`["list"]` as its only supported mode, so the surface controller also repairs
+any stale in-memory value to `list`. This keeps current list-only behavior
+defensive without removing the non-list state transitions that isolated
+renderer tests use.
 
 Issue surface controllers are configured with list as their only allowed mode.
 The header hides its view selector on those surfaces. Existing non-list
