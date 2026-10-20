@@ -35,6 +35,34 @@ func TestReviewAgentDispatchOnceAcrossConcurrentWorkers(t *testing.T) {
 	}
 }
 
+func TestReviewAgentReconcilesReviewStartedBeforeReviewerWasConfigured(t *testing.T) {
+	f, _, issue, agent := wakeFixture(t)
+	// The issue entered review before this agent was configured. The trigger
+	// could not create an event then, so a scheduler pass must repair that
+	// missed handoff once the reviewer becomes available.
+	wakeSetStatus(t, f, issue, "in_review")
+	f.Exec(t, `UPDATE agent SET review_config=jsonb_build_object('recipient_id',$2::text,'scope','workspace','instant_enabled',true) WHERE id=$1`, agent, f.UserID)
+	f.Cleanup(t, `DELETE FROM review_agent_event WHERE agent_id=$1`, agent)
+
+	dispatcher := ReviewAgentService{Tasks: f.svc.TaskSvc}
+	if err := dispatcher.TickWorkspace(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true'`, agent, issue); n != 1 {
+		t.Fatalf("reconciled %d review runs", n)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM review_agent_event WHERE agent_id=$1 AND issue_id=$2 AND event_type='review.reconciled' AND processed_at IS NOT NULL`, agent, issue); n != 1 {
+		t.Fatalf("processed %d reconciled events", n)
+	}
+
+	if err := dispatcher.TickWorkspace(context.Background(), parseTestUUID(t, f.WorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.Count(t, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1 AND issue_id=$2 AND context->>'review_agent'='true'`, agent, issue); n != 1 {
+		t.Fatalf("second pass queued %d review runs", n)
+	}
+}
+
 func TestReviewAgentDispatchRechecksConfiguration(t *testing.T) {
 	f, _, issue, agent := wakeFixture(t)
 	f.Exec(t, `UPDATE agent SET review_config=jsonb_build_object('recipient_id',$2::text,'scope','workspace','instant_enabled',true) WHERE id=$1`, agent, f.UserID)

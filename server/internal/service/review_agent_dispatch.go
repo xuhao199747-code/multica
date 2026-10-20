@@ -25,6 +25,9 @@ func (s *ReviewAgentService) Tick(ctx context.Context) error {
 
 // TickWorkspace bounds each scan; a workspace argument allows isolated tests.
 func (s *ReviewAgentService) TickWorkspace(ctx context.Context, ws pgtype.UUID) error {
+	if err := s.reconcileInReview(ctx, ws); err != nil {
+		return err
+	}
 	tx, err := s.Tasks.TxStarter.Begin(ctx)
 	if err != nil {
 		return err
@@ -65,6 +68,42 @@ func (s *ReviewAgentService) TickWorkspace(ctx context.Context, ws pgtype.UUID) 
 		}
 	}
 	return err
+}
+
+// reconcileInReview recovers the handoff that is otherwise missed when an
+// issue entered review before its reviewer was configured. It intentionally
+// creates only the first review for an issue: later review cycles are driven
+// by the status-change trigger and the repair workflow, so this must not turn
+// into a periodic re-review loop.
+func (s *ReviewAgentService) reconcileInReview(ctx context.Context, ws pgtype.UUID) error {
+	tx, err := s.Tasks.TxStarter.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO review_agent_event(workspace_id,agent_id,issue_id,event_key,event_type)
+	 SELECT i.workspace_id,a.id,i.id,'review.reconciled:' || i.id::text,'review.reconciled'
+	 FROM issue i
+	 JOIN agent a ON a.workspace_id=i.workspace_id
+	 WHERE i.status='in_review'
+	   AND ($1::uuid IS NULL OR i.workspace_id=$1)
+	   AND a.archived_at IS NULL
+	   AND a.review_config->>'instant_enabled'='true'
+	   AND (a.review_config->>'scope'='workspace' OR
+	        (a.review_config->>'scope'='projects' AND a.review_config->'project_ids' ? i.project_id::text))
+	   AND NOT EXISTS (
+	     SELECT 1 FROM review_agent_event e
+	     WHERE e.agent_id=a.id AND e.issue_id=i.id
+	   )
+	   AND NOT EXISTS (
+	     SELECT 1 FROM agent_task_queue t
+	     WHERE t.agent_id=a.id AND t.issue_id=i.id AND t.context->>'review_agent'='true'
+	   )
+	 ON CONFLICT (agent_id,event_key) DO NOTHING`, ws)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // discard marks events as processed without dispatching. Terminal skips —
