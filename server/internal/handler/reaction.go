@@ -117,25 +117,32 @@ func (h *Handler) AddReaction(w http.ResponseWriter, r *http.Request) {
 
 	resp := addedReactionToResponse(reaction)
 
-	// Look up issue title for inbox notifications.
+	// Look up issue context for inbox notifications. Spec comments have no
+	// issue: their reaction payloads carry the comment keys only, and the
+	// listener skips the inbox write when issue_id is empty.
 	issueID := uuidToString(comment.IssueID)
 	var issueTitle, issueStatus string
-	if issue, err := h.Queries.GetIssue(r.Context(), comment.IssueID); err == nil {
-		issueTitle = issue.Title
-		issueStatus = issue.Status
+	if comment.IssueID.Valid {
+		if issue, err := h.Queries.GetIssue(r.Context(), comment.IssueID); err == nil {
+			issueTitle = issue.Title
+			issueStatus = issue.Status
+		}
 	}
 
 	if reaction.CommentRevision > 0 {
-		h.publish(protocol.EventReactionAdded, workspaceID, actorType, actorID, map[string]any{
+		payload := map[string]any{
 			"reaction":            resp,
-			"issue_id":            issueID,
-			"issue_title":         issueTitle,
-			"issue_status":        issueStatus,
 			"comment_id":          uuidToString(comment.ID),
 			"comment_author_type": comment.AuthorType,
 			"comment_author_id":   uuidToString(comment.AuthorID),
 			"comment_revision":    reaction.CommentRevision,
-		})
+		}
+		if issueID != "" {
+			payload["issue_id"] = issueID
+			payload["issue_title"] = issueTitle
+			payload["issue_status"] = issueStatus
+		}
+		h.publish(protocol.EventReactionAdded, workspaceID, actorType, actorID, payload)
 	}
 	writeJSON(w, http.StatusCreated, resp)
 }

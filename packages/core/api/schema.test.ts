@@ -187,6 +187,183 @@ describe("ApiClient schema fallback", () => {
     });
   });
 
+  describe("listSpecs", () => {
+    it("falls back to an empty envelope when the response is malformed", async () => {
+      // `specs` having the wrong type triggers the fallback. An object with
+      // only unexpected keys would *succeed* parsing now (every declared
+      // field has a default) and just pass the extras through via `.loose()`,
+      // so we use a wrong-type payload here instead.
+      stubFetchJson({ specs: "not-an-array", total: 0 });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.listSpecs();
+      expect(res).toEqual({ specs: [], total: 0 });
+    });
+
+    it("passes the project_id filter through to the query string", async () => {
+      stubFetchJson({ specs: [], total: 0 });
+      const client = new ApiClient("https://api.example.test");
+      await client.listSpecs("proj-1");
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+        "https://api.example.test/api/specs?project_id=proj-1",
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe("getSpec", () => {
+    // Unlike the list, a single spec has no safe-empty shape: detail screens
+    // key off its id, so a malformed 2xx must fail the call rather than
+    // resolve to a truthy spec with an empty id.
+    const validSpec = {
+      id: "spec-1",
+      workspace_id: "ws-1",
+      project_id: null,
+      title: "Existing spec",
+      identifier: "MUL-S-1",
+      status: "draft",
+      current_version_id: null,
+      current_version: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+
+    it("resolves a well-formed spec, defaulting the fields older servers omit", async () => {
+      // An older backend may not send the nullable/defaulted fields yet.
+      stubFetchJson({
+        id: "spec-1",
+        workspace_id: "ws-1",
+        title: "Existing spec",
+        identifier: "MUL-S-1",
+        status: "draft",
+        unknown_field: "kept",
+      });
+      const client = new ApiClient("https://api.example.test");
+      const spec = await client.getSpec("MUL-S-1");
+      expect(spec.id).toBe("spec-1");
+      expect(spec.project_id).toBeNull();
+      expect(spec.current_version_id).toBeNull();
+      expect(spec.current_version).toBeNull();
+    });
+
+    it("resolves a spec with a well-formed current_version", async () => {
+      stubFetchJson({
+        ...validSpec,
+        current_version_id: "ver-1",
+        current_version: {
+          id: "ver-1",
+          number: 1,
+          content: "body",
+          changelog: "",
+          created_by: "user-1",
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      });
+      const client = new ApiClient("https://api.example.test");
+      const spec = await client.getSpec("MUL-S-1");
+      expect(spec.current_version?.content).toBe("body");
+      expect(spec.current_version?.number).toBe(1);
+    });
+
+    it("rejects a 200 body that is not a usable spec (no truthy spec with an empty id)", async () => {
+      stubFetchJson({ not: "a spec" });
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.getSpec("MUL-S-1")).rejects.toThrow();
+    });
+
+    it("rejects a 200 body whose required field drifted type", async () => {
+      stubFetchJson({ ...validSpec, title: 1 });
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.getSpec("MUL-S-1")).rejects.toThrow();
+    });
+
+    it("does not disguise a malformed body as an ApiError", async () => {
+      stubFetchJson({ id: "spec-1" });
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.getSpec("MUL-S-1")).rejects.not.toBeInstanceOf(
+        ApiError,
+      );
+    });
+
+    it("still surfaces a real 404 as an ApiError", async () => {
+      stubFetchJson({ error: "spec not found" }, 404);
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.getSpec("MUL-S-1")).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+  });
+
+  describe("spec comments", () => {
+    // Same wire shape as issue comments; the spec anchor fields are additive
+    // and must default cleanly against older backends.
+    const validComment = {
+      id: "c-1",
+      issue_id: "",
+      author_type: "member",
+      author_id: "u-1",
+      content: "hello",
+      type: "comment",
+      parent_id: null,
+      reactions: [],
+      attachments: [],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+
+    it("listSpecVersionComments falls back to [] on a malformed response", async () => {
+      stubFetchJson({ wrong: "shape" });
+      const client = new ApiClient("https://api.example.test");
+      const comments = await client.listSpecVersionComments("spec-1", "ver-1");
+      expect(comments).toEqual([]);
+    });
+
+    it("listSpecComments falls back to [] on a malformed response", async () => {
+      stubFetchJson(["not", "comments"]);
+      const client = new ApiClient("https://api.example.test");
+      const comments = await client.listSpecComments("spec-1");
+      expect(comments).toEqual([]);
+    });
+
+    it("defaults the anchor fields an older server omits", async () => {
+      stubFetchJson([validComment]);
+      const client = new ApiClient("https://api.example.test");
+      const comments = await client.listSpecComments("spec-1");
+      expect(comments).toHaveLength(1);
+      expect(comments[0]?.spec_version_id).toBe("");
+      expect(comments[0]?.spec_version_number).toBe(0);
+    });
+
+    it("keeps the anchor and version number a newer server sends", async () => {
+      stubFetchJson([{ ...validComment, spec_version_id: "ver-1", spec_version_number: 2 }]);
+      const client = new ApiClient("https://api.example.test");
+      const comments = await client.listSpecComments("spec-1");
+      expect(comments[0]?.spec_version_id).toBe("ver-1");
+      expect(comments[0]?.spec_version_number).toBe(2);
+    });
+
+    it("createSpecComment resolves a well-formed comment and posts to the version route", async () => {
+      stubFetchJson({ ...validComment, spec_version_id: "ver-1" });
+      const client = new ApiClient("https://api.example.test");
+      const comment = await client.createSpecComment("spec-1", "ver-1", {
+        content: "hello",
+      });
+      expect(comment.id).toBe("c-1");
+      expect(comment.spec_version_id).toBe("ver-1");
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+        "https://api.example.test/api/specs/spec-1/versions/ver-1/comments",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("createSpecComment throws on a malformed 2xx instead of returning an empty comment", async () => {
+      stubFetchJson({ not: "a comment" });
+      const client = new ApiClient("https://api.example.test");
+      await expect(
+        client.createSpecComment("spec-1", "ver-1", { content: "hello" }),
+      ).rejects.toThrow();
+    });
+  });
+
   describe("getIssue", () => {
     // Unlike a list, a single issue has no safe-empty shape, and the bare
     // identifier autolink caches this result for 5 minutes. A malformed 2xx

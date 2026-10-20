@@ -228,6 +228,30 @@ VALUES ($1, 'head-a', 0, 'backend', 'completed', 'success', false)
 		"creator_type": "member",
 		"creator_id":   testUserID,
 	})
+	specID := dbfx.Insert(t, "spec", testutil.Cols{
+		"workspace_id": wsID,
+		"title":        "Workspace delete spec",
+		"identifier":   "TEST-S-1",
+		"created_by":   testUserID,
+	})
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM spec_subscriber WHERE spec_id = $1`, specID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM spec_issue WHERE spec_id = $1`, specID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM spec_version WHERE spec_id = $1`, specID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM spec WHERE id = $1`, specID)
+	})
+	specVersionID := dbfx.Insert(t, "spec_version", testutil.Cols{
+		"spec_id":    specID,
+		"number":     1,
+		"content":    "# Workspace delete spec",
+		"changelog":  "Initial version",
+		"created_by": testUserID,
+	})
+	dbfx.Exec(t, `UPDATE spec SET current_version_id = $2 WHERE id = $1`, specID, specVersionID)
+	dbfx.Exec(t, `INSERT INTO spec_issue (spec_id, issue_id) VALUES ($1, $2)`, specID, issueID)
+	var memberID string
+	dbfx.QueryRow(t, `SELECT id FROM member WHERE workspace_id = $1 AND user_id = $2`, wsID, testUserID).Scan(&memberID)
+	dbfx.Exec(t, `INSERT INTO spec_subscriber (spec_id, member_id) VALUES ($1, $2)`, specID, memberID)
 
 	autopilotID := dbfx.Insert(t, "autopilot", testutil.Cols{
 		"workspace_id":    wsID,
@@ -345,6 +369,19 @@ VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 's3://workspace-delete/sou
 	dbfx.QueryRow(t, `SELECT COUNT(*) FROM issue_property WHERE id = $1`, propertyID).Scan(&propertyCount)
 	if propertyCount != 0 {
 		t.Fatalf("issue properties were not cleaned up for deleted workspace: %d", propertyCount)
+	}
+
+	for table, where := range map[string]string{
+		"spec":            `id = $1`,
+		"spec_version":    `spec_id = $1`,
+		"spec_issue":      `spec_id = $1`,
+		"spec_subscriber": `spec_id = $1`,
+	} {
+		var count int
+		dbfx.QueryRow(t, `SELECT COUNT(*) FROM `+table+` WHERE `+where, specID).Scan(&count)
+		if count != 0 {
+			t.Fatalf("%s rows survived workspace delete: %d", table, count)
+		}
 	}
 
 	for _, table := range []string{

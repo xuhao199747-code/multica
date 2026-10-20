@@ -301,3 +301,30 @@ ORDER BY id;
 DELETE FROM attachment
 WHERE workspace_id = sqlc.arg(workspace_id)
   AND source_context_id IS NOT NULL;
+
+-- name: LinkAttachmentsToSpecComment :exec
+-- Spec-side sibling of LinkAttachmentsToComment: a spec comment binds
+-- unbound uploads (issue_id IS NULL), scoped by workspace like the lock that
+-- preceded it.
+UPDATE attachment
+SET comment_id = sqlc.arg(comment_id)
+WHERE workspace_id = sqlc.arg(workspace_id)
+  AND issue_id IS NULL
+  AND comment_id IS NULL
+  AND source_context_id IS NULL
+  AND id = ANY(sqlc.arg(attachment_ids)::uuid[]);
+
+-- name: LockAttachmentsForSpecCommentLink :many
+-- Spec-side sibling of LockAttachmentsForCommentLink: pins the requested
+-- unbound attachment set after the CreateSpecVersionComment statement took
+-- the spec row — spec -> comment -> child, mirroring the issue-side order.
+-- The existing issue-scoped lock cannot be reused: passing an invalid
+-- issue_id would make its `issue_id = @issue_id` predicate match nothing.
+SELECT id FROM attachment
+WHERE workspace_id = sqlc.arg(workspace_id)
+  AND issue_id IS NULL
+  AND comment_id IS NULL
+  AND source_context_id IS NULL
+  AND id = ANY(sqlc.arg(attachment_ids)::uuid[])
+ORDER BY id
+FOR UPDATE;
