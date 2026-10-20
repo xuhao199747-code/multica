@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -255,7 +256,13 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 		return err
 	}
 	contextJSON, _ := json.Marshal(map[string]any{"review_agent": true, "review_recipient_id": cfg.RecipientID, "review_events": kinds})
-	note := fmt.Sprintf("Review this issue using its current state. Events: %v. Recipient: %s. Report the issue, evidence, tests, linked PR and exact head; explicitly identify missing, failed or unknown checks. Do not merge or deploy without explicit user authorization. Your final output must be exactly one JSON object with exactly two fields, for example {\"verdict\":\"needs_changes\",\"findings\":\"Describe the evidence and required changes here.\"}. verdict must be pass, needs_changes, or needs_decision. findings must be one JSON string, never an array or object, and must describe the evidence and required changes when not pass. Do not include markdown or other text.", kinds, cfg.RecipientID)
+	note := fmt.Sprintf("Review this issue using its current state. Events: %v. Recipient: %s. Report the issue, evidence, tests, linked PR and exact head; explicitly identify missing, failed or unknown checks. Do not merge or deploy without explicit user authorization.", kinds, cfg.RecipientID)
+	if specContext, specErr := reviewSpecContext(ctx, q, issue); specErr != nil {
+		return specErr
+	} else if specContext != "" {
+		note += "\n\n" + specContext
+	}
+	note += " Your final output must be exactly one JSON object with exactly two fields, for example {\"verdict\":\"needs_changes\",\"findings\":\"Describe the evidence and required changes here.\"}. verdict must be pass, needs_changes, or needs_decision. findings must be one JSON string, never an array or object, and must describe the evidence and required changes when not pass. Do not include markdown or other text."
 	for _, source := range manualSources {
 		findings, lookupErr := manualReviewFindings(ctx, q, source, agent.ID, issue.ID)
 		if lookupErr != nil {
@@ -285,6 +292,39 @@ func (s *ReviewAgentService) dispatch(ctx context.Context, c reviewCandidate) er
 	s.Tasks.NotifyTaskEnqueued(ctx, task)
 	s.publishReviewInbox(item, issue.Status)
 	return nil
+}
+
+func reviewSpecContext(ctx context.Context, q *db.Queries, issue db.Issue) (string, error) {
+	refs, err := q.ListIssueSpecs(ctx, issue.ID)
+	if err != nil {
+		return "", err
+	}
+	var sections []string
+	for _, ref := range refs {
+		spec, err := q.GetSpecInWorkspace(ctx, db.GetSpecInWorkspaceParams{ID: ref.SpecID, WorkspaceID: issue.WorkspaceID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		version, err := q.GetLatestSpecVersion(ctx, spec.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		content := []rune(strings.TrimSpace(version.Content))
+		if len(content) > 6000 {
+			content = content[:6000]
+		}
+		sections = append(sections, fmt.Sprintf("PRD %s v%d (%s):\n%s", spec.Identifier, version.Number, spec.Title, string(content)))
+	}
+	if len(sections) == 0 {
+		return "", nil
+	}
+	return "Acceptance requirements from the linked PRD follow. Check every applicable requirement and state in findings which requirement lacks evidence or is unmet:\n" + strings.Join(sections, "\n\n"), nil
 }
 
 func (s *ReviewAgentService) discardTx(ctx context.Context, tx pgx.Tx, c reviewCandidate) error {

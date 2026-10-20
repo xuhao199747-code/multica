@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -61,6 +62,31 @@ func TestSendChatMessage_ReportsPositionInsteadOfQueuedStatus(t *testing.T) {
 	}
 	if second := send("second"); !second.Queued {
 		t.Fatal("second task behind an in-flight head must be reported as queued")
+	}
+}
+
+func TestSendChatMessage_HandoffMentionQueuesMika(t *testing.T) {
+	ctx := context.Background()
+	prdAgentID := createHandlerTestAgent(t, "PRD handoff source", []byte("[]"))
+	mikaID := createHandlerTestAgent(t, "Mika handoff target", []byte("[]"))
+	if _, err := testPool.Exec(ctx, `UPDATE agent SET system_key=$2 WHERE id=$1`, mikaID, service.MikaSystemKey); err != nil {
+		t.Fatalf("mark Mika: %v", err)
+	}
+	sessionID := createHandlerTestChatSession(t, prdAgentID)
+	req := newRequest("POST", "/api/chat-sessions/"+sessionID+"/messages", map[string]any{"content": "PRD is ready. @Mika please develop it"})
+	req = withURLParam(req, "sessionId", sessionID)
+	req = withChatTestWorkspaceCtx(t, req)
+	w := httptest.NewRecorder()
+	testHandler.SendChatMessage(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("SendChatMessage: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var n int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1 AND chat_session_id IS NOT NULL`, mikaID).Scan(&n); err != nil {
+		t.Fatalf("count Mika tasks: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("Mika handoff queued %d tasks", n)
 	}
 }
 

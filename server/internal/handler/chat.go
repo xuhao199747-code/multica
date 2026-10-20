@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -937,6 +938,22 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	msg := sent.Message
 	task := sent.Task
+	// A PRD conversation can hand work to Mika without making the member copy
+	// its request into another chat. The source agent still receives the turn;
+	// Mika receives a second, explicit coordination turn with the source chat
+	// identity so it can inspect the PRD before creating and assigning work.
+	if strings.Contains(req.Content, "@Mika") && agent.SystemKey.String != service.MikaSystemKey {
+		if mika, lookupErr := h.Queries.GetAgentBySystemKey(r.Context(), db.GetAgentBySystemKeyParams{
+			WorkspaceID: parseUUID(workspaceID), SystemKey: pgtype.Text{String: service.MikaSystemKey, Valid: true},
+		}); lookupErr == nil {
+			if mikaSession, sessionErr := h.getOrCreateMikaSession(r.Context(), mika, workspaceID, userID, "Mika"); sessionErr == nil {
+				handoff := fmt.Sprintf("A member handed off work from chat %s with %s. Inspect that PRD conversation and take ownership: create or continue the appropriate issue, assign the right executor, and report the result. Member request: %s", uuidToString(session.ID), agent.Name, req.Content)
+				if _, handoffErr := h.TaskService.SendDirectChatMessage(r.Context(), mikaSession, mika, parseUUID(userID), handoff, nil, actorType, parseUUID(actorID)); handoffErr != nil {
+					slog.Warn("mika handoff enqueue failed", "source_session_id", uuidToString(session.ID), "error", handoffErr)
+				}
+			}
+		}
+	}
 	currentTitle := session.Title
 	if sent.InitialTitle != "" {
 		currentTitle = sent.InitialTitle
