@@ -4087,6 +4087,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	); ok && !req.SuppressRun {
 		h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.HandoffNote)
 	}
+	if statusChanged && !req.SuppressRun {
+		h.enqueueMikaReviewCoordination(r.Context(), issue, prevIssue, actorType, actorID)
+	}
 
 	// Sub-issue rules on the parent (the child_done system rule and sub-issue
 	// conditions): the write recorded the change; process it now. A failure
@@ -4816,6 +4819,9 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			h.issueTriggerWriteProbe(r, actorType, actorID, issue),
 		); ok && !req.Updates.SuppressRun {
 			h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.Updates.HandoffNote)
+		}
+		if statusChanged && !req.Updates.SuppressRun {
+			h.enqueueMikaReviewCoordination(r.Context(), issue, prevIssue, actorType, actorID)
 		}
 
 		// No status change — not even → cancelled — cancels active tasks here,
