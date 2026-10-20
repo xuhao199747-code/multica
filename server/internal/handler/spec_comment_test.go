@@ -477,6 +477,59 @@ func TestSpecCommentAttachments(t *testing.T) {
 	})
 }
 
+func TestSpecCommentReplyReopensResolvedThread(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	specID := dbfx.Spec(t, "spec comment reopen")
+	versionID := dbfx.SpecVersion(t, specID, 1)
+
+	root := mustCreateSpecComment(t, specID, versionID, map[string]any{"content": "reopen root"})
+
+	// Resolve the root, then reply: the reply must re-open the thread and the
+	// comment:unresolved broadcast must identify the spec_version anchor —
+	// the map-shaped payload AutoUnresolveThreadOnReply publishes carries
+	// spec_version_id exactly like issue_id (DAWE-8 review finding).
+	req := newRequest(http.MethodPost, "/api/comments/"+root.ID+"/resolve", nil)
+	req = testutil.WithURLParams(req, "commentId", root.ID)
+	testutil.Call(t, testHandler.ResolveComment, req).Want(http.StatusOK)
+
+	var mu sync.Mutex
+	var unresolved []map[string]any
+	testHandler.Bus.Subscribe(protocol.EventCommentUnresolved, func(e events.Event) {
+		m, ok := e.Payload.(map[string]any)
+		if !ok {
+			return
+		}
+		c, ok := m["comment"].(map[string]any)
+		if !ok {
+			return
+		}
+		mu.Lock()
+		unresolved = append(unresolved, c)
+		mu.Unlock()
+	})
+
+	mustCreateSpecComment(t, specID, versionID, map[string]any{
+		"content": "reopening reply", "parent_id": root.ID,
+	})
+
+	if commentResolved(t, root.ID) {
+		t.Fatalf("resolved root should be unresolved after a reply")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(unresolved) != 1 {
+		t.Fatalf("comment:unresolved payloads = %d, want 1: %+v", len(unresolved), unresolved)
+	}
+	if sv, _ := unresolved[0]["spec_version_id"].(string); sv != versionID {
+		t.Fatalf("reopen payload spec_version_id = %v, want %s", unresolved[0]["spec_version_id"], versionID)
+	}
+	if iv, _ := unresolved[0]["issue_id"].(string); iv != "" {
+		t.Fatalf("reopen payload issue_id = %q, want empty for a spec comment", iv)
+	}
+}
+
 func TestSpecCommentDelete(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")

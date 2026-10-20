@@ -7591,6 +7591,7 @@ func (s *TaskService) AutoUnresolveThreadOnReply(ctx context.Context, parent *db
 			"comment": map[string]any{
 				"id":               util.UUIDToString(updated.ID),
 				"issue_id":         util.UUIDToString(updated.IssueID),
+				"spec_version_id":  util.UUIDToString(updated.SpecVersionID),
 				"author_type":      updated.AuthorType,
 				"author_id":        util.UUIDToString(updated.AuthorID),
 				"content":          updated.Content,
