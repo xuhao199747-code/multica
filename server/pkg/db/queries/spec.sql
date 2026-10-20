@@ -2,6 +2,10 @@
 SELECT * FROM spec
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: GetSpecByIdentifierInWorkspace :one
+SELECT * FROM spec
+WHERE identifier = $1 AND workspace_id = $2;
+
 -- name: ListSpecs :many
 SELECT * FROM spec
 WHERE workspace_id = $1
@@ -27,6 +31,23 @@ RETURNING *;
 -- name: DeleteSpec :exec
 DELETE FROM spec
 WHERE id = $1 AND workspace_id = $2;
+
+-- name: DeleteSpecVersionsBySpec :exec
+DELETE FROM spec_version
+WHERE spec_id = $1;
+
+-- name: DeleteSpecIssuesBySpec :exec
+DELETE FROM spec_issue
+WHERE spec_id = $1;
+
+-- name: DeleteSpecSubscribersBySpec :exec
+DELETE FROM spec_subscriber
+WHERE spec_id = $1;
+
+-- name: IncrementSpecCounter :one
+UPDATE workspace SET spec_counter = spec_counter + 1
+WHERE id = $1
+RETURNING spec_counter;
 
 -- name: GetSpecVersion :one
 SELECT * FROM spec_version
@@ -95,6 +116,17 @@ SELECT * FROM spec_issue
 WHERE spec_id = $1
 ORDER BY created_at ASC;
 
+-- name: ListSpecsForIssues :many
+-- Bulk variant for issue list/detail endpoints: fold linked spec summaries
+-- into each issue row without an N+1 round-trip per issue. Workspace-guarded
+-- like the single-spec lookups.
+SELECT si.issue_id, s.id, s.identifier, s.title, s.status
+FROM spec_issue si
+JOIN spec s ON s.id = si.spec_id
+WHERE si.issue_id = ANY(sqlc.arg('issue_ids')::uuid[])
+  AND s.workspace_id = sqlc.arg('workspace_id')::uuid
+ORDER BY si.issue_id, s.identifier ASC;
+
 -- name: ListIssueSpecs :many
 SELECT * FROM spec_issue
 WHERE issue_id = $1
@@ -108,6 +140,22 @@ ON CONFLICT (spec_id, issue_id) DO NOTHING;
 -- name: RemoveSpecIssue :exec
 DELETE FROM spec_issue
 WHERE spec_id = $1 AND issue_id = $2;
+
+-- name: DeleteSpecIssuesByIssue :exec
+-- Issue deletion sweeps its spec links in the same application transaction;
+-- the junction has no foreign key (MUL-3515), so nothing cascades for free.
+DELETE FROM spec_issue
+WHERE issue_id = $1;
+
+-- name: ListSpecIssueRefs :many
+-- Spec-side view of the link list: full issue identity (number resolved to
+-- the workspace identifier by the handler) in one round-trip.
+SELECT i.id, i.number, i.title, i.status
+FROM spec_issue si
+JOIN issue i ON i.id = si.issue_id
+WHERE si.spec_id = $1
+  AND i.workspace_id = $2
+ORDER BY si.created_at ASC;
 
 -- name: ListSpecSubscribers :many
 SELECT * FROM spec_subscriber

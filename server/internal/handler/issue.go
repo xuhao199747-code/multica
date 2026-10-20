@@ -102,6 +102,11 @@ type IssueResponse struct {
 	// preserves whatever labels are already in cache. nil pointer = "field
 	// absent, do not touch"; non-nil (incl. empty slice) = authoritative list.
 	Labels *[]LabelResponse `json:"labels,omitempty"`
+	// Specs are the linked spec summaries (id/identifier/title/status),
+	// bulk-attached by the same list/detail endpoints that attach Labels.
+	// Pointer + omitempty with the identical client-merge semantics: nil means
+	// "field absent, preserve cache"; non-nil (incl. empty) is authoritative.
+	Specs *[]SpecLinkResponse `json:"specs,omitempty"`
 	// SourceContext is detail-only. List, board, search, and children responses
 	// deliberately omit the potentially large immutable snapshot.
 	SourceContext *sourceContextDetailResponse `json:"source_context,omitempty"`
@@ -1404,6 +1409,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			originals = appendDuplicateOriginal(originals, issue.Status, issue.DuplicateOfIssueID)
 		}
 		labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
+		specsMap := h.specsByIssue(r, wsUUID, ids)
 		fillOpen := h.newStatusCategoryFiller(ctx, wsUUID, originals...)
 		resp := make([]IssueResponse, len(issues))
 		for i, issue := range issues {
@@ -1414,6 +1420,11 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 				labels = []LabelResponse{}
 			}
 			resp[i].Labels = &labels
+			specs := specsMap[resp[i].ID]
+			if specs == nil {
+				specs = []SpecLinkResponse{}
+			}
+			resp[i].Specs = &specs
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -1822,6 +1833,7 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 		ids[i] = issue.ID
 	}
 	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
+	specsMap := h.specsByIssue(r, wsUUID, ids)
 	resp := make([]IssueResponse, len(issues))
 	for i, issue := range issues {
 		resp[i] = issueListRowToResponse(issue, prefix)
@@ -1830,6 +1842,11 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 			labels = []LabelResponse{}
 		}
 		resp[i].Labels = &labels
+		specs := specsMap[resp[i].ID]
+		if specs == nil {
+			specs = []SpecLinkResponse{}
+		}
+		resp[i].Specs = &specs
 	}
 	h.fillStatusCategories(ctx, wsUUID, resp)
 
@@ -2434,6 +2451,7 @@ ORDER BY
 		originals = appendDuplicateOriginal(originals, row.Status, row.DuplicateOfIssueID)
 	}
 	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
+	specsMap := h.specsByIssue(r, wsUUID, ids)
 	prefix := h.getIssuePrefix(ctx, wsUUID)
 	// One Resolver for the whole page — a per-row filler would query the
 	// catalog once per custom-status row. (MUL-6243)
@@ -2463,6 +2481,11 @@ ORDER BY
 			labels = []LabelResponse{}
 		}
 		issue.Labels = &labels
+		specs := specsMap[issue.ID]
+		if specs == nil {
+			specs = []SpecLinkResponse{}
+		}
+		issue.Specs = &specs
 		groups[idx].Issues = append(groups[idx].Issues, issue)
 	}
 
@@ -2483,6 +2506,11 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		detailLabels = []LabelResponse{}
 	}
 	resp.Labels = &detailLabels
+	detailSpecs := h.specsByIssue(r, issue.WorkspaceID, []pgtype.UUID{issue.ID})[uuidToString(issue.ID)]
+	if detailSpecs == nil {
+		detailSpecs = []SpecLinkResponse{}
+	}
+	resp.Specs = &detailSpecs
 
 	// Fetch issue reactions.
 	reactions, err := h.Queries.ListIssueReactions(r.Context(), issue.ID)
@@ -2537,6 +2565,7 @@ func (h *Handler) ListChildIssues(w http.ResponseWriter, r *http.Request) {
 		ids[i] = child.ID
 	}
 	labelsMap := h.labelsByIssue(r.Context(), issue.WorkspaceID, ids)
+	specsMap := h.specsByIssue(r, issue.WorkspaceID, ids)
 	// Sub-issue progress is computed from these rows (the CLI's `issue children`
 	// stage counts, among others), so they carry the resolved category — a
 	// custom completed status must count as completed. One Resolver for the whole list:
@@ -2552,6 +2581,11 @@ func (h *Handler) ListChildIssues(w http.ResponseWriter, r *http.Request) {
 			labels = []LabelResponse{}
 		}
 		resp[i].Labels = &labels
+		specs := specsMap[resp[i].ID]
+		if specs == nil {
+			specs = []SpecLinkResponse{}
+		}
+		resp[i].Specs = &specs
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issues": resp,
@@ -2623,6 +2657,7 @@ func (h *Handler) ListChildrenByParents(w http.ResponseWriter, r *http.Request) 
 		ids[i] = child.ID
 	}
 	labelsMap := h.labelsByIssue(r.Context(), wsUUID, ids)
+	specsMap := h.specsByIssue(r, wsUUID, ids)
 	// Sub-issue progress is computed from these rows (the CLI's `issue children`
 	// stage counts, among others), so they carry the resolved category — a
 	// custom completed status must count as completed. One Resolver for the whole list:
@@ -2638,6 +2673,11 @@ func (h *Handler) ListChildrenByParents(w http.ResponseWriter, r *http.Request) 
 			labels = []LabelResponse{}
 		}
 		resp[i].Labels = &labels
+		specs := specsMap[resp[i].ID]
+		if specs == nil {
+			specs = []SpecLinkResponse{}
+		}
+		resp[i].Specs = &specs
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issues": resp,
@@ -4434,6 +4474,12 @@ func (h *Handler) deleteIssuesAndCollectAttachmentURLs(ctx context.Context, issu
 			}
 		} else if !errors.Is(contextErr, pgx.ErrNoRows) {
 			return issueDeleteResult{}, fmt.Errorf("load issue source context for delete: %w", contextErr)
+		}
+		// The spec junction has no foreign key (MUL-3515), so spec links must
+		// be swept here like every other dependent — a leftover row would
+		// dangle against a spec and later join nothing.
+		if err := qtx.DeleteSpecIssuesByIssue(ctx, issue.ID); err != nil {
+			return issueDeleteResult{}, fmt.Errorf("delete spec links of issue: %w", err)
 		}
 		if err := qtx.DeleteIssue(ctx, db.DeleteIssueParams{ID: issue.ID, WorkspaceID: issue.WorkspaceID}); err != nil {
 			return issueDeleteResult{}, fmt.Errorf("delete issue: %w", err)

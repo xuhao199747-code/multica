@@ -1,5 +1,6 @@
 import type { Label } from "./label";
 import type { IssuePropertyValues } from "./property";
+import type { SpecLink } from "./spec";
 
 /** Four lifecycle classifications. User-facing columns group by status key. */
 export type IssueStatusCategory =
@@ -219,6 +220,12 @@ export interface Issue {
   properties: IssuePropertyValues;
   reactions?: IssueReaction[];
   labels?: Label[];
+  /**
+   * Linked spec summaries (DAWE-7). Absent when the endpoint did not load
+   * them (older backend or an update broadcast); present-but-empty means the
+   * issue has no linked specs.
+   */
+  specs?: SpecLink[];
   created_at: string;
   updated_at: string;
   /** Monotonic server revision; absent when connected to an older backend. */

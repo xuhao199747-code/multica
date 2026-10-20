@@ -29,6 +29,9 @@ const (
 	EventReactionRemoved           = "reaction.removed"
 	EventAttachmentAttached        = "attachment.attached"
 	EventAttachmentDetached        = "attachment.detached"
+	EventSpecCreated               = "spec.created"
+	EventSpecApproved              = "spec.approved"
+	EventSpecPublished             = "spec.published"
 )
 
 // WakeupTypes lists only facts with transactional capture, not every bus event.
