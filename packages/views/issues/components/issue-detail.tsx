@@ -116,6 +116,7 @@ import { PullRequestsSection } from "./pull-requests-section";
 import { useGitHubSettings } from "@multica/core/github";
 import { DeliverablesSection } from "./deliverables/deliverables-section";
 import { DeliverablesOverview } from "./deliverables/deliverables-overview";
+import { workflowStage } from "./workflow-stage";
 import {
   DESCRIPTION_BLOCK_ID,
   useDeliverableDetails,
@@ -2941,6 +2942,22 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           Self-contained; owns its own collapse state and WS subscriptions.
           Hides itself when there are no runs to show. */}
       <ExecutionLogSection issueId={id} identifier={issue.identifier} issueTitle={issue.title} />
+
+      {/* Workflow makes the current handoff explicit: the execution log proves
+          what happened, while this compact summary tells the member who owns
+          the next action. */}
+      {(() => {
+        const stage = workflowStage(issue.status);
+        return (
+          <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-caption">
+            <div className="font-medium text-foreground">工作流</div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-muted-foreground">
+              <span className="truncate">{stage.label}</span>
+              <span className="shrink-0">下一步：{stage.next}</span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Details — creator and timestamps. Sits below the execution log
           because it is the least-read block in the sidebar: the values
