@@ -99,7 +99,6 @@ function ActorIssuesHeader({
       <div className="flex items-center">
         <IssueDisplayControls
           scopedIssues={issues}
-          hideViewToggle
           facetCountsExact={facetCountsExact}
           tableFacetCounts={tableFacetCounts}
           onTableFacetChange={onTableFacetChange}

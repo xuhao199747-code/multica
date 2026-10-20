@@ -267,7 +267,6 @@ function IssueSurfaceContent({
           <IssuesHeader
             scopedIssues={controller.surfaceIssues}
             workingAgents={controller.workingAgents}
-            allowGantt={controller.allowGantt}
             isRefreshing={controller.isRefreshing}
             facetCountsExact={
               controller.facetCountsExact

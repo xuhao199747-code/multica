@@ -3,7 +3,6 @@
 import { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
-  ChartGantt,
   ChevronDown,
   CircleDashed,
   CircleDot,
@@ -11,16 +10,13 @@ import {
   Filter,
   FolderKanban,
   FolderMinus,
-  List,
   Rows3,
   SignalHigh,
   SlidersHorizontal,
   Tag,
-  Table2,
   User,
   UserMinus,
   UserPen,
-  Waves,
 } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Spinner } from "@multica/ui/components/ui/spinner";
@@ -97,7 +93,6 @@ import {
   type IssueGrouping,
   type SwimlaneGrouping,
   type TableGrouping,
-  type ViewMode,
 } from "@multica/core/issues/stores/view-store";
 import { useViewStore, useViewStoreApi } from "@multica/core/issues/stores/view-store-context";
 import { FilterChipsBar } from "./filter-chips-bar";
@@ -1198,7 +1193,6 @@ export function ViewRefreshIndicator({ active }: { active: boolean }) {
 export function IssuesHeader({
   scopedIssues,
   workingAgents,
-  allowGantt = false,
   dateFilter = null,
   onDateFilterChange,
   isRefreshing,
@@ -1211,7 +1205,6 @@ export function IssuesHeader({
   /** See IssueSurfaceController.workingAgents — the surface-scoped projection
    *  behind the agents-working chip. */
   workingAgents: WorkingAgentSummary[] | undefined;
-  allowGantt?: boolean;
   dateFilter?: IssueDateFilter | null;
   onDateFilterChange?: (filter: IssueDateFilter | null) => void;
   /** Omit when the page title already displays refresh feedback. */
@@ -1387,7 +1380,6 @@ export function IssuesHeader({
           />
           <IssueDisplayControls
             scopedIssues={scopedIssues}
-            allowGantt={allowGantt}
             dateFilter={dateFilter}
             onDateFilterChange={onDateFilterChange}
             facetCountsExact={facetCountsExact}
@@ -1888,8 +1880,6 @@ export function IssueFilterMenu({
 
 export function IssueDisplayControls({
   scopedIssues,
-  hideViewToggle = false,
-  allowGantt = false,
   dateFilter = null,
   onDateFilterChange,
   facetCountsExact = true,
@@ -1898,16 +1888,11 @@ export function IssueDisplayControls({
   viewBaseline,
 }: {
   scopedIssues: Issue[];
-  hideViewToggle?: boolean;
   dateFilter?: IssueDateFilter | null;
   onDateFilterChange?: (filter: IssueDateFilter | null) => void;
   /** Open saved view: menu marks the view's values checked-and-disabled;
    *  the trigger count only counts additions on top. */
   viewBaseline?: IssueViewBaseline;
-  // Only Project Detail renders <GanttView>; other surfaces (global /issues,
-  // /my-issues, actor panel) ignore viewMode === "gantt" and would silently
-  // fall back to List if the option were exposed there. Keep Gantt opt-in.
-  allowGantt?: boolean;
   /**
    * Whether `scopedIssues` covers the surface's full window. Table does not
    * use loaded rows for counts; server-paged List, Board, and Swimlane follow
@@ -1920,7 +1905,6 @@ export function IssueDisplayControls({
 }) {
   const { t } = useT("issues");
   const [tableGroupMenuOpen, setTableGroupMenuOpen] = useState(false);
-  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const viewMode = useViewStore((s) => s.viewMode);
   const statusFilters = useViewStore((s) => s.statusFilters);
   const priorityFilters = useViewStore((s) => s.priorityFilters);
@@ -2395,94 +2379,6 @@ export function IssueDisplayControls({
             </div>
           </PopoverContent>
         </Popover>
-
-        {/* View toggle. If a store has `viewMode === "gantt"` persisted but
-            this surface doesn't render Gantt, fall back to "list" so the
-            trigger icon matches what's actually on screen. */}
-        {!hideViewToggle && (
-          <DropdownMenu open={viewMenuOpen} onOpenChange={setViewMenuOpen}>
-            <Tooltip>
-              <DropdownMenuTrigger
-                render={
-                  <TooltipTrigger
-                    render={
-                      <Button variant="outline" size="sm" className={controlButtonClass}>
-                        {viewMode === "board" ? (
-                          <Columns3 className="size-3.5" />
-                        ) : viewMode === "table" ? (
-                          <Table2 className="size-3.5" />
-                        ) : viewMode === "swimlane" ? (
-                          <Waves className="size-3.5" />
-                        ) : viewMode === "gantt" && allowGantt ? (
-                          <ChartGantt className="size-3.5" />
-                        ) : (
-                          <List className="size-3.5" />
-                        )}
-                        <span className="hidden md:inline">
-                          {viewMode === "board"
-                            ? t(($) => $.view.board)
-                            : viewMode === "table"
-                            ? t(($) => $.view.table)
-                            : viewMode === "swimlane"
-                            ? t(($) => $.view.swimlane)
-                            : viewMode === "gantt" && allowGantt
-                            ? t(($) => $.view.gantt)
-                            : t(($) => $.view.list)}
-                        </span>
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent side="bottom">
-                {viewMode === "board"
-                  ? t(($) => $.view.tooltip_board)
-                  : viewMode === "table"
-                  ? t(($) => $.view.tooltip_table)
-                  : viewMode === "swimlane"
-                  ? t(($) => $.view.tooltip_swimlane)
-                  : viewMode === "gantt" && allowGantt
-                  ? t(($) => $.view.tooltip_gantt)
-                  : t(($) => $.view.tooltip_list)}
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-auto">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>{t(($) => $.view.section)}</DropdownMenuLabel>
-              </DropdownMenuGroup>
-              <DropdownMenuRadioGroup
-                value={viewMode}
-                onValueChange={(v) => {
-                  act.setViewMode(v as ViewMode);
-                  setViewMenuOpen(false);
-                }}
-              >
-                <DropdownMenuRadioItem value="board">
-                  <Columns3 />
-                  {t(($) => $.view.board)}
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="list">
-                  <List />
-                  {t(($) => $.view.list)}
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="table">
-                  <Table2 />
-                  {t(($) => $.view.table)}
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="swimlane">
-                  <Waves />
-                  {t(($) => $.view.swimlane)}
-                </DropdownMenuRadioItem>
-                {allowGantt && (
-                  <DropdownMenuRadioItem value="gantt">
-                    <ChartGantt />
-                    {t(($) => $.view.gantt)}
-                  </DropdownMenuRadioItem>
-                )}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
 
     </div>
   );

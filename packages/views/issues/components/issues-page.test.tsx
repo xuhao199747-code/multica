@@ -726,7 +726,7 @@ describe("IssuesPage (shared)", () => {
     expect(screen.getByText("Write tests")).toBeInTheDocument();
   });
 
-  it("renders board column headers", async () => {
+  it("renders list status sections", async () => {
     mockListIssues.mockImplementation((params: any) =>
       Promise.resolve({
         issues: mockIssues.filter((i) => i.status === params?.status),
@@ -739,43 +739,6 @@ describe("IssuesPage (shared)", () => {
     await screen.findByText("Todo");
     expect(screen.getAllByText("Todo").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("In Progress").length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("groups board columns by assignee", async () => {
-    mockViewState.grouping = "assignee";
-    mockListGroupedIssues.mockResolvedValue(mockAssigneeGroups(mockIssues));
-
-    renderWithQuery(<IssuesPage />);
-
-    // "Test User" renders both as the assignee group header and on the
-    // assignee chip of each card grouped under that header, so a unique
-    // match is not guaranteed.
-    await screen.findAllByText("Test User");
-    expect(screen.getAllByText("Agent One").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Squad One").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("No assignee")).toBeInTheDocument();
-  });
-
-  it("uses table group/row branches instead of the legacy status sweep", async () => {
-    mockViewState.grouping = "assignee";
-    mockListGroupedIssues.mockResolvedValue(mockAssigneeGroups(mockIssues));
-
-    renderWithQuery(<IssuesPage />);
-
-    await screen.findByText("Implement auth");
-    expect(mockListIssueTableGroups).toHaveBeenCalledWith(
-      expect.objectContaining({
-        group: { kind: "assignee" },
-        page: { limit: 100, cursor: null },
-      }),
-    );
-    expect(mockListIssueTableRows).toHaveBeenCalledWith(
-      expect.objectContaining({
-        group: { kind: "assignee" },
-        page: { limit: 50, cursor: null },
-      }),
-    );
-    expect(mockListIssues).not.toHaveBeenCalled();
   });
 
   it("shows the 'Issues' section header without a workspace prefix", async () => {
@@ -808,6 +771,13 @@ describe("IssuesPage (shared)", () => {
     expect(await screen.findAllByText("All")).not.toHaveLength(0);
     expect(screen.getByText("Members")).toBeInTheDocument();
     expect(screen.getByText("Agents")).toBeInTheDocument();
+  });
+
+  it("does not expose an alternate view picker", async () => {
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Issues");
+    expect(screen.queryByRole("button", { name: "Board" })).not.toBeInTheDocument();
   });
 
   // The Members/Agents tabs filter server-side via assignee_types (the same

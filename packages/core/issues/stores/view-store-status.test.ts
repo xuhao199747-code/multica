@@ -102,6 +102,16 @@ describe("issue view defaults", () => {
     store = createStore<IssueViewState>()((set) => viewStoreSlice(set));
   });
 
+  it("starts in list view", () => {
+    expect(store.getState().viewMode).toBe("list");
+  });
+
+  it("normalizes a persisted alternate view mode to list", () => {
+    const defaults = createStore<IssueViewState>()((set) => viewStoreSlice(set)).getState();
+
+    expect(mergeViewStatePersisted({ viewMode: "board" }, defaults).viewMode).toBe("list");
+  });
+
   it("starts with newest-created issues first and a compact card", () => {
     const state = store.getState();
 

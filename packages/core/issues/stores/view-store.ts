@@ -362,7 +362,7 @@ export interface IssueViewState {
 }
 
 export const viewStoreSlice = (set: StoreApi<IssueViewState>["setState"]): IssueViewState => ({
-  viewMode: "board",
+  viewMode: "list",
   grouping: "status",
   statusFilters: [],
   priorityFilters: [],
@@ -762,6 +762,7 @@ export function mergeViewStatePersisted<T extends IssueViewState>(
   const merged = {
     ...current,
     ...p,
+    viewMode: "list" as const,
     hiddenStatuses: statusesFromStorage(p.hiddenStatuses ?? legacy?.hiddenStatusCategories, current.hiddenStatuses, p.hiddenStatuses === undefined),
     listCollapsedStatuses: statusesFromStorage(p.listCollapsedStatuses, current.listCollapsedStatuses, p.hiddenStatuses === undefined),
     cardProperties: {

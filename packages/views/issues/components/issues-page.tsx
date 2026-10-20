@@ -63,7 +63,7 @@ export function IssuesPage() {
     <div className="flex flex-1 min-h-0 flex-col">
       <IssueSurface
         scope={{ type: "workspace", actorKind: scope }}
-        modes={["board", "list", "table", "swimlane"]}
+        modes={["list"]}
         batchToolbar="list"
         renderHeader={({ controller }) => (
           <IssuesSurfaceHeader
