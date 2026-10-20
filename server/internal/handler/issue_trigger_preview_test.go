@@ -189,6 +189,39 @@ func TestPreviewIssueTrigger_MatchesWritePath(t *testing.T) {
 	}
 }
 
+// TestUpdateIssue_ReopenBlockedAssignedIssueQueuesNewRun covers the coordinator
+// recovery path: a blocked issue can keep the same assignee, so reopening it
+// must not depend on a second assignment write to start its executor again.
+func TestUpdateIssue_ReopenBlockedAssignedIssueQueuesNewRun(t *testing.T) {
+	agentID := seededReadyAgentID(t)
+	issue := createIssueForTest(t, map[string]any{
+		"title":         "reopen blocked assigned issue",
+		"status":        "backlog",
+		"assignee_type": "agent",
+		"assignee_id":   agentID,
+	})
+
+	// Backlog assignment deliberately parks work. Set the historical blocked
+	// state directly so this test isolates the reopening transition itself.
+	if _, err := testPool.Exec(context.Background(), "UPDATE issue SET status='blocked' WHERE id=$1", issue.ID); err != nil {
+		t.Fatalf("set blocked issue: %v", err)
+	}
+	preview := previewIssueTrigger(t, map[string]any{"issue_ids": []string{issue.ID}, "status": "todo"})
+	if preview.TotalCount != 1 || preview.Triggers[0].Source != "status" {
+		t.Fatalf("blocked reopen preview = %+v, want one status trigger", preview)
+	}
+
+	w := httptest.NewRecorder()
+	req := withURLParam(newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{"status": "todo"}), "id", issue.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue reopen: %d %s", w.Code, w.Body.String())
+	}
+	if got := taskCountFor(t, issue.ID, agentID); got != 1 {
+		t.Fatalf("blocked reopen queued %d tasks, want 1", got)
+	}
+}
+
 // TestUpdateIssueSuppressRunSkipsEnqueue verifies suppress_run applies the
 // assignee change but starts no run, while the same write without it does.
 func TestUpdateIssueSuppressRunSkipsEnqueue(t *testing.T) {

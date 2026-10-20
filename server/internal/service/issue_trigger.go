@@ -131,9 +131,7 @@ func (s *IssueService) WillEnqueueRun(ctx context.Context, in IssueTriggerInput,
 			return IssueRunTrigger{}, false
 		}
 		source = RunSourceAssign
-	case in.StatusChanged && prevStatus == "backlog" &&
-		currentStatus != "backlog" &&
-		currentStatus != "done" && currentStatus != "cancelled":
+	case in.StatusChanged && reactivatesIssueRun(prevStatus, currentStatus):
 		if probe.IsSelfLoop != nil && probe.IsSelfLoop() {
 			return IssueRunTrigger{}, false
 		}
@@ -201,6 +199,28 @@ func (s *IssueService) WillEnqueueRun(ctx context.Context, in IssueTriggerInput,
 		}, true
 	}
 	return IssueRunTrigger{}, false
+}
+
+// reactivatesIssueRun identifies status changes that intentionally put an
+// already assigned issue back into the execution pipeline. Backlog is the
+// normal parked state, while blocked, done, cancelled, and in_review are the
+// states an operator can explicitly reopen after new information arrives.
+//
+// This must remain narrower than every active-to-active move. A board move
+// such as todo -> in_progress describes the same execution and must not start
+// a duplicate run. Conversely, blocked -> todo must create a new run even
+// when the assignee did not change; otherwise a coordinator can truthfully
+// change the visible status while leaving the actual task queue empty.
+func reactivatesIssueRun(previousStatus, currentStatus string) bool {
+	if currentStatus == "backlog" || currentStatus == "done" || currentStatus == "cancelled" {
+		return false
+	}
+	switch previousStatus {
+	case "backlog", "blocked", "done", "cancelled", "in_review":
+		return true
+	default:
+		return false
+	}
 }
 
 // hasPendingRun reports whether the agent already holds a queued or dispatched
