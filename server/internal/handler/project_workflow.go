@@ -65,6 +65,31 @@ func (h *Handler) requireProjectWorkflowEnabled(w http.ResponseWriter, r *http.R
 	return true
 }
 
+// requireProjectWorkflowIssueActor stops one project-bound agent from filing
+// delivery or review evidence for another agent's execution issue. Members can
+// still intervene intentionally; task-token agents must act only on their own
+// assigned issue.
+func (h *Handler) requireProjectWorkflowIssueActor(w http.ResponseWriter, r *http.Request, project db.Project, issueID pgtype.UUID) bool {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return false
+	}
+	actorType, actorID := h.resolveActor(r, userID, uuidToString(project.WorkspaceID))
+	if actorType == "member" {
+		return true
+	}
+	if actorType != "agent" {
+		writeError(w, http.StatusForbidden, "invalid workflow actor")
+		return false
+	}
+	issue, err := h.Queries.GetIssue(r.Context(), issueID)
+	if err != nil || issue.WorkspaceID != project.WorkspaceID || !issue.ProjectID.Valid || issue.ProjectID != project.ID || !issue.AssigneeID.Valid || !issue.AssigneeType.Valid || issue.AssigneeType.String != "agent" || uuidToString(issue.AssigneeID) != actorID {
+		writeError(w, http.StatusForbidden, "agent can only submit evidence for its assigned project issue")
+		return false
+	}
+	return true
+}
+
 // OpenProjectMikaSession returns the member's project-scoped conversation with
 // the workspace Mika. It never creates a new agent identity: one reusable
 // agent can serve many projects, while each chat remains project-scoped.
@@ -463,6 +488,9 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowIssueActor(w, r, project, issueID) {
+		return
+	}
 	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project execution not found")
@@ -648,6 +676,9 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	}
 	issueID, ok := parseUUIDOrBadRequest(w, req.IssueID, "issue_id")
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowIssueActor(w, r, project, issueID) {
 		return
 	}
 	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
