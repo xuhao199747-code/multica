@@ -405,6 +405,52 @@ type RecordProjectReviewRequest struct {
 	Outcome     string `json:"outcome"`
 }
 
+type CompleteProjectDeliveryRequest struct {
+	ExecutionID string          `json:"execution_id"`
+	Evidence    json.RawMessage `json:"evidence"`
+}
+
+// CompleteProjectDelivery records project-specific delivery evidence. The
+// caller chooses the delivery mechanism in settings; this endpoint does not
+// assume Docker, a container, or any URL exists for every project.
+func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var req CompleteProjectDeliveryRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	executionID, ok := parseUUIDOrBadRequest(w, req.ExecutionID, "execution_id")
+	if !ok {
+		return
+	}
+	var evidence map[string]any
+	if json.Unmarshal(req.Evidence, &evidence) != nil || len(evidence) == 0 {
+		writeError(w, http.StatusBadRequest, "delivery evidence is required")
+		return
+	}
+	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project execution not found")
+		return
+	}
+	next, rounds, err := service.AdvanceProjectExecution(service.ProjectExecutionState(record.State), int(record.ReviewRound), service.ExecutionEventDeliveryCompleted)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	payload, _ := json.Marshal(evidence)
+	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: payload})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to complete project delivery")
+		return
+	}
+	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
+}
+
 func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {

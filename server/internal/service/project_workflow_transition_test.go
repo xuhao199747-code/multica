@@ -58,3 +58,13 @@ func TestProjectExecutionTransitionStopsForPassOrMemberDecision(t *testing.T) {
 		t.Fatalf("member decision = (%q, %d, %v), want (%q, 1, nil)", next, rounds, err, ExecutionNeedsMemberDecision)
 	}
 }
+
+func TestProjectExecutionTransitionCompletesOnlyAfterDeliveryEvidence(t *testing.T) {
+	if _, _, err := AdvanceProjectExecution(ExecutionReview, 0, ExecutionEventDeliveryCompleted); err == nil {
+		t.Fatal("delivery cannot complete before review passes")
+	}
+	next, rounds, err := AdvanceProjectExecution(ExecutionDelivering, 1, ExecutionEventDeliveryCompleted)
+	if err != nil || next != ExecutionCompleted || rounds != 1 {
+		t.Fatalf("delivery completion = (%q, %d, %v), want (%q, 1, nil)", next, rounds, err, ExecutionCompleted)
+	}
+}

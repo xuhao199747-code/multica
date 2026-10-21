@@ -2142,6 +2142,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Post("/workflow/executions/issues", h.LinkProjectExecutionIssue)
 				r.Post("/workflow/executions/delivery", h.SubmitProjectExecutionDelivery)
 				r.Post("/workflow/executions/review", h.RecordProjectReview)
+				r.Post("/workflow/executions/delivery/complete", h.CompleteProjectDelivery)
 				r.Get("/workflow/agents", h.ListProjectAgentBindings)
 				r.Post("/workflow/agents", h.CreateProjectAgentBinding)
 				r.Delete("/workflow/agents/{bindingId}", h.DeleteProjectAgentBinding)
