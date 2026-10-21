@@ -68,7 +68,6 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 	// Verify agent exists in workspace.
 	agent, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
 		ID:          agentID,
@@ -110,6 +109,10 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to lock workspace")
+		return
+	}
+	if !projectID.Valid {
+		writeError(w, http.StatusBadRequest, "project_id is required for new chats")
 		return
 	}
 	if projectID.Valid {

@@ -475,6 +475,10 @@ export function ChatWindow() {
       const finalContent = content;
 
       const isNewSession = !activeSessionId;
+		if (isNewSession && !activeProjectId) {
+			toast.error(t(($) => $.input.project_required_toast));
+			return false;
+		}
 
       apiLogger.info("sendChatMessage.start", {
         sessionId: activeSessionId,

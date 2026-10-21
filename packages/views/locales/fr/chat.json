@@ -32,6 +32,7 @@
     "change_project_context": "Changer le contexte de projet",
     "remove_project_context": "Retirer le contexte de projet",
     "no_projects": "Aucun projet pour l'instant",
+    "project_required_toast": "Choisissez ou créez un projet avant de démarrer une discussion",
     "project_context_unsupported": "La description du projet ne s'appliquera pas — le daemon de cet agent doit être mis à jour"
   },
   "queue": {

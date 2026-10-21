@@ -274,6 +274,7 @@ func TestCreateChatSession_BlocksWhileTheWorkspaceDeleteLockIsHeld(t *testing.T)
 	if err != nil {
 		t.Fatalf("load fixture owner member: %v", err)
 	}
+	projectID := createChatProjectTestProject(t, f.workspaceID, "Teardown race project", "")
 
 	// Hold the workspace row FOR UPDATE — exactly what DeleteWorkspace's
 	// LockWorkspaceForDelete takes at the top of its teardown tx. This holder is
@@ -293,8 +294,9 @@ func TestCreateChatSession_BlocksWhileTheWorkspaceDeleteLockIsHeld(t *testing.T)
 		defer close(done)
 		w := httptest.NewRecorder()
 		req := newRequestAs(testUserID, http.MethodPost, "/api/chat/sessions", map[string]any{
-			"agent_id": agentID,
-			"title":    "Session racing the teardown",
+			"agent_id":   agentID,
+			"title":      "Session racing the teardown",
+			"project_id": projectID,
 		})
 		req = req.WithContext(middleware.SetMemberContext(req.Context(), f.workspaceID, member))
 		testHandler.CreateChatSession(w, req)

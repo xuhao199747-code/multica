@@ -147,25 +147,15 @@ func TestCreateChatSession_ProjectContext(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps project optional", func(t *testing.T) {
+	t.Run("requires a project for a new chat", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := withChatTestWorkspaceCtx(t, newRequest(http.MethodPost, "/api/chat/sessions", map[string]any{
 			"agent_id": agentID,
 			"title":    "workspace context only",
 		}))
 		testHandler.CreateChatSession(w, req)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("CreateChatSession: expected 201, got %d: %s", w.Code, w.Body.String())
-		}
-		var response ChatSessionResponse
-		if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		t.Cleanup(func() {
-			testPool.Exec(context.Background(), `DELETE FROM chat_session WHERE id = $1`, response.ID)
-		})
-		if response.ProjectID != nil {
-			t.Fatalf("project_id = %v, want null", response.ProjectID)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("CreateChatSession: expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
