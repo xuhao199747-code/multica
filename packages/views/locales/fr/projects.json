@@ -172,6 +172,7 @@
     "description": "Mica coordonne le flux de travail des agents pour ce projet.",
     "toggle_label": "Activer la collaboration Mica",
     "delivery_label": "Après validation",
+    "open_mica": "Ouvrir Mica du projet",
     "delivery_modes": {
       "notify_only": "Notifier seulement",
       "pull_request": "Créer une pull request",

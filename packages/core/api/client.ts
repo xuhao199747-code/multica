@@ -4135,6 +4135,12 @@ export class ApiClient {
     });
   }
 
+  async openProjectMikaSession(projectId: string): Promise<ChatSession> {
+    return this.fetch(`/api/projects/${projectId}/workflow/mika-session`, {
+      method: "POST",
+    });
+  }
+
   // Labels
   async listLabels(resourceType: LabelResourceType = "issue"): Promise<ListLabelsResponse> {
     const raw = await this.fetch<unknown>(`/api/labels?resource_type=${resourceType}`);

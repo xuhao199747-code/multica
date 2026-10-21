@@ -171,6 +171,7 @@
     "description": "Mica가 이 프로젝트의 에이전트 워크플로를 조정합니다.",
     "toggle_label": "Mica 협업 사용",
     "delivery_label": "검토 통과 후",
+    "open_mica": "프로젝트 Mica 열기",
     "delivery_modes": {
       "notify_only": "알림만",
       "pull_request": "풀 리퀘스트 만들기",

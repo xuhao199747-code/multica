@@ -48,3 +48,10 @@ WHERE project_id = $1 AND workspace_id = $2;
 -- name: DeleteProjectWorkflowSettings :exec
 DELETE FROM project_workflow_settings
 WHERE project_id = $1 AND workspace_id = $2;
+
+-- name: GetProjectMikaChatSession :one
+SELECT * FROM chat_session
+WHERE workspace_id = $1 AND project_id = $2 AND agent_id = $3 AND creator_id = $4
+  AND status = 'active'
+ORDER BY created_at ASC
+LIMIT 1;

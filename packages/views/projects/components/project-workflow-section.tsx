@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   projectWorkflowSettingsOptions,
@@ -10,6 +11,9 @@ import type { ProjectDeliveryMode } from "@multica/core/types";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@multica/ui/components/ui/select";
 import { useT } from "../../i18n";
+import { useNavigation } from "../../navigation";
+import { useWorkspacePaths } from "@multica/core/paths";
+import { Button } from "@multica/ui/components/ui/button";
 
 const deliveryModes: ProjectDeliveryMode[] = [
   "notify_only",
@@ -23,6 +27,12 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
   const wsId = useWorkspaceId();
   const { data: settings } = useQuery(projectWorkflowSettingsOptions(wsId, projectId));
   const update = useUpdateProjectWorkflowSettings(wsId, projectId);
+  const router = useNavigation();
+  const paths = useWorkspacePaths();
+  const openMika = useMutation({
+    mutationFn: () => api.openProjectMikaSession(projectId),
+    onSuccess: (session) => router.push(paths.chatSession(session.id)),
+  });
   if (!settings) return null;
 
   const save = (patch: Partial<typeof settings>) => {
@@ -50,6 +60,7 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
         />
       </div>
       {settings.enabled && (
+        <div className="space-y-2">
         <label className="block space-y-1.5">
           <span className="text-caption text-muted-foreground">{t(($) => $.workflow.delivery_label)}</span>
           <Select value={settings.delivery_mode} onValueChange={(value) => save({ delivery_mode: value as ProjectDeliveryMode })}>
@@ -59,6 +70,10 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
             </SelectContent>
           </Select>
         </label>
+        <Button variant="secondary" size="sm" className="w-full" disabled={openMika.isPending} onClick={() => openMika.mutate()}>
+          {t(($) => $.workflow.open_mica)}
+        </Button>
+        </div>
       )}
     </section>
   );

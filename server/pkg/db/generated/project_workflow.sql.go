@@ -125,6 +125,51 @@ func (q *Queries) DeleteProjectWorkflowSettings(ctx context.Context, arg DeleteP
 	return err
 }
 
+const getProjectMikaChatSession = `-- name: GetProjectMikaChatSession :one
+SELECT id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at FROM chat_session
+WHERE workspace_id = $1 AND project_id = $2 AND agent_id = $3 AND creator_id = $4
+  AND status = 'active'
+ORDER BY created_at ASC
+LIMIT 1
+`
+
+type GetProjectMikaChatSessionParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	ProjectID   pgtype.UUID `json:"project_id"`
+	AgentID     pgtype.UUID `json:"agent_id"`
+	CreatorID   pgtype.UUID `json:"creator_id"`
+}
+
+func (q *Queries) GetProjectMikaChatSession(ctx context.Context, arg GetProjectMikaChatSessionParams) (ChatSession, error) {
+	row := q.db.QueryRow(ctx, getProjectMikaChatSession,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.CreatorID,
+	)
+	var i ChatSession
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.AgentID,
+		&i.CreatorID,
+		&i.Title,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UnreadSince,
+		&i.RuntimeID,
+		&i.LastReadAt,
+		&i.IsAgentIntro,
+		&i.PinnedAt,
+		&i.ProjectID,
+		&i.ExplicitlyCreatedAt,
+	)
+	return i, err
+}
+
 const getProjectWorkflowSettings = `-- name: GetProjectWorkflowSettings :one
 SELECT project_id, workspace_id, enabled, project_context, delivery_mode, delivery_config, updated_at FROM project_workflow_settings
 WHERE project_id = $1 AND workspace_id = $2

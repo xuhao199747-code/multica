@@ -2135,6 +2135,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/resources/{resourceId}", h.DeleteProjectResource)
 				r.Get("/workflow", h.GetProjectWorkflowSettings)
 				r.Patch("/workflow", h.UpdateProjectWorkflowSettings)
+				r.Post("/workflow/mika-session", h.OpenProjectMikaSession)
 				r.Get("/workflow/agents", h.ListProjectAgentBindings)
 				r.Post("/workflow/agents", h.CreateProjectAgentBinding)
 				r.Delete("/workflow/agents/{bindingId}", h.DeleteProjectAgentBinding)

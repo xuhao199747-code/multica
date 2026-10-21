@@ -171,6 +171,7 @@
     "description": "让 Mica 协调这个项目的智能体工作流。",
     "toggle_label": "启用 Mica 协作",
     "delivery_label": "审核通过后",
+    "open_mica": "打开项目 Mica",
     "delivery_modes": {
       "notify_only": "仅通知",
       "pull_request": "创建 Pull Request",
