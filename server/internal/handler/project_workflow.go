@@ -14,12 +14,49 @@ import (
 	"github.com/multica-ai/multica/server/pkg/dbid"
 )
 
+// requireProjectWorkflowRole keeps workflow authority server-side. Members may
+// intervene deliberately; agent callers must hold the named project binding.
+func (h *Handler) requireProjectWorkflowRole(w http.ResponseWriter, r *http.Request, project db.Project, roles ...string) bool {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return false
+	}
+	actorType, actorID := h.resolveActor(r, userID, uuidToString(project.WorkspaceID))
+	if actorType == "member" {
+		return true
+	}
+	if actorType != "agent" {
+		writeError(w, http.StatusForbidden, "invalid workflow actor")
+		return false
+	}
+	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
+		return false
+	}
+	for _, binding := range bindings {
+		if uuidToString(binding.AgentID) != actorID {
+			continue
+		}
+		for _, role := range roles {
+			if binding.Role == role {
+				return true
+			}
+		}
+	}
+	writeError(w, http.StatusForbidden, "agent is not authorized for this project workflow action")
+	return false
+}
+
 // OpenProjectMikaSession returns the member's project-scoped conversation with
 // the workspace Mika. It never creates a new agent identity: one reusable
 // agent can serve many projects, while each chat remains project-scoped.
 func (h *Handler) OpenProjectMikaSession(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowRole(w, r, project, "mika", "prd") {
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -160,6 +197,9 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowRole(w, r, project, "mika", "prd") {
+		return
+	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -225,6 +265,9 @@ type DispatchProjectExecutionRequest struct {
 func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowRole(w, r, project, "mika") {
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -359,6 +402,9 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowRole(w, r, project, "developer") {
+		return
+	}
 	var req SubmitProjectExecutionDeliveryRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -418,6 +464,9 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowRole(w, r, project, "mika") {
+		return
+	}
 	var req CompleteProjectDeliveryRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -454,6 +503,9 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowRole(w, r, project, "reviewer") {
 		return
 	}
 	var req RecordProjectReviewRequest
