@@ -168,6 +168,68 @@ func (q *Queries) DeleteProjectWorkflowSettings(ctx context.Context, arg DeleteP
 	return err
 }
 
+const getProjectExecutionIssue = `-- name: GetProjectExecutionIssue :one
+SELECT execution_record_id, workspace_id, project_id, issue_id, role, created_at FROM project_execution_issue
+WHERE execution_record_id = $1 AND issue_id = $2 AND project_id = $3 AND workspace_id = $4
+`
+
+type GetProjectExecutionIssueParams struct {
+	ExecutionRecordID pgtype.UUID `json:"execution_record_id"`
+	IssueID           pgtype.UUID `json:"issue_id"`
+	ProjectID         pgtype.UUID `json:"project_id"`
+	WorkspaceID       pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetProjectExecutionIssue(ctx context.Context, arg GetProjectExecutionIssueParams) (ProjectExecutionIssue, error) {
+	row := q.db.QueryRow(ctx, getProjectExecutionIssue,
+		arg.ExecutionRecordID,
+		arg.IssueID,
+		arg.ProjectID,
+		arg.WorkspaceID,
+	)
+	var i ProjectExecutionIssue
+	err := row.Scan(
+		&i.ExecutionRecordID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.IssueID,
+		&i.Role,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getProjectExecutionRecord = `-- name: GetProjectExecutionRecord :one
+SELECT id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at FROM project_execution_record
+WHERE id = $1 AND project_id = $2 AND workspace_id = $3
+`
+
+type GetProjectExecutionRecordParams struct {
+	ID          pgtype.UUID `json:"id"`
+	ProjectID   pgtype.UUID `json:"project_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetProjectExecutionRecord(ctx context.Context, arg GetProjectExecutionRecordParams) (ProjectExecutionRecord, error) {
+	row := q.db.QueryRow(ctx, getProjectExecutionRecord, arg.ID, arg.ProjectID, arg.WorkspaceID)
+	var i ProjectExecutionRecord
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.SourceChatSessionID,
+		&i.SourceAgentID,
+		&i.Snapshot,
+		&i.State,
+		&i.ReviewRound,
+		&i.DeliveryResult,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getProjectMikaChatSession = `-- name: GetProjectMikaChatSession :one
 SELECT id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at FROM chat_session
 WHERE workspace_id = $1 AND project_id = $2 AND agent_id = $3 AND creator_id = $4
@@ -238,6 +300,40 @@ func (q *Queries) GetProjectWorkflowSettings(ctx context.Context, arg GetProject
 	return i, err
 }
 
+const linkProjectExecutionIssue = `-- name: LinkProjectExecutionIssue :one
+INSERT INTO project_execution_issue (execution_record_id, workspace_id, project_id, issue_id, role)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING execution_record_id, workspace_id, project_id, issue_id, role, created_at
+`
+
+type LinkProjectExecutionIssueParams struct {
+	ExecutionRecordID pgtype.UUID `json:"execution_record_id"`
+	WorkspaceID       pgtype.UUID `json:"workspace_id"`
+	ProjectID         pgtype.UUID `json:"project_id"`
+	IssueID           pgtype.UUID `json:"issue_id"`
+	Role              string      `json:"role"`
+}
+
+func (q *Queries) LinkProjectExecutionIssue(ctx context.Context, arg LinkProjectExecutionIssueParams) (ProjectExecutionIssue, error) {
+	row := q.db.QueryRow(ctx, linkProjectExecutionIssue,
+		arg.ExecutionRecordID,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.IssueID,
+		arg.Role,
+	)
+	var i ProjectExecutionIssue
+	err := row.Scan(
+		&i.ExecutionRecordID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.IssueID,
+		&i.Role,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listProjectAgentBindings = `-- name: ListProjectAgentBindings :many
 SELECT id, workspace_id, project_id, agent_id, role, created_at FROM project_agent_binding
 WHERE project_id = $1 AND workspace_id = $2
@@ -274,6 +370,49 @@ func (q *Queries) ListProjectAgentBindings(ctx context.Context, arg ListProjectA
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateProjectExecutionState = `-- name: UpdateProjectExecutionState :one
+UPDATE project_execution_record
+SET state = $4, review_round = $5, delivery_result = $6, updated_at = now()
+WHERE id = $1 AND project_id = $2 AND workspace_id = $3
+RETURNING id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at
+`
+
+type UpdateProjectExecutionStateParams struct {
+	ID             pgtype.UUID `json:"id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+	State          string      `json:"state"`
+	ReviewRound    int32       `json:"review_round"`
+	DeliveryResult []byte      `json:"delivery_result"`
+}
+
+func (q *Queries) UpdateProjectExecutionState(ctx context.Context, arg UpdateProjectExecutionStateParams) (ProjectExecutionRecord, error) {
+	row := q.db.QueryRow(ctx, updateProjectExecutionState,
+		arg.ID,
+		arg.ProjectID,
+		arg.WorkspaceID,
+		arg.State,
+		arg.ReviewRound,
+		arg.DeliveryResult,
+	)
+	var i ProjectExecutionRecord
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.SourceChatSessionID,
+		&i.SourceAgentID,
+		&i.Snapshot,
+		&i.State,
+		&i.ReviewRound,
+		&i.DeliveryResult,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertProjectWorkflowSettings = `-- name: UpsertProjectWorkflowSettings :one

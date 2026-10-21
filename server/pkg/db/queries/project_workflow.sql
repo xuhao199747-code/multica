@@ -16,6 +16,25 @@ ON CONFLICT (project_id) DO UPDATE SET
     updated_at = now()
 RETURNING *;
 
+-- name: GetProjectExecutionRecord :one
+SELECT * FROM project_execution_record
+WHERE id = $1 AND project_id = $2 AND workspace_id = $3;
+
+-- name: LinkProjectExecutionIssue :one
+INSERT INTO project_execution_issue (execution_record_id, workspace_id, project_id, issue_id, role)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
+
+-- name: GetProjectExecutionIssue :one
+SELECT * FROM project_execution_issue
+WHERE execution_record_id = $1 AND issue_id = $2 AND project_id = $3 AND workspace_id = $4;
+
+-- name: UpdateProjectExecutionState :one
+UPDATE project_execution_record
+SET state = $4, review_round = $5, delivery_result = $6, updated_at = now()
+WHERE id = $1 AND project_id = $2 AND workspace_id = $3
+RETURNING *;
+
 -- name: ListProjectAgentBindings :many
 SELECT * FROM project_agent_binding
 WHERE project_id = $1 AND workspace_id = $2

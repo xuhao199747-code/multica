@@ -176,6 +176,154 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 
 func asWorkflowString(value any) string { text, _ := value.(string); return text }
 
+type LinkProjectExecutionIssueRequest struct {
+	ExecutionID string `json:"execution_id"`
+	IssueID     string `json:"issue_id"`
+	Role        string `json:"role"`
+}
+
+func (h *Handler) LinkProjectExecutionIssue(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var req LinkProjectExecutionIssueRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	executionID, ok := parseUUIDOrBadRequest(w, req.ExecutionID, "execution_id")
+	if !ok {
+		return
+	}
+	issueID, ok := parseUUIDOrBadRequest(w, req.IssueID, "issue_id")
+	if !ok {
+		return
+	}
+	if req.Role != "development" && req.Role != "review" && req.Role != "repair" && req.Role != "delivery" {
+		writeError(w, http.StatusBadRequest, "invalid execution issue role")
+		return
+	}
+	if _, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID}); err != nil {
+		writeError(w, http.StatusNotFound, "project execution not found")
+		return
+	}
+	issue, err := h.Queries.GetIssue(r.Context(), issueID)
+	if err != nil || issue.WorkspaceID != project.WorkspaceID || !issue.ProjectID.Valid || issue.ProjectID != project.ID {
+		writeError(w, http.StatusBadRequest, "issue must belong to this project")
+		return
+	}
+	linked, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: executionID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: issueID, Role: req.Role})
+	if isUniqueViolation(err) {
+		writeError(w, http.StatusConflict, "issue is already linked to a project execution")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to link project execution issue")
+		return
+	}
+	writeJSON(w, http.StatusCreated, linked)
+}
+
+type SubmitProjectExecutionDeliveryRequest struct {
+	ExecutionID string `json:"execution_id"`
+	IssueID     string `json:"issue_id"`
+	Commit      string `json:"commit"`
+	Tests       string `json:"tests"`
+	Summary     string `json:"summary"`
+}
+
+// SubmitProjectExecutionDelivery requires code, test, and change evidence
+// before a delivery can enter review.
+func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var req SubmitProjectExecutionDeliveryRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Commit) == "" || strings.TrimSpace(req.Tests) == "" || strings.TrimSpace(req.Summary) == "" {
+		writeError(w, http.StatusBadRequest, "commit, tests, and summary are required before review")
+		return
+	}
+	executionID, ok := parseUUIDOrBadRequest(w, req.ExecutionID, "execution_id")
+	if !ok {
+		return
+	}
+	issueID, ok := parseUUIDOrBadRequest(w, req.IssueID, "issue_id")
+	if !ok {
+		return
+	}
+	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project execution not found")
+		return
+	}
+	link, err := h.Queries.GetProjectExecutionIssue(r.Context(), db.GetProjectExecutionIssueParams{ExecutionRecordID: executionID, IssueID: issueID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil || (link.Role != "development" && link.Role != "repair") {
+		writeError(w, http.StatusBadRequest, "delivery must come from the linked development or repair issue")
+		return
+	}
+	next, rounds, err := service.AdvanceProjectExecution(service.ProjectExecutionState(record.State), int(record.ReviewRound), service.ExecutionEventDeliverySubmitted)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	evidence, _ := json.Marshal(map[string]string{"commit": strings.TrimSpace(req.Commit), "tests": strings.TrimSpace(req.Tests), "summary": strings.TrimSpace(req.Summary)})
+	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: evidence})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to submit project delivery")
+		return
+	}
+	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
+}
+
+type RecordProjectReviewRequest struct {
+	ExecutionID string `json:"execution_id"`
+	Outcome     string `json:"outcome"`
+}
+
+func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var req RecordProjectReviewRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	executionID, ok := parseUUIDOrBadRequest(w, req.ExecutionID, "execution_id")
+	if !ok {
+		return
+	}
+	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project execution not found")
+		return
+	}
+	events := map[string]service.ProjectExecutionEvent{"passed": service.ExecutionEventReviewPassed, "needs_changes": service.ExecutionEventReviewNeedsChanges, "needs_member_decision": service.ExecutionEventReviewNeedsMemberDecision}
+	event, ok := events[req.Outcome]
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid review outcome")
+		return
+	}
+	next, rounds, err := service.AdvanceProjectExecution(service.ProjectExecutionState(record.State), int(record.ReviewRound), event)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: record.DeliveryResult})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record review result")
+		return
+	}
+	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
+}
+
 // ProjectWorkflowSettingsResponse is deliberately separate from Project. The
 // workflow is opt-in and its operational details should not inflate every
 // project-list response.
