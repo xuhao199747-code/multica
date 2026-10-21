@@ -171,6 +171,8 @@
     "description": "让 Mica 协调这个项目的智能体工作流。",
     "toggle_label": "启用 Mica 协作",
     "delivery_label": "审核通过后",
+    "delivery_instructions_label": "交付说明",
+    "delivery_instructions_placeholder": "可选：这个项目的发布步骤或检查项",
     "open_mica": "打开项目 Mica",
     "execution_fallback": "项目执行",
     "roles_label": "项目智能体",

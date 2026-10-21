@@ -172,6 +172,8 @@
     "description": "Use Mica to coordinate this project's agent workflow.",
     "toggle_label": "Enable Mica collaboration",
     "delivery_label": "After review passes",
+    "delivery_instructions_label": "Delivery instructions",
+    "delivery_instructions_placeholder": "Optional: project-specific release steps or checks",
     "open_mica": "Open project Mica",
     "execution_fallback": "Project execution",
     "roles_label": "Project agents",

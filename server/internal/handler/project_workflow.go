@@ -754,11 +754,17 @@ func (h *Handler) enqueueProjectWorkflowCoordination(r *http.Request, project db
 	if phase == "delivery" {
 		action = "Perform only this project's configured delivery action and record its evidence. Do not assume Docker, containers, or health-check URLs."
 	}
+	settings, err := h.Queries.GetProjectWorkflowSettings(r.Context(), db.GetProjectWorkflowSettingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		return service.IssueCreateResult{}, err
+	}
 	description, err := json.Marshal(map[string]any{
 		"project_execution_id": uuidToString(record.ID),
 		"workflow_role":        "mika_" + phase + "_coordination",
 		"prd_snapshot":         json.RawMessage(record.Snapshot),
 		"workflow_evidence":    json.RawMessage(record.DeliveryResult),
+		"delivery_mode":        settings.DeliveryMode,
+		"delivery_config":      json.RawMessage(settings.DeliveryConfig),
 		"required_action":      action,
 	})
 	if err != nil {

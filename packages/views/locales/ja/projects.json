@@ -171,6 +171,8 @@
     "description": "Mica がこのプロジェクトのエージェントワークフローを調整します。",
     "toggle_label": "Mica コラボレーションを有効にする",
     "delivery_label": "レビュー通過後",
+    "delivery_instructions_label": "デリバリー手順",
+    "delivery_instructions_placeholder": "任意: このプロジェクト固有のリリース手順または確認項目",
     "open_mica": "プロジェクトの Mica を開く",
     "execution_fallback": "プロジェクト実行",
     "roles_label": "プロジェクトエージェント",

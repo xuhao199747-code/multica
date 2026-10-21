@@ -19,6 +19,7 @@ import { useT } from "../../i18n";
 import { useNavigation } from "../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { Button } from "@multica/ui/components/ui/button";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 
 const deliveryModes: ProjectDeliveryMode[] = [
   "notify_only",
@@ -80,6 +81,16 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
               {deliveryModes.map((mode) => <SelectItem key={mode} value={mode}>{t(($) => $.workflow.delivery_modes[mode])}</SelectItem>)}
             </SelectContent>
           </Select>
+        </label>
+        <label className="block space-y-1.5">
+          <span className="text-caption text-muted-foreground">{t(($) => $.workflow.delivery_instructions_label)}</span>
+          <Textarea
+            key={`${settings.updated_at ?? ""}:${String(settings.delivery_config.instructions ?? "")}`}
+            defaultValue={typeof settings.delivery_config.instructions === "string" ? settings.delivery_config.instructions : ""}
+            placeholder={t(($) => $.workflow.delivery_instructions_placeholder)}
+            onBlur={(event) => save({ delivery_config: { ...settings.delivery_config, instructions: event.currentTarget.value.trim() } })}
+            rows={2}
+          />
         </label>
         <Button variant="secondary" size="sm" className="w-full" disabled={openMika.isPending} onClick={() => openMika.mutate()}>
           {t(($) => $.workflow.open_mica)}

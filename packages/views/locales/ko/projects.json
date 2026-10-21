@@ -171,6 +171,8 @@
     "description": "Mica가 이 프로젝트의 에이전트 워크플로를 조정합니다.",
     "toggle_label": "Mica 협업 사용",
     "delivery_label": "검토 통과 후",
+    "delivery_instructions_label": "배포 안내",
+    "delivery_instructions_placeholder": "선택 사항: 이 프로젝트의 배포 단계 또는 확인 항목",
     "open_mica": "프로젝트 Mica 열기",
     "execution_fallback": "프로젝트 실행",
     "roles_label": "프로젝트 에이전트",
