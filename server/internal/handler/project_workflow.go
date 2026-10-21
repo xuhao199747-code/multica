@@ -48,6 +48,23 @@ func (h *Handler) requireProjectWorkflowRole(w http.ResponseWriter, r *http.Requ
 	return false
 }
 
+// requireProjectWorkflowEnabled prevents the workflow-only endpoints from
+// turning an ordinary project into an automated workflow by accident. Opening
+// the project Mica chat stays available without this gate: conversation is not
+// an execution.
+func (h *Handler) requireProjectWorkflowEnabled(w http.ResponseWriter, r *http.Request, project db.Project) bool {
+	settings, err := h.Queries.GetProjectWorkflowSettings(r.Context(), db.GetProjectWorkflowSettingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if errors.Is(err, pgx.ErrNoRows) || !settings.Enabled {
+		writeError(w, http.StatusConflict, "project workflow is disabled")
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project workflow settings")
+		return false
+	}
+	return true
+}
+
 // OpenProjectMikaSession returns the member's project-scoped conversation with
 // the workspace Mika. It never creates a new agent identity: one reusable
 // agent can serve many projects, while each chat remains project-scoped.
@@ -197,6 +214,9 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowEnabled(w, r, project) {
+		return
+	}
 	if !h.requireProjectWorkflowRole(w, r, project, "mika", "prd") {
 		return
 	}
@@ -265,6 +285,9 @@ type DispatchProjectExecutionRequest struct {
 func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowEnabled(w, r, project) {
 		return
 	}
 	if !h.requireProjectWorkflowRole(w, r, project, "mika") {
@@ -354,6 +377,12 @@ func (h *Handler) LinkProjectExecutionIssue(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowEnabled(w, r, project) {
+		return
+	}
+	if !h.requireProjectWorkflowRole(w, r, project, "mika") {
+		return
+	}
 	var req LinkProjectExecutionIssueRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -405,6 +434,9 @@ type SubmitProjectExecutionDeliveryRequest struct {
 func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowEnabled(w, r, project) {
 		return
 	}
 	if !h.requireProjectWorkflowRole(w, r, project, "developer") {
@@ -544,6 +576,9 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !h.requireProjectWorkflowEnabled(w, r, project) {
+		return
+	}
 	if !h.requireProjectWorkflowRole(w, r, project, "mika") {
 		return
 	}
@@ -586,6 +621,9 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
+		return
+	}
+	if !h.requireProjectWorkflowEnabled(w, r, project) {
 		return
 	}
 	if !h.requireProjectWorkflowRole(w, r, project, "reviewer") {

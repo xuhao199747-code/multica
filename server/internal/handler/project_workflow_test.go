@@ -7,6 +7,17 @@ import (
 	"testing"
 )
 
+func enableProjectWorkflowForTest(t *testing.T, projectID string) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	testHandler.UpdateProjectWorkflowSettings(w, withURLParam(newRequest("PATCH", "/api/projects/"+projectID+"/workflow", map[string]any{
+		"enabled": true, "delivery_mode": "notify_only", "delivery_config": map[string]any{},
+	}), "id", projectID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("enable project workflow: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestProjectWorkflowSettingsDefaultAndUpdate(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
@@ -120,6 +131,7 @@ func TestConfirmProjectExecutionFreezesSnapshot(t *testing.T) {
 	t.Cleanup(func() {
 		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+project.ID, nil), "id", project.ID))
 	})
+	enableProjectWorkflowForTest(t, project.ID)
 	agentID := createHandlerTestAgent(t, "execution-snapshot-prd", nil)
 	sessionID := createChatSessionWithProjectForTest(t, agentID, project.ID)
 	w = httptest.NewRecorder()
@@ -141,6 +153,32 @@ func TestConfirmProjectExecutionFreezesSnapshot(t *testing.T) {
 	}
 }
 
+func TestProjectExecutionRequiresEnabledWorkflow(t *testing.T) {
+	w := httptest.NewRecorder()
+	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Disabled workflow project"}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.NewDecoder(w.Body).Decode(&project); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+project.ID, nil), "id", project.ID))
+	})
+	agentID := createHandlerTestAgent(t, "disabled-workflow-prd", nil)
+	sessionID := createChatSessionWithProjectForTest(t, agentID, project.ID)
+	w = httptest.NewRecorder()
+	testHandler.ConfirmProjectExecution(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions", map[string]any{
+		"source_chat_session_id": sessionID,
+		"source_agent_id":        agentID,
+		"snapshot":               map[string]any{"goal": "Must not start", "scope": []string{}, "acceptance_criteria": []string{}, "risks": []string{}},
+	}), "id", project.ID))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("disabled workflow confirmation: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	w := httptest.NewRecorder()
 	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Workflow review queue project"}))
@@ -154,6 +192,7 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	t.Cleanup(func() {
 		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+project.ID, nil), "id", project.ID))
 	})
+	enableProjectWorkflowForTest(t, project.ID)
 	mikaID := createHandlerTestAgent(t, "workflow-coordinator-mika", nil)
 	developerID := createHandlerTestAgent(t, "workflow-queue-developer", nil)
 	prdID := createHandlerTestAgent(t, "workflow-queue-prd", nil)
