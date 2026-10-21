@@ -223,7 +223,20 @@ func (h *Handler) ListProjectExecutionRecords(w http.ResponseWriter, r *http.Req
 	for i, record := range records {
 		response[i] = projectExecutionToResponse(record)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"executions": response, "total": len(response)})
+	issues, err := h.Queries.ListProjectExecutionIssuesForProject(r.Context(), db.ListProjectExecutionIssuesForProjectParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list project execution issues")
+		return
+	}
+	issueResponse := make([]map[string]string, len(issues))
+	for i, issue := range issues {
+		issueResponse[i] = map[string]string{
+			"execution_id": uuidToString(issue.ExecutionRecordID),
+			"issue_id":     uuidToString(issue.IssueID),
+			"role":         issue.Role,
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"executions": response, "execution_issues": issueResponse, "total": len(response)})
 }
 
 type ConfirmProjectExecutionRequest struct {

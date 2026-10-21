@@ -299,6 +299,32 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 		t.Fatalf("delivery result did not queue Mica coordination: %+v", result)
 	}
 	w = httptest.NewRecorder()
+	testHandler.ListProjectExecutionRecords(w, withURLParam(newRequest("GET", "/api/projects/"+project.ID+"/workflow/executions", nil), "id", project.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("list workflow executions: %d %s", w.Code, w.Body.String())
+	}
+	var listed struct {
+		ExecutionIssues []struct {
+			ExecutionID string `json:"execution_id"`
+			IssueID     string `json:"issue_id"`
+			Role        string `json:"role"`
+		} `json:"execution_issues"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&listed); err != nil {
+		t.Fatal(err)
+	}
+	foundDeveloper, foundCoordinator := false, false
+	for _, item := range listed.ExecutionIssues {
+		if item.ExecutionID != execution.ID {
+			continue
+		}
+		foundDeveloper = foundDeveloper || item.IssueID == dispatched.Issue.ID && item.Role == "development"
+		foundCoordinator = foundCoordinator || item.IssueID == result.CoordinationIssue.ID && item.Role == "delivery"
+	}
+	if !foundDeveloper || !foundCoordinator {
+		t.Fatalf("execution issue status is incomplete: %+v", listed.ExecutionIssues)
+	}
+	w = httptest.NewRecorder()
 	testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/api/issues/"+result.CoordinationIssue.ID, map[string]any{"project_id": otherProject.ID}), "id", result.CoordinationIssue.ID))
 	if w.Code != http.StatusConflict {
 		t.Fatalf("move Mica coordination issue: expected 409, got %d: %s", w.Code, w.Body.String())

@@ -38,6 +38,11 @@ WHERE execution_record_id = $1 AND issue_id = $2 AND project_id = $3 AND workspa
 SELECT * FROM project_execution_issue
 WHERE issue_id = $1 AND workspace_id = $2;
 
+-- name: ListProjectExecutionIssuesForProject :many
+SELECT * FROM project_execution_issue
+WHERE project_id = $1 AND workspace_id = $2
+ORDER BY created_at ASC, issue_id ASC;
+
 -- name: UpdateProjectExecutionState :one
 UPDATE project_execution_record
 SET state = $4, review_round = $5, delivery_result = $6, updated_at = now()
