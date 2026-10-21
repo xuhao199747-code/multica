@@ -133,6 +133,11 @@ func TestConfirmProjectExecutionFreezesSnapshot(t *testing.T) {
 	})
 	enableProjectWorkflowForTest(t, project.ID)
 	agentID := createHandlerTestAgent(t, "execution-snapshot-prd", nil)
+	w = httptest.NewRecorder()
+	testHandler.CreateProjectAgentBinding(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/agents", map[string]any{"agent_id": agentID, "role": "prd"}), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("bind PRD: %d %s", w.Code, w.Body.String())
+	}
 	sessionID := createChatSessionWithProjectForTest(t, agentID, project.ID)
 	w = httptest.NewRecorder()
 	req = withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions", map[string]any{

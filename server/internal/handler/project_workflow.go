@@ -282,6 +282,25 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
 		return
 	}
+	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
+		return
+	}
+	sourceAuthorized := false
+	for _, binding := range bindings {
+		if binding.AgentID != agentID {
+			continue
+		}
+		if binding.Role == "prd" || binding.Role == "mika" {
+			sourceAuthorized = true
+			break
+		}
+	}
+	if !sourceAuthorized {
+		writeError(w, http.StatusBadRequest, "source chat agent must be bound as this project's PRD or Mica")
+		return
+	}
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid snapshot")
