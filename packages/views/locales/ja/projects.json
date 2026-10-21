@@ -173,6 +173,9 @@
     "delivery_label": "レビュー通過後",
     "open_mica": "プロジェクトの Mica を開く",
     "execution_fallback": "プロジェクト実行",
+    "roles_label": "プロジェクトエージェント",
+    "choose_agent": "エージェントを選択",
+    "roles": { "mika": "Mica", "prd": "PRD", "developer": "開発", "reviewer": "レビュー" },
     "delivery_modes": {
       "notify_only": "通知のみ",
       "pull_request": "プルリクエストを作成",

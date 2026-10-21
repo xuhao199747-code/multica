@@ -173,6 +173,9 @@
     "delivery_label": "검토 통과 후",
     "open_mica": "프로젝트 Mica 열기",
     "execution_fallback": "프로젝트 실행",
+    "roles_label": "프로젝트 에이전트",
+    "choose_agent": "에이전트 선택",
+    "roles": { "mika": "Mica", "prd": "PRD", "developer": "개발", "reviewer": "검토" },
     "delivery_modes": {
       "notify_only": "알림만",
       "pull_request": "풀 리퀘스트 만들기",

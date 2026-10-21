@@ -173,6 +173,9 @@
     "delivery_label": "审核通过后",
     "open_mica": "打开项目 Mica",
     "execution_fallback": "项目执行",
+    "roles_label": "项目智能体",
+    "choose_agent": "选择智能体",
+    "roles": { "mika": "Mica", "prd": "PRD", "developer": "开发", "reviewer": "审核" },
     "delivery_modes": {
       "notify_only": "仅通知",
       "pull_request": "创建 Pull Request",

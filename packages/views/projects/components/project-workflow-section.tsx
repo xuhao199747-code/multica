@@ -3,12 +3,16 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { agentListOptions } from "@multica/core/workspace/queries";
 import {
   projectWorkflowSettingsOptions,
   projectExecutionsOptions,
+  projectAgentBindingsOptions,
+  useCreateProjectAgentBinding,
+  useDeleteProjectAgentBinding,
   useUpdateProjectWorkflowSettings,
 } from "@multica/core/projects/workflow-queries";
-import type { ProjectDeliveryMode } from "@multica/core/types";
+import type { ProjectAgentRole, ProjectDeliveryMode } from "@multica/core/types";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@multica/ui/components/ui/select";
 import { useT } from "../../i18n";
@@ -22,13 +26,18 @@ const deliveryModes: ProjectDeliveryMode[] = [
   "manual_release",
   "automated_release",
 ];
+const roles: ProjectAgentRole[] = ["mika", "prd", "developer", "reviewer"];
 
 export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
   const { t } = useT("projects");
   const wsId = useWorkspaceId();
   const { data: settings } = useQuery(projectWorkflowSettingsOptions(wsId, projectId));
   const { data: executions } = useQuery(projectExecutionsOptions(wsId, projectId));
+  const { data: bindings } = useQuery(projectAgentBindingsOptions(wsId, projectId));
+  const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const update = useUpdateProjectWorkflowSettings(wsId, projectId);
+  const createBinding = useCreateProjectAgentBinding(wsId, projectId);
+  const deleteBinding = useDeleteProjectAgentBinding(wsId, projectId);
   const router = useNavigation();
   const paths = useWorkspacePaths();
   const openMika = useMutation({
@@ -85,6 +94,24 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
               <span className="shrink-0 text-muted-foreground">{execution.state}</span>
             </div>
           ))}
+        </div>
+      )}
+      {settings.enabled && bindings && (
+        <div className="space-y-2 border-t pt-2">
+          <span className="text-caption text-muted-foreground">{t(($) => $.workflow.roles_label)}</span>
+          {roles.map((role) => {
+            const binding = bindings.bindings.find((item) => item.role === role);
+            return <div key={role} className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-caption">{t(($) => $.workflow.roles[role])}</span>
+              <Select value={binding?.agent_id ?? ""} onValueChange={async (agentId) => {
+                if (binding && binding.agent_id !== agentId) await deleteBinding.mutateAsync(binding.id);
+                createBinding.mutate({ agent_id: agentId, role });
+              }}>
+                <SelectTrigger className="h-8 flex-1"><SelectValue placeholder={t(($) => $.workflow.choose_agent)} /></SelectTrigger>
+                <SelectContent>{agents.filter((agent) => !agent.archived_at).map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>;
+          })}
         </div>
       )}
     </section>

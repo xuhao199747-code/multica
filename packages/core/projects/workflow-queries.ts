@@ -1,6 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { UpdateProjectWorkflowSettingsRequest } from "../types";
+import type { CreateProjectAgentBindingRequest, UpdateProjectWorkflowSettingsRequest } from "../types";
 import { projectKeys } from "./queries";
 
 export const projectWorkflowKeys = {
@@ -14,6 +14,29 @@ export function projectExecutionsOptions(wsId: string, projectId: string) {
   return queryOptions({
     queryKey: [...projectWorkflowKeys.settings(wsId, projectId), "executions"] as const,
     queryFn: () => api.listProjectExecutions(projectId),
+  });
+}
+
+export function projectAgentBindingsOptions(wsId: string, projectId: string) {
+  return queryOptions({
+    queryKey: projectWorkflowKeys.agents(wsId, projectId),
+    queryFn: () => api.listProjectAgentBindings(projectId),
+  });
+}
+
+export function useCreateProjectAgentBinding(wsId: string, projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateProjectAgentBindingRequest) => api.createProjectAgentBinding(projectId, data),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: projectWorkflowKeys.agents(wsId, projectId) }),
+  });
+}
+
+export function useDeleteProjectAgentBinding(wsId: string, projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (bindingId: string) => api.deleteProjectAgentBinding(projectId, bindingId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: projectWorkflowKeys.agents(wsId, projectId) }),
   });
 }
 
