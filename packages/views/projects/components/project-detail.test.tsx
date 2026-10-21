@@ -22,6 +22,8 @@ vi.mock("@multica/ui/lib/clipboard", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
+  queryOptions: <T,>(options: T) => options,
+  useMutation: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useQuery: (options: { queryKey?: readonly unknown[] }) => {
     switch (options.queryKey?.[0]) {
       case "project-detail":
@@ -38,6 +40,15 @@ vi.mock("@tanstack/react-query", () => ({
         return { data: undefined, isLoading: false };
     }
   },
+}));
+
+vi.mock("@multica/core/projects/workflow-queries", () => ({
+  projectWorkflowSettingsOptions: () => ({ queryKey: ["project-workflow"] }),
+  projectExecutionsOptions: () => ({ queryKey: ["project-executions"] }),
+  projectAgentBindingsOptions: () => ({ queryKey: ["project-agent-bindings"] }),
+  useUpdateProjectWorkflowSettings: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateProjectAgentBinding: () => ({ mutate: vi.fn() }),
+  useDeleteProjectAgentBinding: () => ({ mutateAsync: vi.fn() }),
 }));
 
 vi.mock("@multica/core/projects/queries", () => ({
