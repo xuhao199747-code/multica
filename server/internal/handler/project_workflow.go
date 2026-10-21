@@ -324,7 +324,12 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "agent is not bound to this project role")
 		return
 	}
-	description, _ := json.Marshal(map[string]any{"project_execution_id": uuidToString(record.ID), "prd_snapshot": json.RawMessage(record.Snapshot), "workflow_role": req.Role})
+	description, _ := json.Marshal(map[string]any{
+		"project_execution_id": uuidToString(record.ID),
+		"prd_snapshot":         json.RawMessage(record.Snapshot),
+		"delivery_evidence":    json.RawMessage(record.DeliveryResult),
+		"workflow_role":        req.Role,
+	})
 	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{WorkspaceID: project.WorkspaceID, Title: strings.TrimSpace(req.Title), Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none", AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: agentID, CreatorType: "member", CreatorID: parseUUID(userID), ProjectID: project.ID}, service.IssueCreateOpts{})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to dispatch project execution")
@@ -523,6 +528,7 @@ type RecordProjectReviewRequest struct {
 	ExecutionID string `json:"execution_id"`
 	IssueID     string `json:"issue_id"`
 	Outcome     string `json:"outcome"`
+	Findings    string `json:"findings"`
 }
 
 type CompleteProjectDeliveryRequest struct {
@@ -565,7 +571,10 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	payload, _ := json.Marshal(evidence)
+	result := map[string]any{}
+	_ = json.Unmarshal(record.DeliveryResult, &result)
+	result["completion"] = evidence
+	payload, _ := json.Marshal(result)
 	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: payload})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to complete project delivery")
@@ -585,6 +594,10 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	var req RecordProjectReviewRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Findings) == "" {
+		writeError(w, http.StatusBadRequest, "review findings are required")
 		return
 	}
 	executionID, ok := parseUUIDOrBadRequest(w, req.ExecutionID, "execution_id")
@@ -616,7 +629,15 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: record.DeliveryResult})
+	evidence := map[string]any{}
+	_ = json.Unmarshal(record.DeliveryResult, &evidence)
+	evidence["review"] = map[string]string{"outcome": req.Outcome, "findings": strings.TrimSpace(req.Findings)}
+	payload, err := json.Marshal(evidence)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record review evidence")
+		return
+	}
+	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: payload})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to record review result")
 		return

@@ -35,6 +35,7 @@ func init() {
 	projectWorkflowReviewCmd.Flags().String("execution", "", "Execution ID")
 	projectWorkflowReviewCmd.Flags().String("issue", "", "Linked review issue ID")
 	projectWorkflowReviewCmd.Flags().String("outcome", "", "passed, needs_changes, or needs_member_decision")
+	projectWorkflowReviewCmd.Flags().String("findings", "", "Review findings and evidence")
 	projectWorkflowCompleteCmd.Flags().String("execution", "", "Execution ID")
 	projectWorkflowCompleteCmd.Flags().String("evidence", "", "JSON file containing delivery evidence")
 }
@@ -132,11 +133,12 @@ func runProjectWorkflowReview(cmd *cobra.Command, args []string) error {
 	execution, _ := cmd.Flags().GetString("execution")
 	issue, _ := cmd.Flags().GetString("issue")
 	outcome, _ := cmd.Flags().GetString("outcome")
-	if execution == "" || issue == "" || outcome == "" {
-		return fmt.Errorf("--execution, --issue, and --outcome are required")
+	findings, _ := cmd.Flags().GetString("findings")
+	if execution == "" || issue == "" || outcome == "" || findings == "" {
+		return fmt.Errorf("--execution, --issue, --outcome, and --findings are required")
 	}
 	var result map[string]any
-	if err := c.PostJSON(ctx, "/api/projects/"+projectID+"/workflow/executions/review", map[string]any{"execution_id": execution, "issue_id": issue, "outcome": outcome}, &result); err != nil {
+	if err := c.PostJSON(ctx, "/api/projects/"+projectID+"/workflow/executions/review", map[string]any{"execution_id": execution, "issue_id": issue, "outcome": outcome, "findings": findings}, &result); err != nil {
 		return err
 	}
 	return cli.PrintJSON(os.Stdout, result)
