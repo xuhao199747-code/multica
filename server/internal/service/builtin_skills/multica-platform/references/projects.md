@@ -148,6 +148,32 @@ is task-local checkout state.
 5. If resources match the expected task context, inspect runtime/repo checkout
    path next.
 
+## Project workflow
+
+Some projects opt into a Mica workflow. It is project-scoped: reuse the agent
+identity where appropriate, but never use a chat, PRD snapshot, task, or review
+result from another project.
+
+Use these commands only after the member has confirmed the proposed execution:
+
+1. PRD handoff: `multica project workflow confirm <project-id> --source-chat <chat-id> --source-agent <agent-id> --snapshot <file.json>`.
+   The JSON must include `goal`, `scope`, `acceptance_criteria`, and `risks`.
+   Confirmation freezes the snapshot; later chat edits require a new execution.
+2. Mica dispatch: `multica project workflow dispatch <project-id> --execution <id> --agent <id> --role development|review|repair --title <title>`.
+   The selected agent must be bound to that project role. A real issue and run
+   are created; do not report a dispatch before this command succeeds.
+3. Developer delivery: `multica project workflow delivery <project-id> --execution <id> --issue <id> --commit <ref> --tests <evidence> --summary <summary>`.
+   Commit/reference, tests, and a change summary are mandatory before review.
+4. Reviewer result: `multica project workflow review <project-id> --execution <id> --outcome passed|needs_changes|needs_member_decision`.
+   Reviewers inspect the frozen snapshot and evidence; they do not edit code or
+   dispatch tasks. After two automatic repair rounds, a further
+   `needs_changes` becomes a member decision instead of looping.
+
+Do not assume every project deploys. The project delivery configuration chooses
+whether the outcome is notification-only, a pull request, manual release, or
+automated release. Never run Docker, container, or URL health checks unless the
+project configuration explicitly requires them.
+
 ## Side effects
 
 Project create/update/delete/status and project resource add/update/remove
