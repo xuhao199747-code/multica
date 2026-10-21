@@ -298,6 +298,11 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	if result.Execution.State != "review" || result.CoordinationIssue.AssigneeID == nil || *result.CoordinationIssue.AssigneeID != mikaID || result.CoordinationTaskID == nil || *result.CoordinationTaskID == "" {
 		t.Fatalf("delivery result did not queue Mica coordination: %+v", result)
 	}
+	w = httptest.NewRecorder()
+	testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/api/issues/"+result.CoordinationIssue.ID, map[string]any{"project_id": otherProject.ID}), "id", result.CoordinationIssue.ID))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("move Mica coordination issue: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
 
 	w = httptest.NewRecorder()
 	testHandler.DispatchProjectExecution(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/dispatch", map[string]any{

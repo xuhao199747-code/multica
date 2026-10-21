@@ -598,7 +598,7 @@ func (h *Handler) enqueueProjectWorkflowReviewCoordination(r *http.Request, proj
 	if err != nil {
 		return service.IssueCreateResult{}, err
 	}
-	return h.IssueService.Create(r.Context(), service.IssueCreateParams{
+	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{
 		WorkspaceID:  project.WorkspaceID,
 		Title:        "Coordinate review: " + goal,
 		Description:  pgtype.Text{String: string(description), Valid: true},
@@ -610,6 +610,13 @@ func (h *Handler) enqueueProjectWorkflowReviewCoordination(r *http.Request, proj
 		CreatorID:    creatorID,
 		ProjectID:    project.ID,
 	}, service.IssueCreateOpts{})
+	if err != nil {
+		return service.IssueCreateResult{}, err
+	}
+	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: "delivery"}); err != nil {
+		return service.IssueCreateResult{}, err
+	}
+	return result, nil
 }
 
 type RecordProjectReviewRequest struct {
@@ -798,12 +805,19 @@ func (h *Handler) enqueueProjectWorkflowCoordination(r *http.Request, project db
 	if err != nil {
 		return service.IssueCreateResult{}, err
 	}
-	return h.IssueService.Create(r.Context(), service.IssueCreateParams{
+	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{
 		WorkspaceID: project.WorkspaceID, Title: "Coordinate " + phase + ": " + goal,
 		Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none",
 		AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: mika.ID,
 		CreatorType: "member", CreatorID: creatorID, ProjectID: project.ID,
 	}, service.IssueCreateOpts{})
+	if err != nil {
+		return service.IssueCreateResult{}, err
+	}
+	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: "delivery"}); err != nil {
+		return service.IssueCreateResult{}, err
+	}
+	return result, nil
 }
 
 // ProjectWorkflowSettingsResponse is deliberately separate from Project. The
