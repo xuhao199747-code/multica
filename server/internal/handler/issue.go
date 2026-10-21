@@ -3926,6 +3926,15 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		} else {
 			params.ProjectID = pgtype.UUID{Valid: false}
 		}
+		link, linkErr := h.Queries.GetProjectExecutionIssueByIssue(r.Context(), db.GetProjectExecutionIssueByIssueParams{IssueID: prevIssue.ID, WorkspaceID: prevIssue.WorkspaceID})
+		if linkErr == nil && params.ProjectID != link.ProjectID {
+			writeError(w, http.StatusConflict, "workflow issue project cannot be changed")
+			return
+		}
+		if linkErr != nil && !errors.Is(linkErr, pgx.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "failed to verify workflow issue project")
+			return
+		}
 	}
 	if _, ok := rawFields["stage"]; ok {
 		if req.Stage != nil {
@@ -4727,6 +4736,13 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		if _, ok := rawUpdates["project_id"]; ok {
 			// Resolved before the loop; an explicit null stays invalid and clears.
 			params.ProjectID = batchProjectID
+			link, linkErr := h.Queries.GetProjectExecutionIssueByIssue(r.Context(), db.GetProjectExecutionIssueByIssueParams{IssueID: prevIssue.ID, WorkspaceID: prevIssue.WorkspaceID})
+			if linkErr == nil && params.ProjectID != link.ProjectID {
+				continue
+			}
+			if linkErr != nil && !errors.Is(linkErr, pgx.ErrNoRows) {
+				continue
+			}
 		}
 		if _, ok := rawUpdates["stage"]; ok {
 			if req.Updates.Stage != nil {

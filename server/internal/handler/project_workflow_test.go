@@ -262,6 +262,23 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&dispatched); err != nil {
 		t.Fatal(err)
 	}
+	w = httptest.NewRecorder()
+	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Other workflow project"}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create other project: %d %s", w.Code, w.Body.String())
+	}
+	var otherProject ProjectResponse
+	if err := json.NewDecoder(w.Body).Decode(&otherProject); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+otherProject.ID, nil), "id", otherProject.ID))
+	})
+	w = httptest.NewRecorder()
+	testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/api/issues/"+dispatched.Issue.ID, map[string]any{"project_id": otherProject.ID}), "id", dispatched.Issue.ID))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("move workflow issue: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
 
 	w = httptest.NewRecorder()
 	testHandler.SubmitProjectExecutionDelivery(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/delivery", map[string]any{
