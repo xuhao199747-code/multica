@@ -196,6 +196,7 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	mikaID := createHandlerTestAgent(t, "workflow-coordinator-mika", nil)
 	developerID := createHandlerTestAgent(t, "workflow-queue-developer", nil)
 	prdID := createHandlerTestAgent(t, "workflow-queue-prd", nil)
+	reviewerID := createHandlerTestAgent(t, "workflow-queue-reviewer", nil)
 	bind := func(agentID, role string) {
 		w := httptest.NewRecorder()
 		testHandler.CreateProjectAgentBinding(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/agents", map[string]any{"agent_id": agentID, "role": role}), "id", project.ID))
@@ -206,6 +207,7 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	bind(mikaID, "mika")
 	bind(developerID, "developer")
 	bind(prdID, "prd")
+	bind(reviewerID, "reviewer")
 
 	sessionID := createChatSessionWithProjectForTest(t, prdID, project.ID)
 	w = httptest.NewRecorder()
@@ -253,5 +255,36 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	}
 	if result.Execution.State != "review" || result.CoordinationIssue.AssigneeID == nil || *result.CoordinationIssue.AssigneeID != mikaID || result.CoordinationTaskID == nil || *result.CoordinationTaskID == "" {
 		t.Fatalf("delivery result did not queue Mica coordination: %+v", result)
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.DispatchProjectExecution(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/dispatch", map[string]any{
+		"execution_id": execution.ID, "agent_id": reviewerID, "role": "review", "title": "Review the workflow",
+	}), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("dispatch review: %d %s", w.Code, w.Body.String())
+	}
+	var reviewDispatch struct {
+		Issue IssueResponse `json:"issue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&reviewDispatch); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	testHandler.RecordProjectReview(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/review", map[string]any{
+		"execution_id": execution.ID, "issue_id": reviewDispatch.Issue.ID, "outcome": "passed", "findings": "Reviewed commit and tests.",
+	}), "id", project.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("record review: %d %s", w.Code, w.Body.String())
+	}
+	var reviewResult struct {
+		Execution          ProjectExecutionResponse `json:"execution"`
+		CoordinationTaskID *string                  `json:"coordination_task_id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&reviewResult); err != nil {
+		t.Fatal(err)
+	}
+	if reviewResult.Execution.State != "delivering" || reviewResult.CoordinationTaskID == nil || *reviewResult.CoordinationTaskID == "" {
+		t.Fatalf("review result did not queue delivery coordination: %+v", reviewResult)
 	}
 }

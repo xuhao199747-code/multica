@@ -629,6 +629,10 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	if !h.requireProjectWorkflowRole(w, r, project, "reviewer") {
 		return
 	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
 	var req RecordProjectReviewRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -680,7 +684,61 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to record review result")
 		return
 	}
-	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
+	response := map[string]any{"execution": projectExecutionToResponse(updated)}
+	if next == service.ExecutionRepair || next == service.ExecutionDelivering {
+		mika, err := h.projectWorkflowMika(r, project)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "review was recorded but failed to load project Mica")
+			return
+		}
+		phase := "repair"
+		if next == service.ExecutionDelivering {
+			phase = "delivery"
+		}
+		coordination, err := h.enqueueProjectWorkflowCoordination(r, project, updated, mika, parseUUID(userID), phase)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "review was recorded but failed to queue Mica coordination")
+			return
+		}
+		response["coordination_issue"] = issueToResponse(coordination.Issue, uuidToString(project.WorkspaceID))
+		response["coordination_task_id"] = uuidToPtr(coordination.AssignedTaskID)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// enqueueProjectWorkflowCoordination creates an auditable Mica task for the
+// next non-code phase. Mica then dispatches the bound developer or reviewer,
+// or performs only the delivery work configured for this project.
+func (h *Handler) enqueueProjectWorkflowCoordination(r *http.Request, project db.Project, record db.ProjectExecutionRecord, mika db.Agent, creatorID pgtype.UUID, phase string) (service.IssueCreateResult, error) {
+	snapshot := map[string]any{}
+	_ = json.Unmarshal(record.Snapshot, &snapshot)
+	goal := strings.TrimSpace(asWorkflowString(snapshot["goal"]))
+	if goal == "" {
+		goal = "project delivery"
+	}
+	action := "Inspect the submitted evidence, then dispatch the project-bound reviewer. Do not review code yourself."
+	if phase == "repair" {
+		action = "Return the recorded review findings to the project-bound developer as a repair task, then coordinate a re-review. Do not modify code yourself."
+	}
+	if phase == "delivery" {
+		action = "Perform only this project's configured delivery action and record its evidence. Do not assume Docker, containers, or health-check URLs."
+	}
+	description, err := json.Marshal(map[string]any{
+		"project_execution_id": uuidToString(record.ID),
+		"workflow_role":        "mika_" + phase + "_coordination",
+		"prd_snapshot":         json.RawMessage(record.Snapshot),
+		"workflow_evidence":    json.RawMessage(record.DeliveryResult),
+		"required_action":      action,
+	})
+	if err != nil {
+		return service.IssueCreateResult{}, err
+	}
+	return h.IssueService.Create(r.Context(), service.IssueCreateParams{
+		WorkspaceID: project.WorkspaceID, Title: "Coordinate " + phase + ": " + goal,
+		Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none",
+		AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: mika.ID,
+		CreatorType: "member", CreatorID: creatorID, ProjectID: project.ID,
+	}, service.IssueCreateOpts{})
 }
 
 // ProjectWorkflowSettingsResponse is deliberately separate from Project. The
