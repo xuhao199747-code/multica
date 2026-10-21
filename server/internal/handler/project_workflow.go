@@ -27,17 +27,36 @@ func (h *Handler) OpenProjectMikaSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	creatorID := parseUUID(userID)
-	mika, err := h.Queries.GetAgentBySystemKey(r.Context(), db.GetAgentBySystemKeyParams{
-		WorkspaceID: project.WorkspaceID,
-		SystemKey:   pgtype.Text{String: service.MikaSystemKey, Valid: true},
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusConflict, "set up Mika in this workspace before enabling project collaboration")
+	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
 		return
 	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to find Mika")
-		return
+	var mika db.Agent
+	for _, binding := range bindings {
+		if binding.Role != "mika" {
+			continue
+		}
+		mika, err = h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{ID: binding.AgentID, WorkspaceID: project.WorkspaceID})
+		if err != nil {
+			writeError(w, http.StatusConflict, "the project's Mika is unavailable")
+			return
+		}
+		break
+	}
+	if !mika.ID.Valid {
+		mika, err = h.Queries.GetAgentBySystemKey(r.Context(), db.GetAgentBySystemKeyParams{
+			WorkspaceID: project.WorkspaceID,
+			SystemKey:   pgtype.Text{String: service.MikaSystemKey, Valid: true},
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusConflict, "choose a project Mika or set up Mika in this workspace")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to find Mika")
+			return
+		}
 	}
 	if session, err := h.Queries.GetProjectMikaChatSession(r.Context(), db.GetProjectMikaChatSessionParams{
 		WorkspaceID: project.WorkspaceID, ProjectID: project.ID, AgentID: mika.ID, CreatorID: creatorID,
