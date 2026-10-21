@@ -357,10 +357,11 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
 		return
 	}
-	requiredRole := req.Role
-	if requiredRole == "repair" {
-		requiredRole = "developer"
-	}
+	requiredRole := map[string]string{
+		"development": "developer",
+		"repair":      "developer",
+		"review":      "reviewer",
+	}[req.Role]
 	bound := false
 	for _, binding := range bindings {
 		if binding.AgentID == agentID && binding.Role == requiredRole {

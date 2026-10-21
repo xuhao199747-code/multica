@@ -208,6 +208,26 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	bind(developerID, "developer")
 	bind(prdID, "prd")
 	bind(reviewerID, "reviewer")
+	w = httptest.NewRecorder()
+	testHandler.ListProjectAgentBindings(w, withURLParam(newRequest("GET", "/api/projects/"+project.ID+"/workflow/agents", nil), "id", project.ID))
+	var bound struct {
+		Bindings []ProjectAgentBindingResponse `json:"bindings"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if len(bound.Bindings) != 4 {
+		t.Fatalf("bindings = %+v, want four roles", bound.Bindings)
+	}
+	var boundDeveloperID string
+	for _, binding := range bound.Bindings {
+		if binding.Role == "developer" {
+			boundDeveloperID = binding.AgentID
+		}
+	}
+	if boundDeveloperID != developerID {
+		t.Fatalf("developer binding agent_id = %q, want %q; bindings = %+v", boundDeveloperID, developerID, bound.Bindings)
+	}
 
 	sessionID := createChatSessionWithProjectForTest(t, prdID, project.ID)
 	w = httptest.NewRecorder()
