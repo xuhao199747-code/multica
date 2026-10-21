@@ -2137,6 +2137,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Patch("/workflow", h.UpdateProjectWorkflowSettings)
 				r.Post("/workflow/mika-session", h.OpenProjectMikaSession)
 				r.Post("/workflow/executions", h.ConfirmProjectExecution)
+				r.Post("/workflow/executions/dispatch", h.DispatchProjectExecution)
 				r.Post("/workflow/executions/issues", h.LinkProjectExecutionIssue)
 				r.Post("/workflow/executions/delivery", h.SubmitProjectExecutionDelivery)
 				r.Post("/workflow/executions/review", h.RecordProjectReview)

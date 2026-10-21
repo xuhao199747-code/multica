@@ -176,6 +176,89 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 
 func asWorkflowString(value any) string { text, _ := value.(string); return text }
 
+type DispatchProjectExecutionRequest struct {
+	ExecutionID string `json:"execution_id"`
+	AgentID     string `json:"agent_id"`
+	Role        string `json:"role"`
+	Title       string `json:"title"`
+}
+
+// DispatchProjectExecution creates a normal Multica issue assigned to the
+// project-bound agent. IssueService then performs the ordinary enqueue, so a
+// workflow assignment always has a real run record rather than a UI-only flag.
+func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var req DispatchProjectExecutionRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Role != "development" && req.Role != "review" && req.Role != "repair" {
+		writeError(w, http.StatusBadRequest, "role must be development, review, or repair")
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	executionID, ok := parseUUIDOrBadRequest(w, req.ExecutionID, "execution_id")
+	if !ok {
+		return
+	}
+	agentID, ok := parseUUIDOrBadRequest(w, req.AgentID, "agent_id")
+	if !ok {
+		return
+	}
+	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project execution not found")
+		return
+	}
+	if req.Role == "development" && record.State != string(service.ExecutionDevelopment) || req.Role == "review" && record.State != string(service.ExecutionReview) || req.Role == "repair" && record.State != string(service.ExecutionRepair) {
+		writeError(w, http.StatusConflict, "execution is not ready for this assignment")
+		return
+	}
+	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
+		return
+	}
+	requiredRole := req.Role
+	if requiredRole == "repair" {
+		requiredRole = "developer"
+	}
+	bound := false
+	for _, binding := range bindings {
+		if binding.AgentID == agentID && binding.Role == requiredRole {
+			bound = true
+			break
+		}
+	}
+	if !bound {
+		writeError(w, http.StatusBadRequest, "agent is not bound to this project role")
+		return
+	}
+	description, _ := json.Marshal(map[string]any{"project_execution_id": uuidToString(record.ID), "prd_snapshot": json.RawMessage(record.Snapshot), "workflow_role": req.Role})
+	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{WorkspaceID: project.WorkspaceID, Title: strings.TrimSpace(req.Title), Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none", AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: agentID, CreatorType: "member", CreatorID: parseUUID(userID), ProjectID: project.ID}, service.IssueCreateOpts{})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to dispatch project execution")
+		return
+	}
+	linked, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: req.Role})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to link dispatched issue")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"issue": issueToResponse(result.Issue, uuidToString(project.WorkspaceID)), "execution_issue": linked, "task_id": uuidToPtr(result.AssignedTaskID)})
+}
+
 type LinkProjectExecutionIssueRequest struct {
 	ExecutionID string `json:"execution_id"`
 	IssueID     string `json:"issue_id"`
