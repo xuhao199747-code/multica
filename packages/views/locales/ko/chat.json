@@ -238,7 +238,18 @@
     "archive": "보관",
     "unarchive": "보관 해제",
     "archived_title": "보관됨",
-    "row_actions_aria": "채팅 작업"
+    "row_actions_aria": "채팅 작업",
+    "projects_heading": "프로젝트",
+    "move_to_project_aria": "채팅을 {{title}}(으)로 이동",
+    "project_actions": "프로젝트 작업",
+    "project_actions_aria": "{{title}} 작업",
+    "new_project_chat": "새 채팅",
+    "rename_project": "프로젝트 이름 변경",
+    "delete_project": "프로젝트 삭제",
+    "no_project_chats": "아직 채팅이 없습니다",
+    "move_out_of_project_aria": "채팅을 프로젝트에서 이동",
+    "unclassified_heading": "미분류",
+    "move_out_of_project_hint": "채팅을 여기로 끌어오면 프로젝트에서 이동합니다"
   },
   "header": {
     "view_profile": "Agent 프로필 보기",

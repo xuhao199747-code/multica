@@ -238,7 +238,18 @@
     "archive": "归档",
     "unarchive": "取消归档",
     "archived_title": "已归档",
-    "row_actions_aria": "聊天操作"
+    "row_actions_aria": "聊天操作",
+    "projects_heading": "项目",
+    "move_to_project_aria": "将聊天移入 {{title}}",
+    "project_actions": "项目操作",
+    "project_actions_aria": "{{title}} 的操作",
+    "new_project_chat": "新建聊天",
+    "rename_project": "重命名项目",
+    "delete_project": "删除项目",
+    "no_project_chats": "暂无聊天",
+    "move_out_of_project_aria": "将聊天移出项目",
+    "unclassified_heading": "未归类",
+    "move_out_of_project_hint": "将聊天拖到这里可移出项目"
   },
   "header": {
     "view_profile": "查看智能体资料",

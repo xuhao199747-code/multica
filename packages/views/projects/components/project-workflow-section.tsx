@@ -83,7 +83,14 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
         <div className="space-y-2">
         <label className="block space-y-1.5">
           <span className="text-caption text-muted-foreground">{t(($) => $.workflow.delivery_label)}</span>
-          <Select value={settings.delivery_mode} onValueChange={(value) => save({ delivery_mode: value as ProjectDeliveryMode })}>
+          <Select
+            items={deliveryModes.map((mode) => ({
+              value: mode,
+              label: t(($) => $.workflow.delivery_modes[mode]),
+            }))}
+            value={settings.delivery_mode}
+            onValueChange={(value) => save({ delivery_mode: value as ProjectDeliveryMode })}
+          >
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               {deliveryModes.map((mode) => <SelectItem key={mode} value={mode}>{t(($) => $.workflow.delivery_modes[mode])}</SelectItem>)}
@@ -131,10 +138,18 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
             const binding = bindings.bindings.find((item) => item.role === role);
             return <div key={role} className="flex items-center gap-2">
               <span className="w-20 shrink-0 text-caption">{t(($) => $.workflow.roles[role])}</span>
-              <Select value={binding?.agent_id ?? ""} onValueChange={async (agentId) => {
-                if (binding && binding.agent_id !== agentId) await deleteBinding.mutateAsync(binding.id);
-                createBinding.mutate({ agent_id: agentId, role });
-              }}>
+              <Select
+                items={agents.filter((agent) => !agent.archived_at).map((agent) => ({
+                  value: agent.id,
+                  label: agent.name,
+                }))}
+                value={binding?.agent_id ?? ""}
+                onValueChange={async (agentId) => {
+                  if (!agentId) return;
+                  if (binding && binding.agent_id !== agentId) await deleteBinding.mutateAsync(binding.id);
+                  createBinding.mutate({ agent_id: agentId, role });
+                }}
+              >
                 <SelectTrigger className="h-8 flex-1"><SelectValue placeholder={t(($) => $.workflow.choose_agent)} /></SelectTrigger>
                 <SelectContent>{agents.filter((agent) => !agent.archived_at).map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectContent>
               </Select>

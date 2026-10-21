@@ -572,7 +572,9 @@ export function ChatThreadList({
 
   return (
     <>
-      <div className="mb-1 px-2 pt-2 text-micro font-medium text-muted-foreground">项目</div>
+      <div className="mb-1 px-2 pt-2 text-micro font-medium text-muted-foreground">
+        {t(($) => $.list.projects_heading)}
+      </div>
       {projects.map((project) => {
         const projectSessions = historySessions.filter((session) => session.project_id === project.id);
         const isCollapsed = collapsedProjectIds.has(project.id);
@@ -580,7 +582,7 @@ export function ChatThreadList({
         return (
           <section key={project.id} className="mb-1">
             <div
-              aria-label={`将聊天移入${project.title}`}
+              aria-label={t(($) => $.list.move_to_project_aria, { title: project.title })}
               onDragOver={(e) => {
                 if (draggedSession) e.preventDefault();
               }}
@@ -638,8 +640,8 @@ export function ChatThreadList({
                     render={
                       <button
                         type="button"
-                        aria-label={`${project.title}项目操作`}
-                        title="项目操作"
+                        aria-label={t(($) => $.list.project_actions_aria, { title: project.title })}
+                        title={t(($) => $.list.project_actions)}
                         className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <MoreHorizontal className="size-4" />
@@ -650,13 +652,13 @@ export function ChatThreadList({
                     {onStartProjectChat && (
                       <DropdownMenuItem onClick={() => onStartProjectChat(project.id)}>
                         <Plus className="size-4" />
-                        新建聊天
+                        {t(($) => $.list.new_project_chat)}
                       </DropdownMenuItem>
                     )}
                     {onRenameProject && (
                       <DropdownMenuItem onClick={() => setRenamingProjectId(project.id)}>
                         <Pencil className="size-4" />
-                        重命名
+                        {t(($) => $.list.rename_project)}
                       </DropdownMenuItem>
                     )}
                     {onDeleteProject && (
@@ -664,7 +666,7 @@ export function ChatThreadList({
                         <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onClick={() => onDeleteProject(project)}>
                           <Trash2 className="size-4" />
-                          删除项目
+                          {t(($) => $.list.delete_project)}
                         </DropdownMenuItem>
                       </>
                     )}
@@ -675,7 +677,9 @@ export function ChatThreadList({
             {!isCollapsed && (
               <div className="ml-3 border-l border-border/70 pl-1">
                 {projectSessions.length > 0 ? projectSessions.map(renderRow) : (
-                  <p className="px-2 py-1.5 text-caption text-muted-foreground">暂无聊天</p>
+                  <p className="px-2 py-1.5 text-caption text-muted-foreground">
+                    {t(($) => $.list.no_project_chats)}
+                  </p>
                 )}
               </div>
             )}
@@ -683,7 +687,7 @@ export function ChatThreadList({
         );
       })}
       <div
-        aria-label="将聊天移出项目"
+        aria-label={t(($) => $.list.move_out_of_project_aria)}
         onDragOver={(e) => {
           if (draggedSession) e.preventDefault();
         }}
@@ -693,12 +697,16 @@ export function ChatThreadList({
         }}
         className="mt-3"
       >
-        <div className="mb-1 px-2 text-micro font-medium text-muted-foreground">未归类</div>
+        <div className="mb-1 px-2 text-micro font-medium text-muted-foreground">
+          {t(($) => $.list.unclassified_heading)}
+        </div>
         {historySessions
           .filter((session) => !session.project_id || !projects.some((project) => project.id === session.project_id))
           .map(renderRow)}
         {historySessions.every((session) => session.project_id && projects.some((project) => project.id === session.project_id)) && (
-          <p className="px-2 py-1.5 text-caption text-muted-foreground">拖到这里移出项目</p>
+          <p className="px-2 py-1.5 text-caption text-muted-foreground">
+            {t(($) => $.list.move_out_of_project_hint)}
+          </p>
         )}
       </div>
       {archivedEntry}

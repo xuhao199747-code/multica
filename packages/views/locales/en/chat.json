@@ -242,7 +242,18 @@
     "archive": "Archive",
     "unarchive": "Unarchive",
     "archived_title": "Archived",
-    "row_actions_aria": "Chat actions"
+    "row_actions_aria": "Chat actions",
+    "projects_heading": "Projects",
+    "move_to_project_aria": "Move chat to {{title}}",
+    "project_actions": "Project actions",
+    "project_actions_aria": "Actions for {{title}}",
+    "new_project_chat": "New chat",
+    "rename_project": "Rename project",
+    "delete_project": "Delete project",
+    "no_project_chats": "No chats yet",
+    "move_out_of_project_aria": "Move chat out of project",
+    "unclassified_heading": "Unclassified",
+    "move_out_of_project_hint": "Drop a chat here to remove it from its project"
   },
   "header": {
     "view_profile": "View agent profile",

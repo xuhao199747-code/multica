@@ -242,7 +242,18 @@
     "archive": "Archiver",
     "unarchive": "Désarchiver",
     "archived_title": "Archivées",
-    "row_actions_aria": "Actions de discussion"
+    "row_actions_aria": "Actions de discussion",
+    "projects_heading": "Projets",
+    "move_to_project_aria": "Déplacer la discussion vers {{title}}",
+    "project_actions": "Actions du projet",
+    "project_actions_aria": "Actions pour {{title}}",
+    "new_project_chat": "Nouvelle discussion",
+    "rename_project": "Renommer le projet",
+    "delete_project": "Supprimer le projet",
+    "no_project_chats": "Aucune discussion pour le moment",
+    "move_out_of_project_aria": "Déplacer la discussion hors du projet",
+    "unclassified_heading": "Non classées",
+    "move_out_of_project_hint": "Déposez une discussion ici pour la retirer de son projet"
   },
   "header": {
     "view_profile": "Voir le profil de l'agent",

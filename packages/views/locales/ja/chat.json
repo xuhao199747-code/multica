@@ -238,7 +238,18 @@
     "archive": "アーカイブ",
     "unarchive": "アーカイブ解除",
     "archived_title": "アーカイブ済み",
-    "row_actions_aria": "チャットの操作"
+    "row_actions_aria": "チャットの操作",
+    "projects_heading": "プロジェクト",
+    "move_to_project_aria": "チャットを {{title}} に移動",
+    "project_actions": "プロジェクトの操作",
+    "project_actions_aria": "{{title}} の操作",
+    "new_project_chat": "新しいチャット",
+    "rename_project": "プロジェクト名を変更",
+    "delete_project": "プロジェクトを削除",
+    "no_project_chats": "チャットはまだありません",
+    "move_out_of_project_aria": "チャットをプロジェクトから移動",
+    "unclassified_heading": "未分類",
+    "move_out_of_project_hint": "ここにチャットをドロップしてプロジェクトから移動"
   },
   "header": {
     "view_profile": "Agent のプロフィール",
