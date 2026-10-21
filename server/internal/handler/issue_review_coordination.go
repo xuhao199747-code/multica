@@ -23,6 +23,17 @@ func (h *Handler) enqueueMikaReviewCoordination(ctx context.Context, issue, prev
 		issuestatus.Effective(ctx, h.Queries, previous.WorkspaceID, previous.Status) == "in_review" {
 		return
 	}
+	// Project workflow executions own review through their immutable snapshot
+	// and bounded state machine. Letting the legacy workspace-wide coordinator
+	// also enqueue Mika here would create a second, unscoped path into review.
+	if _, err := h.Queries.GetProjectExecutionIssueByIssue(ctx, db.GetProjectExecutionIssueByIssueParams{
+		IssueID: issue.ID, WorkspaceID: issue.WorkspaceID,
+	}); err == nil {
+		return
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		slog.Warn("review coordination: check project workflow issue failed", "issue_id", uuidToString(issue.ID), "error", err)
+		return
+	}
 
 	mika, err := h.Queries.GetAgentBySystemKey(ctx, db.GetAgentBySystemKeyParams{
 		WorkspaceID: issue.WorkspaceID,

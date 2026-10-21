@@ -199,6 +199,30 @@ func (q *Queries) GetProjectExecutionIssue(ctx context.Context, arg GetProjectEx
 	return i, err
 }
 
+const getProjectExecutionIssueByIssue = `-- name: GetProjectExecutionIssueByIssue :one
+SELECT execution_record_id, workspace_id, project_id, issue_id, role, created_at FROM project_execution_issue
+WHERE issue_id = $1 AND workspace_id = $2
+`
+
+type GetProjectExecutionIssueByIssueParams struct {
+	IssueID     pgtype.UUID `json:"issue_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetProjectExecutionIssueByIssue(ctx context.Context, arg GetProjectExecutionIssueByIssueParams) (ProjectExecutionIssue, error) {
+	row := q.db.QueryRow(ctx, getProjectExecutionIssueByIssue, arg.IssueID, arg.WorkspaceID)
+	var i ProjectExecutionIssue
+	err := row.Scan(
+		&i.ExecutionRecordID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.IssueID,
+		&i.Role,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getProjectExecutionRecord = `-- name: GetProjectExecutionRecord :one
 SELECT id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at FROM project_execution_record
 WHERE id = $1 AND project_id = $2 AND workspace_id = $3

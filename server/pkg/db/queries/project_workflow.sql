@@ -29,6 +29,10 @@ RETURNING *;
 SELECT * FROM project_execution_issue
 WHERE execution_record_id = $1 AND issue_id = $2 AND project_id = $3 AND workspace_id = $4;
 
+-- name: GetProjectExecutionIssueByIssue :one
+SELECT * FROM project_execution_issue
+WHERE issue_id = $1 AND workspace_id = $2;
+
 -- name: UpdateProjectExecutionState :one
 UPDATE project_execution_record
 SET state = $4, review_round = $5, delivery_result = $6, updated_at = now()
