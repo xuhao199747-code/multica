@@ -167,6 +167,18 @@
   "chip": {
     "fallback_label": "Project"
   },
+  "workflow": {
+    "title": "Mica collaboration",
+    "description": "Use Mica to coordinate this project's agent workflow.",
+    "toggle_label": "Enable Mica collaboration",
+    "delivery_label": "After review passes",
+    "delivery_modes": {
+      "notify_only": "Notify only",
+      "pull_request": "Create a pull request",
+      "manual_release": "Prepare for manual release",
+      "automated_release": "Release automatically"
+    }
+  },
   "toolbar": {
     "result_count_title": "Matching projects / all projects",
     "filter_label": "Filter",

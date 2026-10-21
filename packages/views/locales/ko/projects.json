@@ -166,6 +166,18 @@
   "chip": {
     "fallback_label": "프로젝트"
   },
+  "workflow": {
+    "title": "Mica 협업",
+    "description": "Mica가 이 프로젝트의 에이전트 워크플로를 조정합니다.",
+    "toggle_label": "Mica 협업 사용",
+    "delivery_label": "검토 통과 후",
+    "delivery_modes": {
+      "notify_only": "알림만",
+      "pull_request": "풀 리퀘스트 만들기",
+      "manual_release": "수동 배포 준비",
+      "automated_release": "자동 배포"
+    }
+  },
   "toolbar": {
     "result_count_title": "일치하는 프로젝트 / 전체 프로젝트",
     "filter_label": "필터",

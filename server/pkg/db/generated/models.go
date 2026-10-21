@@ -1315,6 +1315,39 @@ type Project struct {
 	DueDate     pgtype.Date        `json:"due_date"`
 }
 
+type ProjectAgentBinding struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	ProjectID   pgtype.UUID        `json:"project_id"`
+	AgentID     pgtype.UUID        `json:"agent_id"`
+	Role        string             `json:"role"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProjectExecutionIssue struct {
+	ExecutionRecordID pgtype.UUID        `json:"execution_record_id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	IssueID           pgtype.UUID        `json:"issue_id"`
+	Role              string             `json:"role"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProjectExecutionRecord struct {
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	SourceChatSessionID pgtype.UUID        `json:"source_chat_session_id"`
+	SourceAgentID       pgtype.UUID        `json:"source_agent_id"`
+	Snapshot            []byte             `json:"snapshot"`
+	State               string             `json:"state"`
+	ReviewRound         int32              `json:"review_round"`
+	DeliveryResult      []byte             `json:"delivery_result"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ProjectResource struct {
 	ID           pgtype.UUID        `json:"id"`
 	ProjectID    pgtype.UUID        `json:"project_id"`
@@ -1325,6 +1358,16 @@ type ProjectResource struct {
 	Position     int32              `json:"position"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	CreatedBy    pgtype.UUID        `json:"created_by"`
+}
+
+type ProjectWorkflowSetting struct {
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	Enabled        bool               `json:"enabled"`
+	ProjectContext string             `json:"project_context"`
+	DeliveryMode   string             `json:"delivery_mode"`
+	DeliveryConfig []byte             `json:"delivery_config"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type QuickAction struct {

@@ -113,6 +113,11 @@ import type {
   CreateProjectResourceRequest,
   UpdateProjectResourceRequest,
   ListProjectResourcesResponse,
+  ProjectWorkflowSettings,
+  UpdateProjectWorkflowSettingsRequest,
+  ProjectAgentBinding,
+  CreateProjectAgentBindingRequest,
+  ListProjectAgentBindingsResponse,
   Label,
   IssueProperty,
   IssuePropertyValue,
@@ -428,6 +433,9 @@ import {
   EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
   EMPTY_ISSUE_STATUS_ENTRY,
   EMPTY_RESOURCE_LABELS_RESPONSE,
+  ProjectWorkflowSettingsSchema,
+  ListProjectAgentBindingsResponseSchema,
+  EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE,
   GitHubConnectResponseSchema,
   ListGitHubInstallationsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
@@ -4068,6 +4076,61 @@ export class ApiClient {
     resourceId: string,
   ): Promise<void> {
     await this.fetch(`/api/projects/${projectId}/resources/${resourceId}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Project workflow
+  async getProjectWorkflowSettings(projectId: string): Promise<ProjectWorkflowSettings> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/workflow`);
+    return parseWithFallback(raw, ProjectWorkflowSettingsSchema, {
+      project_id: projectId,
+      workspace_id: "",
+      enabled: false,
+      project_context: "",
+      delivery_mode: "notify_only",
+      delivery_config: {},
+    }, { endpoint: "GET /api/projects/{id}/workflow" });
+  }
+
+  async updateProjectWorkflowSettings(
+    projectId: string,
+    data: UpdateProjectWorkflowSettingsRequest,
+  ): Promise<ProjectWorkflowSettings> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/workflow`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, ProjectWorkflowSettingsSchema, {
+      project_id: projectId,
+      workspace_id: "",
+      enabled: false,
+      project_context: "",
+      delivery_mode: "notify_only",
+      delivery_config: {},
+    }, { endpoint: "PATCH /api/projects/{id}/workflow" });
+  }
+
+  async listProjectAgentBindings(projectId: string): Promise<ListProjectAgentBindingsResponse> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/workflow/agents`);
+    return parseWithFallback(raw, ListProjectAgentBindingsResponseSchema,
+      EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE,
+      { endpoint: "GET /api/projects/{id}/workflow/agents" },
+    );
+  }
+
+  async createProjectAgentBinding(
+    projectId: string,
+    data: CreateProjectAgentBindingRequest,
+  ): Promise<ProjectAgentBinding> {
+    return this.fetch(`/api/projects/${projectId}/workflow/agents`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProjectAgentBinding(projectId: string, bindingId: string): Promise<void> {
+    await this.fetch(`/api/projects/${projectId}/workflow/agents/${bindingId}`, {
       method: "DELETE",
     });
   }

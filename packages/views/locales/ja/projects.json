@@ -166,6 +166,18 @@
   "chip": {
     "fallback_label": "プロジェクト"
   },
+  "workflow": {
+    "title": "Mica コラボレーション",
+    "description": "Mica がこのプロジェクトのエージェントワークフローを調整します。",
+    "toggle_label": "Mica コラボレーションを有効にする",
+    "delivery_label": "レビュー通過後",
+    "delivery_modes": {
+      "notify_only": "通知のみ",
+      "pull_request": "プルリクエストを作成",
+      "manual_release": "手動リリースを準備",
+      "automated_release": "自動リリース"
+    }
+  },
   "toolbar": {
     "result_count_title": "該当プロジェクト / すべてのプロジェクト",
     "filter_label": "フィルター",

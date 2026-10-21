@@ -669,6 +669,35 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete project views")
 		return
 	}
+	// Project workflow tables deliberately have no foreign keys or cascading
+	// deletes. Remove the dependent records explicitly, in child-first order,
+	// so a deleted project cannot leave an execution snapshot or role binding
+	// reachable through a guessed ID.
+	workflowParams := db.DeleteProjectWorkflowExecutionIssuesParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}
+	if err := qtx.DeleteProjectWorkflowExecutionIssues(r.Context(), workflowParams); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete project workflow execution links")
+		return
+	}
+	if err := qtx.DeleteProjectWorkflowExecutions(r.Context(), db.DeleteProjectWorkflowExecutionsParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete project workflow executions")
+		return
+	}
+	if err := qtx.DeleteProjectAgentBindings(r.Context(), db.DeleteProjectAgentBindingsParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete project workflow agent bindings")
+		return
+	}
+	if err := qtx.DeleteProjectWorkflowSettings(r.Context(), db.DeleteProjectWorkflowSettingsParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete project workflow settings")
+		return
+	}
 	if err := qtx.DeleteProject(r.Context(), db.DeleteProjectParams{
 		ID:          project.ID,
 		WorkspaceID: project.WorkspaceID,

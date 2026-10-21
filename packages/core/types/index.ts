@@ -190,6 +190,15 @@ export type {
   UpdateProjectResourceRequest,
   ListProjectResourcesResponse,
 } from "./project";
+export type {
+  ProjectDeliveryMode,
+  ProjectAgentRole,
+  ProjectWorkflowSettings,
+  UpdateProjectWorkflowSettingsRequest,
+  ProjectAgentBinding,
+  CreateProjectAgentBindingRequest,
+  ListProjectAgentBindingsResponse,
+} from "./project-workflow";
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
 export type {
   GitHubInstallation,

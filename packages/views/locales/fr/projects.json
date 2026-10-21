@@ -167,6 +167,18 @@
   "chip": {
     "fallback_label": "Projet"
   },
+  "workflow": {
+    "title": "Collaboration Mica",
+    "description": "Mica coordonne le flux de travail des agents pour ce projet.",
+    "toggle_label": "Activer la collaboration Mica",
+    "delivery_label": "Après validation",
+    "delivery_modes": {
+      "notify_only": "Notifier seulement",
+      "pull_request": "Créer une pull request",
+      "manual_release": "Préparer une publication manuelle",
+      "automated_release": "Publier automatiquement"
+    }
+  },
   "toolbar": {
     "result_count_title": "Projets correspondants / tous les projets",
     "filter_label": "Filtrer",

@@ -88,6 +88,8 @@ import type {
   User,
   WebhookDelivery,
   WorkspaceMcpServer,
+  ProjectWorkflowSettings,
+  ListProjectAgentBindingsResponse,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 import type { CreateFeedbackResponse } from "../feedback/types";
@@ -1417,6 +1419,35 @@ const ProjectSchema = z.object({
   done_count: z.number().default(0),
   resource_count: z.number().default(0),
 }).loose();
+
+export const ProjectWorkflowSettingsSchema: z.ZodType<ProjectWorkflowSettings> = z.object({
+  project_id: z.string(),
+  workspace_id: z.string(),
+  enabled: z.boolean().default(false),
+  project_context: z.string().default(""),
+  delivery_mode: z.enum(["notify_only", "pull_request", "manual_release", "automated_release"]).default("notify_only"),
+  delivery_config: z.record(z.string(), z.unknown()).default({}),
+  updated_at: z.string().optional(),
+}).loose();
+
+const ProjectAgentBindingSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  workspace_id: z.string(),
+  agent_id: z.string(),
+  role: z.enum(["mika", "prd", "developer", "reviewer"]),
+  created_at: z.string(),
+}).loose();
+
+export const ListProjectAgentBindingsResponseSchema: z.ZodType<ListProjectAgentBindingsResponse> = z.object({
+  bindings: z.array(ProjectAgentBindingSchema).default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE: ListProjectAgentBindingsResponse = {
+  bindings: [],
+  total: 0,
+};
 
 const SearchProjectResultSchema = ProjectSchema.extend({
   match_source: z.string(),
