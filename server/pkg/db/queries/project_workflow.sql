@@ -20,6 +20,11 @@ RETURNING *;
 SELECT * FROM project_execution_record
 WHERE id = $1 AND project_id = $2 AND workspace_id = $3;
 
+-- name: ListProjectExecutionRecords :many
+SELECT * FROM project_execution_record
+WHERE project_id = $1 AND workspace_id = $2
+ORDER BY created_at DESC;
+
 -- name: LinkProjectExecutionIssue :one
 INSERT INTO project_execution_issue (execution_record_id, workspace_id, project_id, issue_id, role)
 VALUES ($1, $2, $3, $4, $5)

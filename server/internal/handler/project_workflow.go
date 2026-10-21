@@ -111,6 +111,23 @@ func projectExecutionToResponse(record db.ProjectExecutionRecord) ProjectExecuti
 	return ProjectExecutionResponse{ID: uuidToString(record.ID), ProjectID: uuidToString(record.ProjectID), WorkspaceID: uuidToString(record.WorkspaceID), SourceChatSessionID: uuidToString(record.SourceChatSessionID), SourceAgentID: uuidToString(record.SourceAgentID), Snapshot: snapshot, State: record.State, ReviewRound: record.ReviewRound, CreatedAt: timestampToString(record.CreatedAt)}
 }
 
+func (h *Handler) ListProjectExecutionRecords(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	records, err := h.Queries.ListProjectExecutionRecords(r.Context(), db.ListProjectExecutionRecordsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list project executions")
+		return
+	}
+	response := make([]ProjectExecutionResponse, len(records))
+	for i, record := range records {
+		response[i] = projectExecutionToResponse(record)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"executions": response, "total": len(response)})
+}
+
 type ConfirmProjectExecutionRequest struct {
 	SourceChatSessionID string          `json:"source_chat_session_id"`
 	SourceAgentID       string          `json:"source_agent_id"`

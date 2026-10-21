@@ -118,6 +118,7 @@ import type {
   ProjectAgentBinding,
   CreateProjectAgentBindingRequest,
   ListProjectAgentBindingsResponse,
+  ListProjectExecutionsResponse,
   Label,
   IssueProperty,
   IssuePropertyValue,
@@ -436,6 +437,8 @@ import {
   ProjectWorkflowSettingsSchema,
   ListProjectAgentBindingsResponseSchema,
   EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE,
+  ListProjectExecutionsResponseSchema,
+  EMPTY_PROJECT_EXECUTIONS_RESPONSE,
   GitHubConnectResponseSchema,
   ListGitHubInstallationsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
@@ -4138,6 +4141,13 @@ export class ApiClient {
   async openProjectMikaSession(projectId: string): Promise<ChatSession> {
     return this.fetch(`/api/projects/${projectId}/workflow/mika-session`, {
       method: "POST",
+    });
+  }
+
+  async listProjectExecutions(projectId: string): Promise<ListProjectExecutionsResponse> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/workflow/executions`);
+    return parseWithFallback(raw, ListProjectExecutionsResponseSchema, EMPTY_PROJECT_EXECUTIONS_RESPONSE, {
+      endpoint: "GET /api/projects/{id}/workflow/executions",
     });
   }
 

@@ -173,6 +173,7 @@
     "toggle_label": "Enable Mica collaboration",
     "delivery_label": "After review passes",
     "open_mica": "Open project Mica",
+    "execution_fallback": "Project execution",
     "delivery_modes": {
       "notify_only": "Notify only",
       "pull_request": "Create a pull request",

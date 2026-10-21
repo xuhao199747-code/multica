@@ -10,6 +10,13 @@ export const projectWorkflowKeys = {
     [...projectWorkflowKeys.settings(wsId, projectId), "agents"] as const,
 };
 
+export function projectExecutionsOptions(wsId: string, projectId: string) {
+  return queryOptions({
+    queryKey: [...projectWorkflowKeys.settings(wsId, projectId), "executions"] as const,
+    queryFn: () => api.listProjectExecutions(projectId),
+  });
+}
+
 export function projectWorkflowSettingsOptions(wsId: string, projectId: string) {
   return queryOptions({
     queryKey: projectWorkflowKeys.settings(wsId, projectId),

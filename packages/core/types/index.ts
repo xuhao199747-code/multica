@@ -198,6 +198,8 @@ export type {
   ProjectAgentBinding,
   CreateProjectAgentBindingRequest,
   ListProjectAgentBindingsResponse,
+  ProjectExecution,
+  ListProjectExecutionsResponse,
 } from "./project-workflow";
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
 export type {

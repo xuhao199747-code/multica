@@ -172,6 +172,7 @@
     "toggle_label": "Mica コラボレーションを有効にする",
     "delivery_label": "レビュー通過後",
     "open_mica": "プロジェクトの Mica を開く",
+    "execution_fallback": "プロジェクト実行",
     "delivery_modes": {
       "notify_only": "通知のみ",
       "pull_request": "プルリクエストを作成",

@@ -5,6 +5,7 @@ import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   projectWorkflowSettingsOptions,
+  projectExecutionsOptions,
   useUpdateProjectWorkflowSettings,
 } from "@multica/core/projects/workflow-queries";
 import type { ProjectDeliveryMode } from "@multica/core/types";
@@ -26,6 +27,7 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
   const { t } = useT("projects");
   const wsId = useWorkspaceId();
   const { data: settings } = useQuery(projectWorkflowSettingsOptions(wsId, projectId));
+  const { data: executions } = useQuery(projectExecutionsOptions(wsId, projectId));
   const update = useUpdateProjectWorkflowSettings(wsId, projectId);
   const router = useNavigation();
   const paths = useWorkspacePaths();
@@ -73,6 +75,16 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
         <Button variant="secondary" size="sm" className="w-full" disabled={openMika.isPending} onClick={() => openMika.mutate()}>
           {t(($) => $.workflow.open_mica)}
         </Button>
+        </div>
+      )}
+      {settings.enabled && executions && executions.total > 0 && (
+        <div className="space-y-1 border-t pt-2 text-caption">
+          {executions.executions.slice(0, 3).map((execution) => (
+            <div key={execution.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{String(execution.snapshot.goal ?? t(($) => $.workflow.execution_fallback))}</span>
+              <span className="shrink-0 text-muted-foreground">{execution.state}</span>
+            </div>
+          ))}
         </div>
       )}
     </section>

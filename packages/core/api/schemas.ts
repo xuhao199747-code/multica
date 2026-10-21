@@ -90,6 +90,7 @@ import type {
   WorkspaceMcpServer,
   ProjectWorkflowSettings,
   ListProjectAgentBindingsResponse,
+  ListProjectExecutionsResponse,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 import type { CreateFeedbackResponse } from "../feedback/types";
@@ -1448,6 +1449,15 @@ export const EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE: ListProjectAgentBindingsResp
   bindings: [],
   total: 0,
 };
+
+const ProjectExecutionSchema = z.object({
+  id: z.string(), project_id: z.string(), workspace_id: z.string(), source_chat_session_id: z.string(), source_agent_id: z.string(),
+  snapshot: z.record(z.string(), z.unknown()).default({}), state: z.string(), review_round: z.number().default(0), created_at: z.string(),
+}).loose();
+export const ListProjectExecutionsResponseSchema: z.ZodType<ListProjectExecutionsResponse> = z.object({
+  executions: z.array(ProjectExecutionSchema).default([]), total: z.number().default(0),
+}).loose();
+export const EMPTY_PROJECT_EXECUTIONS_RESPONSE: ListProjectExecutionsResponse = { executions: [], total: 0 };
 
 const SearchProjectResultSchema = ProjectSchema.extend({
   match_source: z.string(),

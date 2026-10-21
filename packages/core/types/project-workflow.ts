@@ -41,3 +41,20 @@ export interface ListProjectAgentBindingsResponse {
   bindings: ProjectAgentBinding[];
   total: number;
 }
+
+export interface ProjectExecution {
+  id: string;
+  project_id: string;
+  workspace_id: string;
+  source_chat_session_id: string;
+  source_agent_id: string;
+  snapshot: Record<string, unknown>;
+  state: string;
+  review_round: number;
+  created_at: string;
+}
+
+export interface ListProjectExecutionsResponse {
+  executions: ProjectExecution[];
+  total: number;
+}

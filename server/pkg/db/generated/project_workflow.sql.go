@@ -396,6 +396,50 @@ func (q *Queries) ListProjectAgentBindings(ctx context.Context, arg ListProjectA
 	return items, nil
 }
 
+const listProjectExecutionRecords = `-- name: ListProjectExecutionRecords :many
+SELECT id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at FROM project_execution_record
+WHERE project_id = $1 AND workspace_id = $2
+ORDER BY created_at DESC
+`
+
+type ListProjectExecutionRecordsParams struct {
+	ProjectID   pgtype.UUID `json:"project_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) ListProjectExecutionRecords(ctx context.Context, arg ListProjectExecutionRecordsParams) ([]ProjectExecutionRecord, error) {
+	rows, err := q.db.Query(ctx, listProjectExecutionRecords, arg.ProjectID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectExecutionRecord{}
+	for rows.Next() {
+		var i ProjectExecutionRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProjectID,
+			&i.SourceChatSessionID,
+			&i.SourceAgentID,
+			&i.Snapshot,
+			&i.State,
+			&i.ReviewRound,
+			&i.DeliveryResult,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateProjectExecutionState = `-- name: UpdateProjectExecutionState :one
 UPDATE project_execution_record
 SET state = $4, review_round = $5, delivery_result = $6, updated_at = now()
