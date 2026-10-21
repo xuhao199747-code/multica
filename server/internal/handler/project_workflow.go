@@ -405,6 +405,10 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 	if !h.requireProjectWorkflowRole(w, r, project, "developer") {
 		return
 	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
 	var req SubmitProjectExecutionDeliveryRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -427,6 +431,15 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusNotFound, "project execution not found")
 		return
 	}
+	mika, err := h.projectWorkflowMika(r, project)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusConflict, "choose a project Mica before submitting delivery for review")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project Mica")
+		return
+	}
 	link, err := h.Queries.GetProjectExecutionIssue(r.Context(), db.GetProjectExecutionIssueParams{ExecutionRecordID: executionID, IssueID: issueID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil || (link.Role != "development" && link.Role != "repair") {
 		writeError(w, http.StatusBadRequest, "delivery must come from the linked development or repair issue")
@@ -443,11 +456,72 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to submit project delivery")
 		return
 	}
-	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
+	coordination, err := h.enqueueProjectWorkflowReviewCoordination(r, project, updated, mika, parseUUID(userID))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "delivery was recorded but failed to queue Mica review coordination")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"execution":            projectExecutionToResponse(updated),
+		"coordination_issue":   issueToResponse(coordination.Issue, uuidToString(project.WorkspaceID)),
+		"coordination_task_id": uuidToPtr(coordination.AssignedTaskID),
+	})
+}
+
+// projectWorkflowMika deliberately requires a project binding. A built-in Mika
+// may exist in a workspace, but the workflow is an explicit project opt-in and
+// must not silently give that agent authority over a project.
+func (h *Handler) projectWorkflowMika(r *http.Request, project db.Project) (db.Agent, error) {
+	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		return db.Agent{}, err
+	}
+	for _, binding := range bindings {
+		if binding.Role != "mika" {
+			continue
+		}
+		return h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{ID: binding.AgentID, WorkspaceID: project.WorkspaceID})
+	}
+	return db.Agent{}, pgx.ErrNoRows
+}
+
+// enqueueProjectWorkflowReviewCoordination gives the project Mica a normal
+// queued task as soon as delivery first enters review. That task is the actual
+// handoff record; it is not a UI-only "assigned" status.
+func (h *Handler) enqueueProjectWorkflowReviewCoordination(r *http.Request, project db.Project, record db.ProjectExecutionRecord, mika db.Agent, creatorID pgtype.UUID) (service.IssueCreateResult, error) {
+	snapshot := map[string]any{}
+	_ = json.Unmarshal(record.Snapshot, &snapshot)
+	goal := strings.TrimSpace(asWorkflowString(snapshot["goal"]))
+	if goal == "" {
+		goal = "project delivery"
+	}
+	description, err := json.Marshal(map[string]any{
+		"project_execution_id": uuidToString(record.ID),
+		"workflow_role":        "mika_review_coordination",
+		"prd_snapshot":         json.RawMessage(record.Snapshot),
+		"delivery_evidence":    json.RawMessage(record.DeliveryResult),
+		"required_action":      "Inspect the submitted evidence, then dispatch the project-bound reviewer. Do not review code yourself.",
+	})
+	if err != nil {
+		return service.IssueCreateResult{}, err
+	}
+	return h.IssueService.Create(r.Context(), service.IssueCreateParams{
+		WorkspaceID:  project.WorkspaceID,
+		Title:        "Coordinate review: " + goal,
+		Description:  pgtype.Text{String: string(description), Valid: true},
+		Status:       "todo",
+		Priority:     "none",
+		AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:   mika.ID,
+		CreatorType:  "member",
+		CreatorID:    creatorID,
+		ProjectID:    project.ID,
+	}, service.IssueCreateOpts{})
 }
 
 type RecordProjectReviewRequest struct {
 	ExecutionID string `json:"execution_id"`
+	IssueID     string `json:"issue_id"`
 	Outcome     string `json:"outcome"`
 }
 
@@ -517,9 +591,18 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	issueID, ok := parseUUIDOrBadRequest(w, req.IssueID, "issue_id")
+	if !ok {
+		return
+	}
 	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project execution not found")
+		return
+	}
+	link, err := h.Queries.GetProjectExecutionIssue(r.Context(), db.GetProjectExecutionIssueParams{ExecutionRecordID: executionID, IssueID: issueID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	if err != nil || link.Role != "review" {
+		writeError(w, http.StatusBadRequest, "review result must come from the linked review issue")
 		return
 	}
 	events := map[string]service.ProjectExecutionEvent{"passed": service.ExecutionEventReviewPassed, "needs_changes": service.ExecutionEventReviewNeedsChanges, "needs_member_decision": service.ExecutionEventReviewNeedsMemberDecision}

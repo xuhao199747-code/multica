@@ -164,7 +164,7 @@ Use these commands only after the member has confirmed the proposed execution:
    are created; do not report a dispatch before this command succeeds.
 3. Developer delivery: `multica project workflow delivery <project-id> --execution <id> --issue <id> --commit <ref> --tests <evidence> --summary <summary>`.
    Commit/reference, tests, and a change summary are mandatory before review.
-4. Reviewer result: `multica project workflow review <project-id> --execution <id> --outcome passed|needs_changes|needs_member_decision`.
+4. Reviewer result: `multica project workflow review <project-id> --execution <id> --issue <review-issue-id> --outcome passed|needs_changes|needs_member_decision`.
    Reviewers inspect the frozen snapshot and evidence; they do not edit code or
    dispatch tasks. After two automatic repair rounds, a further
    `needs_changes` becomes a member decision instead of looping.
