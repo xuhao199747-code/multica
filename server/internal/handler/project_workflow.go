@@ -372,11 +372,19 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "agent is not bound to this project role")
 		return
 	}
+	roleContract := "Implement only the confirmed snapshot. Change code, run relevant tests, commit work, and submit delivery evidence. Do not change scope, dispatch other agents, release, or approve your own work."
+	if req.Role == "review" {
+		roleContract = "Inspect the confirmed snapshot, code, tests, commit or PR, and delivery evidence. Record findings only; do not edit code, dispatch work, or release."
+	}
+	if req.Role == "repair" {
+		roleContract = "Fix the recorded review findings within the confirmed snapshot. Change code, run relevant tests, commit work, and submit updated delivery evidence. Do not change scope, dispatch work, release, or approve your own work."
+	}
 	description, _ := json.Marshal(map[string]any{
 		"project_execution_id": uuidToString(record.ID),
 		"prd_snapshot":         json.RawMessage(record.Snapshot),
 		"delivery_evidence":    json.RawMessage(record.DeliveryResult),
 		"workflow_role":        req.Role,
+		"role_contract":        roleContract,
 	})
 	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{WorkspaceID: project.WorkspaceID, Title: strings.TrimSpace(req.Title), Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none", AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: agentID, CreatorType: "member", CreatorID: parseUUID(userID), ProjectID: project.ID}, service.IssueCreateOpts{})
 	if err != nil {
