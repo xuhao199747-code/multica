@@ -11,6 +11,7 @@ const (
 	ExecutionDevelopment         ProjectExecutionState = "development"
 	ExecutionReview              ProjectExecutionState = "review"
 	ExecutionRepair              ProjectExecutionState = "repair"
+	ExecutionDelivering          ProjectExecutionState = "delivering"
 	ExecutionNeedsMemberDecision ProjectExecutionState = "needs_member_decision"
 )
 
@@ -19,8 +20,10 @@ const (
 type ProjectExecutionEvent string
 
 const (
-	ExecutionEventDeliverySubmitted  ProjectExecutionEvent = "delivery_submitted"
-	ExecutionEventReviewNeedsChanges ProjectExecutionEvent = "review_needs_changes"
+	ExecutionEventDeliverySubmitted         ProjectExecutionEvent = "delivery_submitted"
+	ExecutionEventReviewNeedsChanges        ProjectExecutionEvent = "review_needs_changes"
+	ExecutionEventReviewPassed              ProjectExecutionEvent = "review_passed"
+	ExecutionEventReviewNeedsMemberDecision ProjectExecutionEvent = "review_needs_member_decision"
 )
 
 // AdvanceProjectExecution applies the bounded repair/re-review rule. A
@@ -51,6 +54,16 @@ func AdvanceProjectExecution(
 			return ExecutionNeedsMemberDecision, reviewRounds, nil
 		}
 		return ExecutionRepair, reviewRounds + 1, nil
+	case ExecutionEventReviewPassed:
+		if state != ExecutionReview {
+			return "", reviewRounds, fmt.Errorf("review result cannot be recorded from %q", state)
+		}
+		return ExecutionDelivering, reviewRounds, nil
+	case ExecutionEventReviewNeedsMemberDecision:
+		if state != ExecutionReview {
+			return "", reviewRounds, fmt.Errorf("review result cannot be recorded from %q", state)
+		}
+		return ExecutionNeedsMemberDecision, reviewRounds, nil
 	default:
 		return "", reviewRounds, fmt.Errorf("unknown project execution event %q", event)
 	}

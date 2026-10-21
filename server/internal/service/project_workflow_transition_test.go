@@ -46,3 +46,15 @@ func TestProjectExecutionTransitionStopsAfterTwoRepairRounds(t *testing.T) {
 		t.Fatalf("third review result = (%q, %d), want (%q, 2)", next, rounds, ExecutionNeedsMemberDecision)
 	}
 }
+
+func TestProjectExecutionTransitionStopsForPassOrMemberDecision(t *testing.T) {
+	next, rounds, err := AdvanceProjectExecution(ExecutionReview, 0, ExecutionEventReviewPassed)
+	if err != nil || next != ExecutionDelivering || rounds != 0 {
+		t.Fatalf("passed review = (%q, %d, %v), want (%q, 0, nil)", next, rounds, err, ExecutionDelivering)
+	}
+
+	next, rounds, err = AdvanceProjectExecution(ExecutionReview, 1, ExecutionEventReviewNeedsMemberDecision)
+	if err != nil || next != ExecutionNeedsMemberDecision || rounds != 1 {
+		t.Fatalf("member decision = (%q, %d, %v), want (%q, 1, nil)", next, rounds, err, ExecutionNeedsMemberDecision)
+	}
+}
