@@ -16,10 +16,11 @@ var projectWorkflowDispatchCmd = &cobra.Command{Use: "dispatch <project-id>", Sh
 var projectWorkflowDeliveryCmd = &cobra.Command{Use: "delivery <project-id>", Short: "Submit code delivery evidence for review", Args: exactArgs(1), RunE: runProjectWorkflowDelivery}
 var projectWorkflowReviewCmd = &cobra.Command{Use: "review <project-id>", Short: "Record a workflow review result", Args: exactArgs(1), RunE: runProjectWorkflowReview}
 var projectWorkflowCompleteCmd = &cobra.Command{Use: "complete <project-id>", Short: "Record completed project delivery evidence", Args: exactArgs(1), RunE: runProjectWorkflowComplete}
+var projectWorkflowStatusCmd = &cobra.Command{Use: "status <project-id>", Short: "Show workflow settings, bound agents, and executions", Args: exactArgs(1), RunE: runProjectWorkflowStatus}
 
 func init() {
 	projectCmd.AddCommand(projectWorkflowCmd)
-	projectWorkflowCmd.AddCommand(projectWorkflowConfirmCmd, projectWorkflowDispatchCmd, projectWorkflowDeliveryCmd, projectWorkflowReviewCmd, projectWorkflowCompleteCmd)
+	projectWorkflowCmd.AddCommand(projectWorkflowStatusCmd, projectWorkflowConfirmCmd, projectWorkflowDispatchCmd, projectWorkflowDeliveryCmd, projectWorkflowReviewCmd, projectWorkflowCompleteCmd)
 	projectWorkflowConfirmCmd.Flags().String("source-chat", "", "Project PRD chat session ID")
 	projectWorkflowConfirmCmd.Flags().String("source-agent", "", "PRD agent ID")
 	projectWorkflowConfirmCmd.Flags().String("snapshot", "", "JSON file containing goal, scope, acceptance_criteria, and risks")
@@ -38,6 +39,28 @@ func init() {
 	projectWorkflowReviewCmd.Flags().String("findings", "", "Review findings and evidence")
 	projectWorkflowCompleteCmd.Flags().String("execution", "", "Execution ID")
 	projectWorkflowCompleteCmd.Flags().String("evidence", "", "JSON file containing delivery evidence")
+}
+
+func runProjectWorkflowStatus(cmd *cobra.Command, args []string) error {
+	ctx, cancel := cli.APIContext(context.Background())
+	defer cancel()
+	c, projectID, err := workflowProject(ctx, cmd, args[0])
+	if err != nil {
+		return err
+	}
+	var settings map[string]any
+	if err := c.GetJSON(ctx, "/api/projects/"+projectID+"/workflow", &settings); err != nil {
+		return err
+	}
+	var bindings map[string]any
+	if err := c.GetJSON(ctx, "/api/projects/"+projectID+"/workflow/agents", &bindings); err != nil {
+		return err
+	}
+	var executions map[string]any
+	if err := c.GetJSON(ctx, "/api/projects/"+projectID+"/workflow/executions", &executions); err != nil {
+		return err
+	}
+	return cli.PrintJSON(os.Stdout, map[string]any{"settings": settings, "bindings": bindings, "executions": executions})
 }
 
 func workflowProject(ctx context.Context, cmd *cobra.Command, input string) (*cli.APIClient, string, error) {
