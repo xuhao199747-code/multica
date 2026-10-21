@@ -168,6 +168,9 @@ Use these commands only after the member has confirmed the proposed execution:
    Reviewers inspect the frozen snapshot and evidence; they do not edit code or
    dispatch tasks. After two automatic repair rounds, a further
    `needs_changes` becomes a member decision instead of looping.
+5. Delivery closeout: `multica project workflow complete <project-id> --execution <id> --evidence <file.json>`.
+   Only Mica closes a passed execution after it records the evidence required by
+   this project's delivery configuration.
 
 Do not assume every project deploys. The project delivery configuration chooses
 whether the outcome is notification-only, a pull request, manual release, or
