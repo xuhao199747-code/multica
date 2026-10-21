@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_project_agent_binding_project_agent_role;

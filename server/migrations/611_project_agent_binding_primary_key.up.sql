@@ -1,0 +1,3 @@
+ALTER TABLE project_agent_binding
+ADD CONSTRAINT project_agent_binding_pkey
+PRIMARY KEY USING INDEX idx_project_agent_binding_id;

@@ -1,0 +1,2 @@
+ALTER TABLE project_workflow_settings
+DROP CONSTRAINT IF EXISTS project_workflow_settings_pkey;

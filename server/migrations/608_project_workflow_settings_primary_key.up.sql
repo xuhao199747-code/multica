@@ -1,0 +1,3 @@
+ALTER TABLE project_workflow_settings
+ADD CONSTRAINT project_workflow_settings_pkey
+PRIMARY KEY USING INDEX idx_project_workflow_settings_project;

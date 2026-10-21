@@ -1,0 +1,2 @@
+ALTER TABLE project_execution_record
+DROP CONSTRAINT IF EXISTS project_execution_record_pkey;

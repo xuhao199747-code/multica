@@ -1,0 +1,3 @@
+ALTER TABLE project_execution_record
+ADD CONSTRAINT project_execution_record_pkey
+PRIMARY KEY USING INDEX idx_project_execution_record_id;
