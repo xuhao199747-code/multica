@@ -29,6 +29,14 @@ const deliveryModes: ProjectDeliveryMode[] = [
 ];
 const roles: ProjectAgentRole[] = ["mika", "prd", "developer", "reviewer"];
 
+function evidenceText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function nestedEvidence(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
   const { t } = useT("projects");
   const wsId = useWorkspaceId();
@@ -100,9 +108,18 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
       {settings.enabled && executions && executions.total > 0 && (
         <div className="space-y-1 border-t pt-2 text-caption">
           {executions.executions.slice(0, 3).map((execution) => (
-            <div key={execution.id} className="flex items-center justify-between gap-2">
-              <span className="truncate">{String(execution.snapshot.goal ?? t(($) => $.workflow.execution_fallback))}</span>
-              <span className="shrink-0 text-muted-foreground">{execution.state}</span>
+            <div key={execution.id} className="space-y-1 rounded-md bg-surface-raised px-2 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">{String(execution.snapshot.goal ?? t(($) => $.workflow.execution_fallback))}</span>
+                <span className="shrink-0 text-muted-foreground">{execution.state}</span>
+              </div>
+              {(evidenceText(execution.delivery_result.commit) || evidenceText(execution.delivery_result.tests) || evidenceText(nestedEvidence(execution.delivery_result.review).findings)) && (
+                <div className="space-y-0.5 text-muted-foreground">
+                  {evidenceText(execution.delivery_result.commit) && <div>{t(($) => $.workflow.evidence_commit)}: {evidenceText(execution.delivery_result.commit)}</div>}
+                  {evidenceText(execution.delivery_result.tests) && <div>{t(($) => $.workflow.evidence_tests)}: {evidenceText(execution.delivery_result.tests)}</div>}
+                  {evidenceText(nestedEvidence(execution.delivery_result.review).findings) && <div>{t(($) => $.workflow.evidence_review)}: {evidenceText(nestedEvidence(execution.delivery_result.review).findings)}</div>}
+                </div>
+              )}
             </div>
           ))}
         </div>

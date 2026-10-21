@@ -49,6 +49,8 @@ export interface ProjectExecution {
   source_chat_session_id: string;
   source_agent_id: string;
   snapshot: Record<string, unknown>;
+	/** Commit, tests, review, and project delivery evidence captured for this execution. */
+  delivery_result: Record<string, unknown>;
   state: string;
   review_round: number;
   created_at: string;

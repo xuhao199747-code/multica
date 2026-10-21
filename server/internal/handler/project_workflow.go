@@ -198,6 +198,7 @@ type ProjectExecutionResponse struct {
 	SourceChatSessionID string         `json:"source_chat_session_id"`
 	SourceAgentID       string         `json:"source_agent_id"`
 	Snapshot            map[string]any `json:"snapshot"`
+	DeliveryResult      map[string]any `json:"delivery_result"`
 	State               string         `json:"state"`
 	ReviewRound         int32          `json:"review_round"`
 	CreatedAt           string         `json:"created_at"`
@@ -206,7 +207,9 @@ type ProjectExecutionResponse struct {
 func projectExecutionToResponse(record db.ProjectExecutionRecord) ProjectExecutionResponse {
 	snapshot := map[string]any{}
 	_ = json.Unmarshal(record.Snapshot, &snapshot)
-	return ProjectExecutionResponse{ID: uuidToString(record.ID), ProjectID: uuidToString(record.ProjectID), WorkspaceID: uuidToString(record.WorkspaceID), SourceChatSessionID: uuidToString(record.SourceChatSessionID), SourceAgentID: uuidToString(record.SourceAgentID), Snapshot: snapshot, State: record.State, ReviewRound: record.ReviewRound, CreatedAt: timestampToString(record.CreatedAt)}
+	deliveryResult := map[string]any{}
+	_ = json.Unmarshal(record.DeliveryResult, &deliveryResult)
+	return ProjectExecutionResponse{ID: uuidToString(record.ID), ProjectID: uuidToString(record.ProjectID), WorkspaceID: uuidToString(record.WorkspaceID), SourceChatSessionID: uuidToString(record.SourceChatSessionID), SourceAgentID: uuidToString(record.SourceAgentID), Snapshot: snapshot, DeliveryResult: deliveryResult, State: record.State, ReviewRound: record.ReviewRound, CreatedAt: timestampToString(record.CreatedAt)}
 }
 
 func (h *Handler) ListProjectExecutionRecords(w http.ResponseWriter, r *http.Request) {
