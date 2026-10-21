@@ -55,3 +55,9 @@ WHERE workspace_id = $1 AND project_id = $2 AND agent_id = $3 AND creator_id = $
   AND status = 'active'
 ORDER BY created_at ASC
 LIMIT 1;
+
+-- name: CreateProjectExecutionRecord :one
+INSERT INTO project_execution_record (
+    workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, created_by
+) VALUES ($1, $2, $3, $4, $5, 'development', $6)
+RETURNING *;

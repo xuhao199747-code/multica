@@ -46,6 +46,49 @@ func (q *Queries) CreateProjectAgentBinding(ctx context.Context, arg CreateProje
 	return i, err
 }
 
+const createProjectExecutionRecord = `-- name: CreateProjectExecutionRecord :one
+INSERT INTO project_execution_record (
+    workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, created_by
+) VALUES ($1, $2, $3, $4, $5, 'development', $6)
+RETURNING id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at
+`
+
+type CreateProjectExecutionRecordParams struct {
+	WorkspaceID         pgtype.UUID `json:"workspace_id"`
+	ProjectID           pgtype.UUID `json:"project_id"`
+	SourceChatSessionID pgtype.UUID `json:"source_chat_session_id"`
+	SourceAgentID       pgtype.UUID `json:"source_agent_id"`
+	Snapshot            []byte      `json:"snapshot"`
+	CreatedBy           pgtype.UUID `json:"created_by"`
+}
+
+func (q *Queries) CreateProjectExecutionRecord(ctx context.Context, arg CreateProjectExecutionRecordParams) (ProjectExecutionRecord, error) {
+	row := q.db.QueryRow(ctx, createProjectExecutionRecord,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.SourceChatSessionID,
+		arg.SourceAgentID,
+		arg.Snapshot,
+		arg.CreatedBy,
+	)
+	var i ProjectExecutionRecord
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.SourceChatSessionID,
+		&i.SourceAgentID,
+		&i.Snapshot,
+		&i.State,
+		&i.ReviewRound,
+		&i.DeliveryResult,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteProjectAgentBinding = `-- name: DeleteProjectAgentBinding :execrows
 DELETE FROM project_agent_binding
 WHERE id = $1 AND project_id = $2 AND workspace_id = $3

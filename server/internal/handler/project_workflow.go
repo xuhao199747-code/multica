@@ -93,6 +93,89 @@ func (h *Handler) OpenProjectMikaSession(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusCreated, chatSessionToResponse(session))
 }
 
+type ProjectExecutionResponse struct {
+	ID                  string         `json:"id"`
+	ProjectID           string         `json:"project_id"`
+	WorkspaceID         string         `json:"workspace_id"`
+	SourceChatSessionID string         `json:"source_chat_session_id"`
+	SourceAgentID       string         `json:"source_agent_id"`
+	Snapshot            map[string]any `json:"snapshot"`
+	State               string         `json:"state"`
+	ReviewRound         int32          `json:"review_round"`
+	CreatedAt           string         `json:"created_at"`
+}
+
+func projectExecutionToResponse(record db.ProjectExecutionRecord) ProjectExecutionResponse {
+	snapshot := map[string]any{}
+	_ = json.Unmarshal(record.Snapshot, &snapshot)
+	return ProjectExecutionResponse{ID: uuidToString(record.ID), ProjectID: uuidToString(record.ProjectID), WorkspaceID: uuidToString(record.WorkspaceID), SourceChatSessionID: uuidToString(record.SourceChatSessionID), SourceAgentID: uuidToString(record.SourceAgentID), Snapshot: snapshot, State: record.State, ReviewRound: record.ReviewRound, CreatedAt: timestampToString(record.CreatedAt)}
+}
+
+type ConfirmProjectExecutionRequest struct {
+	SourceChatSessionID string          `json:"source_chat_session_id"`
+	SourceAgentID       string          `json:"source_agent_id"`
+	Snapshot            json.RawMessage `json:"snapshot"`
+}
+
+// ConfirmProjectExecution freezes the PRD handoff. Later source-chat edits do
+// not change this JSON snapshot; a new confirmation creates a new execution.
+func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var req ConfirmProjectExecutionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	sessionID, ok := parseUUIDOrBadRequest(w, req.SourceChatSessionID, "source_chat_session_id")
+	if !ok {
+		return
+	}
+	agentID, ok := parseUUIDOrBadRequest(w, req.SourceAgentID, "source_agent_id")
+	if !ok {
+		return
+	}
+	var snapshot map[string]any
+	if err := json.Unmarshal(req.Snapshot, &snapshot); err != nil || snapshot == nil {
+		writeError(w, http.StatusBadRequest, "snapshot must be a JSON object")
+		return
+	}
+	if strings.TrimSpace(asWorkflowString(snapshot["goal"])) == "" {
+		writeError(w, http.StatusBadRequest, "snapshot.goal is required")
+		return
+	}
+	for _, key := range []string{"scope", "acceptance_criteria", "risks"} {
+		if _, exists := snapshot[key]; !exists {
+			writeError(w, http.StatusBadRequest, "snapshot."+key+" is required")
+			return
+		}
+	}
+	session, err := h.Queries.GetChatSession(r.Context(), sessionID)
+	if err != nil || session.WorkspaceID != project.WorkspaceID || session.ProjectID != project.ID || session.AgentID != agentID {
+		writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
+		return
+	}
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid snapshot")
+		return
+	}
+	record, err := h.Queries.CreateProjectExecutionRecord(r.Context(), db.CreateProjectExecutionRecordParams{WorkspaceID: project.WorkspaceID, ProjectID: project.ID, SourceChatSessionID: sessionID, SourceAgentID: agentID, Snapshot: payload, CreatedBy: parseUUID(userID)})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to confirm project execution")
+		return
+	}
+	writeJSON(w, http.StatusCreated, projectExecutionToResponse(record))
+}
+
+func asWorkflowString(value any) string { text, _ := value.(string); return text }
+
 // ProjectWorkflowSettingsResponse is deliberately separate from Project. The
 // workflow is opt-in and its operational details should not inflate every
 // project-list response.

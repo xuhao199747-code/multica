@@ -105,3 +105,38 @@ func TestProjectAgentBindingAllowsReusableAgentsButOneMika(t *testing.T) {
 		t.Errorf("second Mika binding: expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestConfirmProjectExecutionFreezesSnapshot(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Execution snapshot project"})
+	testHandler.CreateProject(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.NewDecoder(w.Body).Decode(&project); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+project.ID, nil), "id", project.ID))
+	})
+	agentID := createHandlerTestAgent(t, "execution-snapshot-prd", nil)
+	sessionID := createChatSessionWithProjectForTest(t, agentID, project.ID)
+	w = httptest.NewRecorder()
+	req = withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions", map[string]any{
+		"source_chat_session_id": sessionID,
+		"source_agent_id":        agentID,
+		"snapshot":               map[string]any{"goal": "Ship project workflow", "scope": []string{"backend"}, "acceptance_criteria": []string{"a test passes"}, "risks": []string{"migration"}},
+	}), "id", project.ID)
+	testHandler.ConfirmProjectExecution(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("ConfirmProjectExecution: %d %s", w.Code, w.Body.String())
+	}
+	var execution ProjectExecutionResponse
+	if err := json.NewDecoder(w.Body).Decode(&execution); err != nil {
+		t.Fatal(err)
+	}
+	if execution.State != "development" || execution.Snapshot["goal"] != "Ship project workflow" {
+		t.Fatalf("execution = %+v", execution)
+	}
+}
