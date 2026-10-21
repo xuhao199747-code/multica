@@ -588,6 +588,16 @@ describe("ChatPage 新建项目：绑定本地文件夹", () => {
     });
   });
 
+  it("创建项目后立即在该项目中开始第一段聊天", async () => {
+    mockCreateProjectMutate.mockImplementation((_input, options) => options.onSuccess({ id: "new-project" }));
+    await openProjectDialog();
+    fireEvent.change(await screen.findByLabelText("项目名称"), { target: { value: "带首个聊天" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(mockStartProjectChat).toHaveBeenCalledWith("new-project"));
+    expect(mockStartNewChat).toHaveBeenCalledWith(agent);
+  });
+
   it("桌面端选择已有文件夹后，随创建请求带上 local_directory 资源", async () => {
     mockDesktopBridge();
     mockPickDirectory.mockResolvedValue({ ok: true, ...PICKED });

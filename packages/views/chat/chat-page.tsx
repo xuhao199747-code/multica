@@ -364,12 +364,13 @@ export function ChatPage() {
     createProject.mutate(
       { title, status: "planned", priority: "none", resources },
       {
-        onSuccess: () => {
+        onSuccess: (project) => {
           setProjectDialogOpen(false);
           resetProjectDialog();
-          // Keep creation and conversation creation separate: the new project
-          // appears in the tree first, then its + action starts a fresh chat.
-          // This preserves the explicit Project → Chat hierarchy.
+		  // A project is the chat container. Its first conversation starts in
+		  // that container; every later conversation is created through its +.
+		  // The controller still creates the actual session lazily on first send.
+		  startProjectChat(project.id);
         },
         onError: () => toast.error("创建项目失败，请稍后重试"),
       },
