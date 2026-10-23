@@ -1518,6 +1518,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Host worker credentials are independent of browser sessions and PATs.
 	r.Post("/api/self-update/worker/heartbeat", h.SelfUpdateWorkerHeartbeat)
 	r.Post("/api/self-update/worker/claim", h.SelfUpdateWorkerClaim)
+	r.Get("/api/self-update/worker/jobs/{id}", h.SelfUpdateWorkerGet)
+	r.Get("/api/self-update/worker/active-job", h.SelfUpdateWorkerActiveJob)
 	r.Post("/api/self-update/worker/jobs/{id}", h.SelfUpdateWorkerAdvance)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
 	// Public share-link preview — no auth: shows the workspace name/slug and

@@ -311,6 +311,52 @@ func (h *Handler) SelfUpdateWorkerHeartbeat(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// SelfUpdateWorkerGet supports host journal reconciliation after an interrupted
+// response. It uses only the dedicated worker credential, never browser auth.
+func (h *Handler) SelfUpdateWorkerGet(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSelfUpdateWorker(w, r) {
+		return
+	}
+	id, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	job, err := h.Queries.GetSelfUpdateJob(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, 404, "update job not found")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "unable to read update job")
+		return
+	}
+	writeJSON(w, 200, job)
+}
+
+// SelfUpdateWorkerActiveJob closes the server-claim/host-journal crash window:
+// the host can discover an already claimed job without creating another one.
+func (h *Handler) SelfUpdateWorkerActiveJob(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSelfUpdateWorker(w, r) {
+		return
+	}
+	var id pgtype.UUID
+	err := h.DB.QueryRow(r.Context(), `SELECT id FROM self_update_job WHERE phase NOT IN ('succeeded','failed','needs_decision') LIMIT 1`).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "unable to read active update job")
+		return
+	}
+	job, err := h.Queries.GetSelfUpdateJob(r.Context(), id)
+	if err != nil {
+		writeError(w, 500, "unable to read update job")
+		return
+	}
+	writeJSON(w, 200, job)
+}
+
 func (h *Handler) SelfUpdateWorkerClaim(w http.ResponseWriter, r *http.Request) {
 	if !h.requireSelfUpdateWorker(w, r) {
 		return

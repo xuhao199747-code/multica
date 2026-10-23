@@ -68,13 +68,27 @@ is_local() {
 
 if is_local; then
   # ---------- Local: use Docker ----------
-  echo "==> Ensuring shared PostgreSQL container is running on localhost:5432..."
-  docker compose up -d postgres
+  if [ "${MULTICA_SELF_UPDATE_NO_CONTAINER_START:-0}" = "1" ]; then
+    # Candidate checks may use an existing shared database container, but must
+    # never start/recreate it or wait indefinitely for host infrastructure.
+    running_postgres="$(docker compose ps -q --status running postgres)"
+    if [ -z "$running_postgres" ]; then
+      echo "Self-update requires an already running PostgreSQL container." >&2
+      exit 1
+    fi
+    if ! docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d postgres > /dev/null 2>&1; then
+      echo "Self-update PostgreSQL readiness check failed." >&2
+      exit 1
+    fi
+  else
+    echo "==> Ensuring shared PostgreSQL container is running on localhost:5432..."
+    docker compose up -d postgres
 
-  echo "==> Waiting for PostgreSQL to be ready..."
-  until docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d postgres > /dev/null 2>&1; do
-    sleep 1
-  done
+    echo "==> Waiting for PostgreSQL to be ready..."
+    until docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d postgres > /dev/null 2>&1; do
+      sleep 1
+    done
+  fi
 
   echo "==> Ensuring database '$POSTGRES_DB' exists..."
   db_exists="$(docker compose exec -T postgres \

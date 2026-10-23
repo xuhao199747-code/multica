@@ -115,6 +115,58 @@ func workerRequest(path string, body any) *http.Request {
 	return r
 }
 
+func TestSelfUpdateWorkerGet(t *testing.T) {
+	h, _ := updateTestHandler(t)
+	updateBaseline(t, h)
+	var job db.SelfUpdateJob
+	testutil.Call(t, h.CreateSelfUpdateJob, updateRequest("worker-get")).Want(201).JSON(&job)
+	id := util.UUIDToString(job.ID)
+	request := func(token string, id string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/self-update/worker/jobs/"+id, nil)
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		return withURLParam(r, "id", id)
+	}
+	for _, token := range []string{"", "wrong"} {
+		testutil.Call(t, h.SelfUpdateWorkerGet, request(token, id)).Want(401)
+	}
+	testutil.Call(t, h.SelfUpdateWorkerGet, request(updateTestToken, "bad")).Want(400)
+	testutil.Call(t, h.SelfUpdateWorkerGet, request(updateTestToken, "11111111-1111-4111-8111-111111111111")).Want(404)
+	var got db.SelfUpdateJob
+	testutil.Call(t, h.SelfUpdateWorkerGet, request(updateTestToken, id)).Want(200).JSON(&got)
+	if got.ID != job.ID || got.SourceSha != job.SourceSha || got.TargetSha != job.TargetSha || got.Phase != job.Phase {
+		t.Fatalf("worker reconciliation identity mismatch: %+v", got)
+	}
+}
+
+func TestSelfUpdateWorkerActiveJob(t *testing.T) {
+	h, _ := updateTestHandler(t)
+	for _, token := range []string{"", "wrong"} {
+		r := httptest.NewRequest(http.MethodGet, "/api/self-update/worker/active-job", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		testutil.Call(t, h.SelfUpdateWorkerActiveJob, r).Want(401)
+	}
+	request := func() *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/self-update/worker/active-job", nil)
+		r.Header.Set("Authorization", "Bearer "+updateTestToken)
+		return r
+	}
+	testutil.Call(t, h.SelfUpdateWorkerActiveJob, request()).Want(204)
+	updateBaseline(t, h)
+	var job, got db.SelfUpdateJob
+	testutil.Call(t, h.CreateSelfUpdateJob, updateRequest("worker-active")).Want(201).JSON(&job)
+	testutil.Call(t, h.SelfUpdateWorkerActiveJob, request()).Want(200).JSON(&got)
+	if got.ID != job.ID || got.Phase != "queued" {
+		t.Fatalf("wrong active job: %+v", got)
+	}
+	testutil.Call(t, h.SelfUpdateWorkerClaim, workerRequest("/", nil)).Want(200)
+	testutil.Call(t, h.SelfUpdateWorkerActiveJob, request()).Want(200).JSON(&got)
+	if got.ID != job.ID || got.Phase != "preparing" {
+		t.Fatalf("claim gap cannot be reconciled: %+v", got)
+	}
+}
+
 func TestSelfUpdateConfiguration(t *testing.T) {
 	for _, cfg := range []Config{{}, {SelfUpdateEnabled: true}, {SelfUpdateEnabled: true, SelfUpdateAdminIDs: "invalid", SelfUpdateWorkerToken: updateTestToken, SelfUpdateProjectID: testWorkspaceID}, {SelfUpdateEnabled: true, SelfUpdateAdminIDs: testUserID, SelfUpdateWorkerToken: updateTestToken, SelfUpdateProjectID: "invalid"}} {
 		h, _ := updateTestHandler(t)
