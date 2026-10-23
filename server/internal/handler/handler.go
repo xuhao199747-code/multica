@@ -38,6 +38,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/seatcapacity"
+	"github.com/multica-ai/multica/server/internal/selfupdate"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -66,6 +67,13 @@ type dbExecutor interface {
 }
 
 type Config struct {
+	// SelfUpdate is explicitly enabled by the deployment operator. UUIDs and
+	// the worker credential are parsed once by New and never exposed by GetConfig.
+	SelfUpdateEnabled     bool
+	SelfUpdateAdminIDs    string
+	SelfUpdateWorkerToken string
+	SelfUpdateProjectID   string
+
 	AllowSignup         bool
 	AllowedEmails       []string
 	AllowedEmailDomains []string
@@ -201,6 +209,8 @@ type RuntimeRecoveryNotifier interface {
 }
 
 type Handler struct {
+	SelfUpdateReleases     selfupdate.ReleaseSource
+	selfUpdate             selfUpdateConfig
 	Queries                *db.Queries
 	ReadSelector           *dbreader.Selector
 	DB                     dbExecutor
@@ -484,6 +494,8 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		Queries:                      queries,
 		ReadSelector:                 dbreader.NewPrimaryOnly(queries),
 		DB:                           executor,
+		SelfUpdateReleases:           selfupdate.GitHubReleaseSource{},
+		selfUpdate:                   parseSelfUpdateConfig(cfg),
 		TxStarter:                    txStarter,
 		Hub:                          hub,
 		DaemonHub:                    daemonHub,

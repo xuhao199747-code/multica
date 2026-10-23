@@ -424,6 +424,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	origins := allowedOrigins()
 
 	signupConfig := handler.Config{
+		SelfUpdateEnabled:        os.Getenv("MULTICA_SELF_UPDATE_ENABLED") == "true",
+		SelfUpdateAdminIDs:       os.Getenv("MULTICA_SELF_UPDATE_ADMIN_IDS"),
+		SelfUpdateWorkerToken:    os.Getenv("MULTICA_SELF_UPDATE_WORKER_TOKEN"),
+		SelfUpdateProjectID:      os.Getenv("MULTICA_SELF_UPDATE_PROJECT_ID"),
 		AllowSignup:              os.Getenv("ALLOW_SIGNUP") != "false",
 		AllowedEmails:            splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
 		AllowedEmailDomains:      splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
@@ -1511,6 +1515,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// Public API
 	r.Get("/api/config", h.GetConfig)
+	// Host worker credentials are independent of browser sessions and PATs.
+	r.Post("/api/self-update/worker/heartbeat", h.SelfUpdateWorkerHeartbeat)
+	r.Post("/api/self-update/worker/claim", h.SelfUpdateWorkerClaim)
+	r.Post("/api/self-update/worker/jobs/{id}", h.SelfUpdateWorkerAdvance)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
 	// Public share-link preview — no auth: shows the workspace name/slug and
 	// inviter so a not-yet-logged-in visitor can see what they're joining.
@@ -1649,6 +1657,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// against it. Sits in the user-scoped group for that reason: there is
 		// no workspace in the path to gate on.
 		// --- User-scoped routes (no workspace context required) ---
+		r.Get("/api/self-update/status", h.GetSelfUpdateStatus)
+		r.Post("/api/self-update/jobs", h.CreateSelfUpdateJob)
+		r.Get("/api/self-update/jobs/{id}", h.GetSelfUpdateJob)
 		r.Get("/api/me", h.GetMe)
 		r.Patch("/api/me", h.UpdateMe)
 		r.Patch("/api/me/onboarding", h.PatchOnboarding)
