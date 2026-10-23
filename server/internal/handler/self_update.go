@@ -83,7 +83,7 @@ func (h *Handler) requireSelfUpdateWorker(w http.ResponseWriter, r *http.Request
 }
 
 func updateBaselineValid(i db.SelfUpdateInstallation, project pgtype.UUID) bool {
-	return updateTag.MatchString(i.DeployedReleaseTag) && updateSHA.MatchString(i.DeployedCustomSha) && i.BackendDigest != "" && i.WebDigest != "" && i.ProjectID == project
+	return updateTag.MatchString(i.DeployedReleaseTag) && updateSHA.MatchString(i.DeployedCustomSha) && updateDigest.MatchString(i.BackendDigest) && updateDigest.MatchString(i.WebDigest) && i.ProjectID == project
 }
 
 func updateWorkerOnline(i db.SelfUpdateInstallation) bool {

@@ -94,7 +94,7 @@ func updateTestHandler(t *testing.T) (*Handler, *pgxpool.Pool) {
 
 func updateBaseline(t *testing.T, h *Handler) {
 	t.Helper()
-	_, err := h.Queries.UpsertSelfUpdateInstallation(context.Background(), db.UpsertSelfUpdateInstallationParams{DeployedReleaseTag: "v1.0.0", DeployedCustomSha: updateTestSHA, BackendDigest: "sha256:backend", WebDigest: "sha256:web", ProjectID: util.MustParseUUID(testWorkspaceID)})
+	_, err := h.Queries.UpsertSelfUpdateInstallation(context.Background(), db.UpsertSelfUpdateInstallationParams{DeployedReleaseTag: "v1.0.0", DeployedCustomSha: updateTestSHA, BackendDigest: "sha256:" + strings.Repeat("a", 64), WebDigest: "sha256:" + strings.Repeat("b", 64), ProjectID: util.MustParseUUID(testWorkspaceID)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +151,26 @@ func TestSelfUpdatePermissionsAndBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.Call(t, h.CreateSelfUpdateJob, updateRequest("offline")).Want(http.StatusConflict)
+}
+
+func TestSelfUpdateMalformedBaselineDigests(t *testing.T) {
+	for _, field := range []string{"backend_digest", "web_digest"} {
+		for _, digest := range []string{"", " ", "sha256:/host/path", "sha256:" + strings.Repeat("a", 63), "sha256:" + strings.Repeat("z", 64)} {
+			t.Run(field+"/"+digest, func(t *testing.T) {
+				h, pool := updateTestHandler(t)
+				updateBaseline(t, h)
+				if _, err := pool.Exec(context.Background(), "UPDATE self_update_installation SET "+field+"=$1", digest); err != nil {
+					t.Fatal(err)
+				}
+				testutil.Call(t, h.CreateSelfUpdateJob, updateRequest("malformed-baseline")).Want(http.StatusConflict)
+				var status map[string]any
+				testutil.Call(t, h.GetSelfUpdateStatus, newRequest("GET", "/", nil)).Want(http.StatusOK).JSON(&status)
+				if status["capability"] != "needs_setup" || status["can_update"] != false {
+					t.Fatalf("malformed baseline grants capability: %v", status)
+				}
+			})
+		}
+	}
 }
 
 func TestSelfUpdateCreateAndReplay(t *testing.T) {
