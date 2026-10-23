@@ -170,9 +170,23 @@ func TestSelfUpdateJobsActiveAndIdempotency(t *testing.T) {
 func TestSelfUpdateInstallationProvenance(t *testing.T) {
 	pool := sharedTestPool(t)
 	ctx := context.Background()
-	fx := testutil.New(pool, "", "")
-	fx.Cleanup(t, "DELETE FROM self_update_installation WHERE singleton=true")
-	q := db.New(pool)
+	outer, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = outer.Rollback(ctx) })
+	baseline := db.UpsertSelfUpdateInstallationParams{DeployedReleaseTag: "existing-release", DeployedCustomSha: "existing-custom", BackendDigest: "existing-backend", WebDigest: "existing-web"}
+	if _, err := db.New(outer).UpsertSelfUpdateInstallation(ctx, baseline); err != nil {
+		t.Fatal(err)
+	}
+	// The sentinel and all assertions are rollback-only, even if this database
+	// already contains a deployed installation's singleton.
+	tx, err := outer.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+	q := db.New(tx)
 	args := db.UpsertSelfUpdateInstallationParams{DeployedReleaseTag: "v1.0.0", DeployedCustomSha: "custom", BackendDigest: "sha256:backend", WebDigest: "sha256:web"}
 	stamp, err := q.UpsertSelfUpdateInstallation(ctx, args)
 	if err != nil || stamp.DeployedCustomSha != "custom" {
@@ -190,7 +204,18 @@ func TestSelfUpdateInstallationProvenance(t *testing.T) {
 	if err != nil || got.DeployedReleaseTag != "v1.0.1" || !got.WorkerHeartbeatAt.Valid {
 		t.Fatalf("upsert clobbered heartbeat: %v %+v", err, got)
 	}
-	if count := fx.Count(t, "SELECT count(*) FROM self_update_installation"); count != 1 {
+	var count int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM self_update_installation").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
 		t.Fatalf("installation rows = %d", count)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := db.New(outer).GetSelfUpdateInstallation(ctx)
+	if err != nil || preserved.DeployedReleaseTag != baseline.DeployedReleaseTag || preserved.DeployedCustomSha != baseline.DeployedCustomSha || preserved.BackendDigest != baseline.BackendDigest || preserved.WebDigest != baseline.WebDigest {
+		t.Fatalf("rollback changed preexisting provenance: %v %+v", err, preserved)
 	}
 }
