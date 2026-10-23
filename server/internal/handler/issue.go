@@ -3361,6 +3361,32 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 				if task, terr := h.Queries.GetAgentTask(r.Context(), taskUUID); terr == nil && uuidToString(task.AgentID) == actualCreatorID {
 					originType = pgtype.Text{String: "agent_create", Valid: true}
 					originID = taskUUID
+					// An agent's ordinary issue-create request may omit project_id.
+					// Preserve the project of its trusted acting context; the issue
+					// service still handles explicit parent inheritance separately.
+					if !projectID.Valid && !parentIssueID.Valid {
+						if task.ChatSessionID.Valid {
+							session, err := h.Queries.GetChatSessionInWorkspace(r.Context(), db.GetChatSessionInWorkspaceParams{
+								ID: task.ChatSessionID, WorkspaceID: wsUUID,
+							})
+							if err == nil {
+								projectID = session.ProjectID
+							} else if !errors.Is(err, pgx.ErrNoRows) {
+								writeError(w, http.StatusInternalServerError, "failed to resolve acting chat project")
+								return
+							}
+						} else if task.IssueID.Valid {
+							sourceIssue, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
+								ID: task.IssueID, WorkspaceID: wsUUID,
+							})
+							if err == nil {
+								projectID = sourceIssue.ProjectID
+							} else if !errors.Is(err, pgx.ErrNoRows) {
+								writeError(w, http.StatusInternalServerError, "failed to resolve acting issue project")
+								return
+							}
+						}
+					}
 				}
 			}
 		}

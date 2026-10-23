@@ -75,6 +75,109 @@ func TestCreateIssue_AgentCreate_StampsActingTaskOrigin(t *testing.T) {
 	}
 }
 
+func TestCreateIssue_AgentCreate_InheritsProjectFromActingTask(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	agentID := createHandlerTestAgent(t, "agent-create-project-inheritance", nil)
+	projectID := createChatProjectTestProject(t, testWorkspaceID, "Agent create project", "")
+	sessionID := createChatSessionWithProjectForTest(t, agentID, projectID)
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent_task_queue (agent_id, runtime_id, chat_session_id, status, priority)
+		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'running', 0)
+		RETURNING id`, agentID, sessionID).Scan(&taskID); err != nil {
+		t.Fatalf("create acting task: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Issue created from a project chat",
+	})
+	req.Header.Set("X-Agent-ID", agentID)
+	req.Header.Set("X-Task-ID", taskID)
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode issue: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, created.ID) })
+	if created.ProjectID == nil || *created.ProjectID != projectID {
+		t.Fatalf("created project_id = %v, want %s", created.ProjectID, projectID)
+	}
+}
+
+func TestCreateIssue_AgentCreate_InheritsIssueProjectUnlessOverridden(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	agentID := createHandlerTestAgent(t, "agent-create-issue-project", nil)
+	projectID := createChatProjectTestProject(t, testWorkspaceID, "Source issue project", "")
+	overrideID := createChatProjectTestProject(t, testWorkspaceID, "Explicit issue project", "")
+
+	sourceW := httptest.NewRecorder()
+	testHandler.CreateIssue(sourceW, newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Source project issue", "project_id": projectID,
+	}))
+	if sourceW.Code != http.StatusCreated {
+		t.Fatalf("create source issue: expected 201, got %d: %s", sourceW.Code, sourceW.Body.String())
+	}
+	var source IssueResponse
+	if err := json.NewDecoder(sourceW.Body).Decode(&source); err != nil {
+		t.Fatalf("decode source issue: %v", err)
+	}
+	sourceID := source.ID
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, sourceID) })
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority)
+		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), $2, 'running', 0)
+		RETURNING id`, agentID, sourceID).Scan(&taskID); err != nil {
+		t.Fatalf("create acting task: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+
+	for _, tc := range []struct {
+		name             string
+		requestedProject string
+		wantProject      string
+	}{
+		{name: "inherit source issue", wantProject: projectID},
+		{name: "explicit project wins", requestedProject: overrideID, wantProject: overrideID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{"title": "Created by issue agent: " + tc.name}
+			if tc.requestedProject != "" {
+				body["project_id"] = tc.requestedProject
+			}
+			w := httptest.NewRecorder()
+			req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, body)
+			req.Header.Set("X-Agent-ID", agentID)
+			req.Header.Set("X-Task-ID", taskID)
+			testHandler.CreateIssue(w, req)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+			}
+			var created IssueResponse
+			if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+				t.Fatalf("decode issue: %v", err)
+			}
+			t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, created.ID) })
+			if created.ProjectID == nil || *created.ProjectID != tc.wantProject {
+				t.Fatalf("created project_id = %v, want %s", created.ProjectID, tc.wantProject)
+			}
+		})
+	}
+}
+
 // TestCreateIssue_NoAgentCreateStampForMemberOrForgedAgent is the security
 // regression for MUL-4305: the agent_create stamp must only ride a genuine
 // agent actor. A plain member create carries no origin, and a member who
