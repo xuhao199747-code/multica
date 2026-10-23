@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func enableProjectWorkflowForTest(t *testing.T, projectID string) {
@@ -158,6 +161,50 @@ func TestConfirmProjectExecutionFreezesSnapshot(t *testing.T) {
 	}
 }
 
+// The source identity comes from the selected chat, including direct Mica handoffs.
+func TestConfirmProjectExecutionDerivesSourceAgentFromChat(t *testing.T) {
+	for _, role := range []string{"mika", "prd", "developer"} {
+		t.Run(role, func(t *testing.T) {
+			projectID := dbfx.Project(t, "Source identity "+role)
+			enableProjectWorkflowForTest(t, projectID)
+			agentID := createHandlerTestAgent(t, "source-identity-"+role, nil)
+			w := httptest.NewRecorder()
+			testHandler.CreateProjectAgentBinding(w, withURLParam(newRequest("POST", "/", map[string]any{"agent_id": agentID, "role": role}), "id", projectID))
+			if w.Code != http.StatusCreated {
+				t.Fatalf("bind: %d %s", w.Code, w.Body.String())
+			}
+			sessionID := createChatSessionWithProjectForTest(t, agentID, projectID)
+			body := map[string]any{"source_chat_session_id": sessionID, "snapshot": map[string]any{"goal": "Direct handoff", "scope": []string{"docs"}, "acceptance_criteria": []string{"reviewed"}, "risks": []string{}}}
+			// An explicitly supplied, mismatched identity must still be rejected.
+			body["source_agent_id"] = createHandlerTestAgent(t, "wrong-source-"+role, nil)
+			w = httptest.NewRecorder()
+			testHandler.ConfirmProjectExecution(w, withURLParam(newRequest("POST", "/", body), "id", projectID))
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("mismatched source: %d %s", w.Code, w.Body.String())
+			}
+			delete(body, "source_agent_id")
+			w = httptest.NewRecorder()
+			testHandler.ConfirmProjectExecution(w, withURLParam(newRequest("POST", "/", body), "id", projectID))
+			if role == "developer" {
+				if w.Code != http.StatusBadRequest {
+					t.Fatalf("developer source must be rejected: %d %s", w.Code, w.Body.String())
+				}
+				return
+			}
+			if w.Code != http.StatusCreated {
+				t.Fatalf("derive source: %d %s", w.Code, w.Body.String())
+			}
+			var execution ProjectExecutionResponse
+			if err := json.NewDecoder(w.Body).Decode(&execution); err != nil {
+				t.Fatal(err)
+			}
+			if execution.SourceAgentID != agentID {
+				t.Fatalf("source agent = %s, want %s", execution.SourceAgentID, agentID)
+			}
+		})
+	}
+}
+
 func TestProjectExecutionRequiresEnabledWorkflow(t *testing.T) {
 	w := httptest.NewRecorder()
 	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Disabled workflow project"}))
@@ -262,6 +309,17 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&dispatched); err != nil {
 		t.Fatal(err)
 	}
+	var brief map[string]any
+	if dispatched.Issue.Description == nil {
+		t.Fatal("missing workflow task brief")
+	}
+	if err := json.Unmarshal([]byte(*dispatched.Issue.Description), &brief); err != nil {
+		t.Fatal(err)
+	}
+	command, _ := brief["required_completion_command"].(string)
+	if !strings.Contains(command, "workflow delivery "+project.ID+" --execution "+execution.ID) {
+		t.Fatalf("missing scoped delivery command: %s", command)
+	}
 	w = httptest.NewRecorder()
 	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Other workflow project"}))
 	if w.Code != http.StatusCreated {
@@ -280,10 +338,87 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 		t.Fatalf("move workflow issue: expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 
+	// A status-only handoff used to strand the execution in development.
+	for _, status := range []string{"in_review", "done"} {
+		for _, withDescription := range []bool{false, true} {
+			body := map[string]any{"status": status}
+			if withDescription {
+				body["description"] = "Must not bypass evidence by editing description"
+			}
+			w = httptest.NewRecorder()
+			testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/", body), "id", dispatched.Issue.ID))
+			if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "workflow delivery") {
+				t.Fatalf("status-only %s (description=%v): %d %s", status, withDescription, w.Code, w.Body.String())
+			}
+		}
+	}
 	w = httptest.NewRecorder()
-	testHandler.SubmitProjectExecutionDelivery(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/delivery", map[string]any{
-		"execution_id": execution.ID, "issue_id": dispatched.Issue.ID, "commit": "abc123", "tests": "go test ./...", "summary": "Implemented it",
-	}), "id", project.ID))
+	testHandler.BatchUpdateIssues(w, newRequest("PATCH", "/", map[string]any{"issue_ids": []string{dispatched.Issue.ID}, "updates": map[string]any{"status": "in_review"}}))
+	var batch struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&batch); err != nil {
+		t.Fatal(err)
+	}
+	if batch.Updated != 0 {
+		t.Fatalf("batch bypassed delivery evidence: %d", batch.Updated)
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.DispatchProjectExecution(w, withURLParam(newRequest("POST", "/", map[string]any{"execution_id": execution.ID, "agent_id": developerID, "role": "development", "title": "Second delivery needs its own evidence"}), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("second developer: %d %s", w.Code, w.Body.String())
+	}
+	var secondDispatch struct {
+		Issue IssueResponse `json:"issue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&secondDispatch); err != nil {
+		t.Fatal(err)
+	}
+	// Hold the execution row so both requests reach the same transition.
+	// Exactly one may submit; two successes used to overwrite evidence and queue twice.
+	lock, err := testPool.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Rollback(context.Background())
+	if _, err := lock.Exec(context.Background(), "SELECT id FROM project_execution_record WHERE id=$1 FOR UPDATE", execution.ID); err != nil {
+		t.Fatal(err)
+	}
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		req := withURLParam(newRequest("POST", "/", map[string]any{"execution_id": execution.ID, "issue_id": dispatched.Issue.ID, "commit": "abc123", "tests": "go test ./...", "summary": "Implemented it"}), "id", project.ID)
+		go func() {
+			recorder := httptest.NewRecorder()
+			testHandler.SubmitProjectExecutionDelivery(recorder, req)
+			responses <- recorder
+		}()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var waiting int
+		if err := testPool.QueryRow(context.Background(), "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%project_execution_record%'").Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("delivery requests did not reach execution lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := lock.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	first, second := <-responses, <-responses
+	if first.Code == http.StatusConflict {
+		first, second = second, first
+	}
+	if first.Code != http.StatusOK || second.Code != http.StatusConflict {
+		t.Fatalf("concurrent delivery statuses = %d, %d; want one 200 and one 409", first.Code, second.Code)
+	}
+	w = first
 	if w.Code != http.StatusOK {
 		t.Fatalf("submit delivery: %d %s", w.Code, w.Body.String())
 	}
@@ -297,6 +432,16 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	}
 	if result.Execution.State != "review" || result.CoordinationIssue.AssigneeID == nil || *result.CoordinationIssue.AssigneeID != mikaID || result.CoordinationTaskID == nil || *result.CoordinationTaskID == "" {
 		t.Fatalf("delivery result did not queue Mica coordination: %+v", result)
+	}
+	w = httptest.NewRecorder()
+	testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/", map[string]any{"status": "in_review"}), "id", dispatched.Issue.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status after evidence: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/", map[string]any{"status": "in_review"}), "id", secondDispatch.Issue.ID))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("another issue borrowed evidence: %d %s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
 	testHandler.ListProjectExecutionRecords(w, withURLParam(newRequest("GET", "/api/projects/"+project.ID+"/workflow/executions", nil), "id", project.ID))
@@ -343,6 +488,12 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&reviewDispatch); err != nil {
 		t.Fatal(err)
 	}
+	w = httptest.NewRecorder()
+	testHandler.UpdateIssue(w, withURLParam(newRequest("PATCH", "/", map[string]any{"status": "in_review"}), "id", reviewDispatch.Issue.ID))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "workflow review") {
+		t.Fatalf("review status without verdict: %d %s", w.Code, w.Body.String())
+	}
+
 	w = httptest.NewRecorder()
 	testHandler.RecordProjectReview(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/review", map[string]any{
 		"execution_id": execution.ID, "issue_id": reviewDispatch.Issue.ID, "outcome": "passed", "findings": "Reviewed commit and tests.",

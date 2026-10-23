@@ -21,8 +21,8 @@ var projectWorkflowStatusCmd = &cobra.Command{Use: "status <project-id>", Short:
 func init() {
 	projectCmd.AddCommand(projectWorkflowCmd)
 	projectWorkflowCmd.AddCommand(projectWorkflowStatusCmd, projectWorkflowConfirmCmd, projectWorkflowDispatchCmd, projectWorkflowDeliveryCmd, projectWorkflowReviewCmd, projectWorkflowCompleteCmd)
-	projectWorkflowConfirmCmd.Flags().String("source-chat", "", "Project PRD chat session ID")
-	projectWorkflowConfirmCmd.Flags().String("source-agent", "", "PRD agent ID")
+	projectWorkflowConfirmCmd.Flags().String("source-chat", "", "Project Mica or PRD chat session ID")
+	projectWorkflowConfirmCmd.Flags().String("source-agent", "", "Optional expected source agent ID; identity is derived from the source chat")
 	projectWorkflowConfirmCmd.Flags().String("snapshot", "", "JSON file containing goal, scope, acceptance_criteria, and risks")
 	projectWorkflowDispatchCmd.Flags().String("execution", "", "Execution ID")
 	projectWorkflowDispatchCmd.Flags().String("agent", "", "Assigned project agent ID")
@@ -85,8 +85,8 @@ func runProjectWorkflowConfirm(cmd *cobra.Command, args []string) error {
 	sourceChat, _ := cmd.Flags().GetString("source-chat")
 	sourceAgent, _ := cmd.Flags().GetString("source-agent")
 	file, _ := cmd.Flags().GetString("snapshot")
-	if sourceChat == "" || sourceAgent == "" || file == "" {
-		return fmt.Errorf("--source-chat, --source-agent, and --snapshot are required")
+	if sourceChat == "" || file == "" {
+		return fmt.Errorf("--source-chat and --snapshot are required")
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {

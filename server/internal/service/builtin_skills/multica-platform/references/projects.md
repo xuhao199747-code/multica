@@ -157,7 +157,10 @@ result from another project.
 Use these commands only after the member has confirmed the proposed execution:
 
 1. Inspect the workflow first: `multica project workflow status <project-id>`. It returns the project configuration, role bindings, and execution ids; use the bound agent ids when dispatching.
-2. PRD handoff: `multica project workflow confirm <project-id> --source-chat <chat-id> --source-agent <agent-id> --snapshot <file.json>`.
+2. Confirmed handoff: `multica project workflow confirm <project-id> --source-chat <chat-id> --snapshot <file.json>`.
+   Use the project's Mica chat for a direct execution, or its PRD chat for a PRD handoff.
+   The server derives the source agent from that chat; do not substitute the project's PRD agent for a Mica conversation.
+   `--source-agent` is optional and, when supplied, must match the selected chat's agent.
    The JSON must include `goal`, `scope`, `acceptance_criteria`, and `risks`.
    Confirmation freezes the snapshot; later chat edits require a new execution.
 3. Mica dispatch: `multica project workflow dispatch <project-id> --execution <id> --agent <id> --role development|review|repair --title <title>`.
@@ -165,6 +168,9 @@ Use these commands only after the member has confirmed the proposed execution:
    are created; do not report a dispatch before this command succeeds.
 4. Developer delivery: `multica project workflow delivery <project-id> --execution <id> --issue <id> --commit <ref> --tests <evidence> --summary <summary>`.
    Commit/reference, tests, and a change summary are mandatory before review.
+   Run the issue's `required_completion_command` before changing its status to `in_review`.
+   A comment or status-only update does not submit workflow evidence; the server rejects review/done status writes while this handoff is missing.
+   Per-issue submission receipts are required. If an older execution already advanced without a receipt for this issue, inspect its original evidence and obtain confirmation for a new execution; do not reconstruct receipts from issue statuses or comments.
 5. Reviewer result: `multica project workflow review <project-id> --execution <id> --issue <review-issue-id> --outcome passed|needs_changes|needs_member_decision --findings <evidence>`.
    Reviewers inspect the frozen snapshot and evidence; they do not edit code or
    dispatch tasks. After two automatic repair rounds, a further

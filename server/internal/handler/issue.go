@@ -291,7 +291,7 @@ func (h *Handler) updateIssueWithStatusGuard(ctx context.Context, workspaceID pg
 			}
 		}
 		var innerErr error
-		issue, cancelledWakeups, innerErr = updateIssueStoppingWakeups(ctx, q, params)
+		issue, cancelledWakeups, innerErr = updateIssueStoppingWakeups(ctx, q, workspaceID, params)
 		return innerErr
 	})
 	if err != nil {
@@ -305,7 +305,10 @@ func (h *Handler) updateIssueWithStatusGuard(ctx context.Context, workspaceID pg
 // into a done/closed status, ends its wakeups with the same queries. Callers
 // run it inside the status write's transaction and broadcast the returned runs
 // after commit.
-func updateIssueStoppingWakeups(ctx context.Context, q *db.Queries, params db.UpdateIssueParams) (db.Issue, []db.AgentTaskQueue, error) {
+func updateIssueStoppingWakeups(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, params db.UpdateIssueParams) (db.Issue, []db.AgentTaskQueue, error) {
+	if err := requireWorkflowEvidenceForIssueStatus(ctx, q, workspaceID, params); err != nil {
+		return db.Issue{}, nil, err
+	}
 	issue, err := q.UpdateIssue(ctx, params)
 	if err != nil || !params.Status.Valid {
 		return issue, nil, err
@@ -3720,7 +3723,7 @@ func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.
 	}
 	refreshUntouchedNullableIssueParams(&params, current, rawFields)
 
-	issue, cancelledWakeups, err := updateIssueStoppingWakeups(ctx, qtx, params)
+	issue, cancelledWakeups, err := updateIssueStoppingWakeups(ctx, qtx, workspaceID, params)
 	if err != nil {
 		return db.Issue{}, current, false, fmt.Errorf("update locked issue: %w", err)
 	}
@@ -4011,6 +4014,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		issue, err = h.updateIssueWithStatusGuard(r.Context(), prevIssue.WorkspaceID, statusKeyForGuard, params)
 	}
 	if err != nil {
+		var evidenceRequired *workflowEvidenceRequiredError
+		if errors.As(err, &evidenceRequired) {
+			writeError(w, http.StatusConflict, evidenceRequired.Error())
+			return
+		}
 		if writeIssueStatusRaceError(w, err) {
 			return
 		}

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -274,10 +275,6 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	agentID, ok := parseUUIDOrBadRequest(w, req.SourceAgentID, "source_agent_id")
-	if !ok {
-		return
-	}
 	var snapshot map[string]any
 	if err := json.Unmarshal(req.Snapshot, &snapshot); err != nil || snapshot == nil {
 		writeError(w, http.StatusBadRequest, "snapshot must be a JSON object")
@@ -294,9 +291,22 @@ func (h *Handler) ConfirmProjectExecution(w http.ResponseWriter, r *http.Request
 		}
 	}
 	session, err := h.Queries.GetChatSession(r.Context(), sessionID)
-	if err != nil || session.WorkspaceID != project.WorkspaceID || session.ProjectID != project.ID || session.AgentID != agentID {
+	if err != nil || session.WorkspaceID != project.WorkspaceID || session.ProjectID != project.ID {
 		writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
 		return
+	}
+	// The chat owns its source identity; callers must not guess a PRD agent
+	// when a confirmed execution came directly from a Mica conversation.
+	agentID := session.AgentID
+	if req.SourceAgentID != "" {
+		requestedAgentID, ok := parseUUIDOrBadRequest(w, req.SourceAgentID, "source_agent_id")
+		if !ok {
+			return
+		}
+		if requestedAgentID != agentID {
+			writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
+			return
+		}
 	}
 	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
@@ -415,12 +425,18 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 	if req.Role == "repair" {
 		roleContract = "Fix the recorded review findings within the confirmed snapshot. Change code, run relevant tests, commit work, and submit updated delivery evidence. Do not change scope, dispatch work, release, or approve your own work."
 	}
+	completionCommand := fmt.Sprintf("multica project workflow delivery %s --execution %s --issue <this-issue-id> --commit <commit-ref> --tests <test-evidence> --summary <summary>", uuidToString(project.ID), uuidToString(record.ID))
+	if req.Role == "review" {
+		completionCommand = fmt.Sprintf("multica project workflow review %s --execution %s --issue <this-issue-id> --outcome passed|needs_changes|needs_member_decision --findings <review-evidence>", uuidToString(project.ID), uuidToString(record.ID))
+	}
+	roleContract += " Before changing this issue to in_review or done, successfully run the required_completion_command with this issue's actual ID and real evidence. A status change or issue comment alone does not advance this workflow."
 	description, _ := json.Marshal(map[string]any{
-		"project_execution_id": uuidToString(record.ID),
-		"prd_snapshot":         json.RawMessage(record.Snapshot),
-		"delivery_evidence":    json.RawMessage(record.DeliveryResult),
-		"workflow_role":        req.Role,
-		"role_contract":        roleContract,
+		"project_execution_id":        uuidToString(record.ID),
+		"prd_snapshot":                json.RawMessage(record.Snapshot),
+		"delivery_evidence":           json.RawMessage(record.DeliveryResult),
+		"workflow_role":               req.Role,
+		"role_contract":               roleContract,
+		"required_completion_command": completionCommand,
 	})
 	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{WorkspaceID: project.WorkspaceID, Title: strings.TrimSpace(req.Title), Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none", AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: agentID, CreatorType: "member", CreatorID: parseUUID(userID), ProjectID: project.ID}, service.IssueCreateOpts{})
 	if err != nil {
@@ -535,7 +551,14 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 	if !h.requireProjectWorkflowIssueActor(w, r, project, issueID) {
 		return
 	}
-	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to begin workflow transition")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+	record, err := qtx.LockProjectExecutionRecord(r.Context(), db.LockProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project execution not found")
 		return
@@ -559,10 +582,24 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	evidence, _ := json.Marshal(map[string]string{"commit": strings.TrimSpace(req.Commit), "tests": strings.TrimSpace(req.Tests), "summary": strings.TrimSpace(req.Summary)})
-	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: evidence})
+	deliveryEvidence := map[string]any{}
+	_ = json.Unmarshal(record.DeliveryResult, &deliveryEvidence)
+	if deliveryEvidence == nil {
+		deliveryEvidence = map[string]any{}
+	}
+	delete(deliveryEvidence, "review")
+	deliveryEvidence["commit"] = strings.TrimSpace(req.Commit)
+	deliveryEvidence["tests"] = strings.TrimSpace(req.Tests)
+	deliveryEvidence["summary"] = strings.TrimSpace(req.Summary)
+	recordWorkflowIssueEvidence(deliveryEvidence, issueID)
+	evidence, _ := json.Marshal(deliveryEvidence)
+	updated, err := qtx.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: evidence})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to submit project delivery")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
 	coordination, err := h.enqueueProjectWorkflowReviewCoordination(r, project, updated, mika, parseUUID(userID))
@@ -732,7 +769,14 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	if !h.requireProjectWorkflowIssueActor(w, r, project, issueID) {
 		return
 	}
-	record, err := h.Queries.GetProjectExecutionRecord(r.Context(), db.GetProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to begin workflow transition")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+	record, err := qtx.LockProjectExecutionRecord(r.Context(), db.LockProjectExecutionRecordParams{ID: executionID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project execution not found")
 		return
@@ -756,14 +800,19 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	evidence := map[string]any{}
 	_ = json.Unmarshal(record.DeliveryResult, &evidence)
 	evidence["review"] = map[string]string{"outcome": req.Outcome, "findings": strings.TrimSpace(req.Findings)}
+	recordWorkflowIssueEvidence(evidence, issueID)
 	payload, err := json.Marshal(evidence)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to record review evidence")
 		return
 	}
-	updated, err := h.Queries.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: payload})
+	updated, err := qtx.UpdateProjectExecutionState(r.Context(), db.UpdateProjectExecutionStateParams{ID: record.ID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, State: string(next), ReviewRound: int32(rounds), DeliveryResult: payload})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to record review result")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
 	response := map[string]any{"execution": projectExecutionToResponse(updated)}

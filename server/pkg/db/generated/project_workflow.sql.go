@@ -478,6 +478,38 @@ func (q *Queries) ListProjectExecutionRecords(ctx context.Context, arg ListProje
 	return items, nil
 }
 
+const lockProjectExecutionRecord = `-- name: LockProjectExecutionRecord :one
+SELECT id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at FROM project_execution_record
+WHERE id = $1 AND project_id = $2 AND workspace_id = $3
+FOR UPDATE
+`
+
+type LockProjectExecutionRecordParams struct {
+	ID          pgtype.UUID `json:"id"`
+	ProjectID   pgtype.UUID `json:"project_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) LockProjectExecutionRecord(ctx context.Context, arg LockProjectExecutionRecordParams) (ProjectExecutionRecord, error) {
+	row := q.db.QueryRow(ctx, lockProjectExecutionRecord, arg.ID, arg.ProjectID, arg.WorkspaceID)
+	var i ProjectExecutionRecord
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.SourceChatSessionID,
+		&i.SourceAgentID,
+		&i.Snapshot,
+		&i.State,
+		&i.ReviewRound,
+		&i.DeliveryResult,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateProjectExecutionState = `-- name: UpdateProjectExecutionState :one
 UPDATE project_execution_record
 SET state = $4, review_round = $5, delivery_result = $6, updated_at = now()
