@@ -1170,7 +1170,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = buildEnv(b.cfg.Env)
+	cmd.Env = codexProxyEnv(buildEnv(b.cfg.Env))
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
