@@ -70,3 +70,33 @@ func TestProductionEnvOutsideCheckout(t *testing.T) {
 		t.Fatal("accepted production env inside a source checkout")
 	}
 }
+
+func TestCandidateEnvironmentEffectiveDatabase(t *testing.T) {
+	for _, tc := range []struct {
+		name, query string
+		wantErr     bool
+	}{
+		{name: "plain candidate"},
+		{name: "candidate dbname", query: "?dbname=candidate"},
+		{name: "candidate database", query: "?database=candidate"},
+		{name: "dbname overrides path", query: "?dbname=production", wantErr: true},
+		{name: "database overrides path", query: "?database=production", wantErr: true},
+		{name: "encoded dbname key", query: "?%64bname=production", wantErr: true},
+		{name: "encoded database key", query: "?data%62ase=production", wantErr: true},
+		{name: "encoded dbname value", query: "?dbname=%70roduction", wantErr: true},
+		{name: "encoded database value", query: "?database=%70roduction", wantErr: true},
+		{name: "encoded key and value", query: "?%64%61%74%61%62%61%73%65=%70%72%6f%64%75%63%74%69%6f%6e", wantErr: true},
+		{name: "different nonproduction override", query: "?dbname=other_database", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			data := "POSTGRES_DB=candidate\nDATABASE_URL=postgres://test_user:test_password@localhost/candidate" + tc.query + "\n"
+			if err := os.WriteFile(filepath.Join(root, ".env.worktree"), []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := candidateEnvironment(root, "production"); (err != nil) != tc.wantErr {
+				t.Fatalf("effective database validation error=%v, want rejection=%v", err, tc.wantErr)
+			}
+		})
+	}
+}

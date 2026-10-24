@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/multica-ai/multica/server/internal/dbstartup"
 )
 
 // WorkerConfig is loaded exclusively from a private host file, never job input.
@@ -204,6 +206,12 @@ func candidateEnvironment(path, productionDB string) error {
 	u, err := url.Parse(values["DATABASE_URL"])
 	if err != nil || !databaseName.MatchString(db) || db == productionDB || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" || strings.TrimPrefix(u.Path, "/") != db {
 		return fmt.Errorf("candidate database must be isolated from production")
+	}
+	// Match migration connection semantics: pgx permits query aliases (including
+	// percent-encoded names/values) to override the database in the URI path.
+	poolConfig, err := dbstartup.ParsePoolConfig(values["DATABASE_URL"], 0)
+	if err != nil || poolConfig.ConnConfig.Database != db || poolConfig.ConnConfig.Database == productionDB {
+		return fmt.Errorf("candidate effective database must be isolated from production")
 	}
 	return nil
 }
