@@ -1517,6 +1517,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Get("/api/config", h.GetConfig)
 	// Host worker credentials are independent of browser sessions and PATs.
 	r.Post("/api/self-update/worker/heartbeat", h.SelfUpdateWorkerHeartbeat)
+	r.Get("/api/self-update/worker/bootstrap", h.SelfUpdateWorkerBootstrapStatus)
+	r.Post("/api/self-update/worker/bootstrap", h.SelfUpdateWorkerBootstrap)
 	r.Post("/api/self-update/worker/claim", h.SelfUpdateWorkerClaim)
 	r.Get("/api/self-update/worker/jobs/{id}", h.SelfUpdateWorkerGet)
 	r.Get("/api/self-update/worker/active-job", h.SelfUpdateWorkerActiveJob)

@@ -3,7 +3,7 @@
 
 services:
   backend:
-    image: multica-backend:dev
+    image: multica-backend:${MULTICA_CUSTOM_IMAGE_TAG:-dev}
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,9 +13,9 @@ services:
         DATE: ${DATE:-unknown}
 
   frontend:
-    image: multica-web:dev
+    image: multica-web:${MULTICA_CUSTOM_IMAGE_TAG:-dev}
     build:
       context: .
       dockerfile: Dockerfile.web
       args:
-        NEXT_PUBLIC_APP_VERSION: dev
+        NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-dev}

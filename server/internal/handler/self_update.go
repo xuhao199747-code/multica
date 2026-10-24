@@ -386,6 +386,78 @@ type selfUpdateEvidence struct {
 	Code           string `json:"code"`
 }
 
+type selfUpdateBootstrapRequest struct {
+	SourceSHA      string `json:"source_sha"`
+	ReleaseTag     string `json:"release_tag"`
+	BackendDigest  string `json:"backend_digest"`
+	WebDigest      string `json:"web_digest"`
+	BackupVerified bool   `json:"backup_verified"`
+	ReadyzOK       bool   `json:"readyz_ok"`
+	LocalOK        bool   `json:"local_ok"`
+	ExternalOK     bool   `json:"external_ok"`
+}
+
+func (b selfUpdateBootstrapRequest) valid() bool {
+	return updateSHA.MatchString(b.SourceSHA) && updateTag.MatchString(b.ReleaseTag) && updateDigest.MatchString(b.BackendDigest) && updateDigest.MatchString(b.WebDigest) && b.BackupVerified && b.ReadyzOK && b.LocalOK && b.ExternalOK
+}
+
+// SelfUpdateWorkerBootstrapStatus never infers source provenance from :dev.
+func (h *Handler) SelfUpdateWorkerBootstrapStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSelfUpdateWorker(w, r) {
+		return
+	}
+	var out struct {
+		Registered bool `json:"registered"`
+		ActiveJob  bool `json:"active_job"`
+	}
+	err := h.DB.QueryRow(r.Context(), `SELECT
+		EXISTS (SELECT 1 FROM self_update_installation WHERE deployed_custom_sha <> '' OR deployed_release_tag <> '' OR backend_digest <> '' OR web_digest <> ''),
+		EXISTS (SELECT 1 FROM self_update_job WHERE phase NOT IN ('succeeded','failed','needs_decision'))`).Scan(&out.Registered, &out.ActiveJob)
+	if err != nil {
+		writeError(w, 500, "unable to read bootstrap status")
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// The single conditional upsert makes an empty baseline stamp atomic and permits
+// exact delivery replay after a lost response. Existing provenance is immutable.
+func (h *Handler) SelfUpdateWorkerBootstrap(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSelfUpdateWorker(w, r) {
+		return
+	}
+	var body selfUpdateBootstrapRequest
+	if !decodeUpdateBody(w, r, &body) {
+		return
+	}
+	if !body.valid() {
+		writeError(w, 400, "verified bootstrap evidence required")
+		return
+	}
+	var sha string
+	err := h.DB.QueryRow(r.Context(), `INSERT INTO self_update_installation
+		(singleton,deployed_release_tag,deployed_custom_sha,backend_digest,web_digest,project_id)
+		SELECT true,$1,$2,$3,$4,$5
+		WHERE NOT EXISTS (SELECT 1 FROM self_update_job WHERE phase NOT IN ('succeeded','failed','needs_decision'))
+		ON CONFLICT (singleton) DO UPDATE SET
+		deployed_release_tag=EXCLUDED.deployed_release_tag,deployed_custom_sha=EXCLUDED.deployed_custom_sha,
+		backend_digest=EXCLUDED.backend_digest,web_digest=EXCLUDED.web_digest,project_id=EXCLUDED.project_id,updated_at=now()
+		WHERE (self_update_installation.deployed_release_tag='' AND self_update_installation.deployed_custom_sha='' AND self_update_installation.backend_digest='' AND self_update_installation.web_digest='')
+		OR (self_update_installation.deployed_release_tag=EXCLUDED.deployed_release_tag AND self_update_installation.deployed_custom_sha=EXCLUDED.deployed_custom_sha AND self_update_installation.backend_digest=EXCLUDED.backend_digest AND self_update_installation.web_digest=EXCLUDED.web_digest AND self_update_installation.project_id=EXCLUDED.project_id)
+		RETURNING deployed_custom_sha`, body.ReleaseTag, body.SourceSHA, body.BackendDigest, body.WebDigest, h.selfUpdate.projectID).Scan(&sha)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, 409, "bootstrap baseline already registered or update active")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "unable to register bootstrap baseline")
+		return
+	}
+	writeJSON(w, 200, struct {
+		Registered bool `json:"registered"`
+	}{true})
+}
+
 func (h *Handler) SelfUpdateWorkerAdvance(w http.ResponseWriter, r *http.Request) {
 	if !h.requireSelfUpdateWorker(w, r) {
 		return

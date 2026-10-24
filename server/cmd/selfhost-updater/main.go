@@ -13,6 +13,25 @@ import (
 )
 
 func run(ctx context.Context, args []string, runner selfupdate.CommandRunner) error {
+	if len(args) > 0 && args[0] == "bootstrap" {
+		flags := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		path := flags.String("config", "", "protected host configuration file")
+		source := flags.String("source-sha", "", "exact custom branch commit")
+		tag := flags.String("release-tag", "", "official stable release ancestor")
+		apply := flags.Bool("apply", false, "execute explicitly confirmed baseline deployment")
+		if err := flags.Parse(args[1:]); err != nil {
+			return fmt.Errorf("invalid bootstrap arguments")
+		}
+		if flags.NArg() != 0 || *path == "" || *source == "" || *tag == "" {
+			return fmt.Errorf("bootstrap requires --config, --source-sha and --release-tag")
+		}
+		cfg, err := selfupdate.LoadWorkerConfig(*path)
+		if err != nil {
+			return err
+		}
+		return selfupdate.Bootstrap(ctx, runner, cfg, *source, *tag, *apply, os.Stdout, nil)
+	}
 	if len(args) == 0 || args[0] != "serve" {
 		return fmt.Errorf("usage: selfhost-updater serve --config <absolute-path> [--dry-run]")
 	}

@@ -21,6 +21,43 @@ import (
 const updateTestSHA = "1234567890123456789012345678901234567890"
 const updateTestToken = "private-worker-token-never-public"
 
+func TestSelfUpdateBootstrapInput(t *testing.T) {
+	valid := selfUpdateBootstrapRequest{SourceSHA: updateTestSHA, ReleaseTag: "v1.2.3", BackendDigest: "sha256:" + strings.Repeat("a", 64), WebDigest: "sha256:" + strings.Repeat("b", 64), BackupVerified: true, ReadyzOK: true, LocalOK: true, ExternalOK: true}
+	if !valid.valid() {
+		t.Fatal("valid baseline evidence rejected")
+	}
+	for _, change := range []func(*selfUpdateBootstrapRequest){func(b *selfUpdateBootstrapRequest) { b.SourceSHA = "main" }, func(b *selfUpdateBootstrapRequest) { b.ReleaseTag = "v1.2.3-beta" }, func(b *selfUpdateBootstrapRequest) { b.BackendDigest = "dev" }, func(b *selfUpdateBootstrapRequest) { b.WebDigest = "sha256:bad" }, func(b *selfUpdateBootstrapRequest) { b.BackupVerified = false }, func(b *selfUpdateBootstrapRequest) { b.ReadyzOK = false }, func(b *selfUpdateBootstrapRequest) { b.LocalOK = false }, func(b *selfUpdateBootstrapRequest) { b.ExternalOK = false }} {
+		bad := valid
+		change(&bad)
+		if bad.valid() {
+			t.Fatal("unverified baseline accepted")
+		}
+	}
+}
+func TestSelfUpdateBootstrapRejectsBeforeDatabase(t *testing.T) {
+	h := &Handler{selfUpdate: parseSelfUpdateConfig(Config{SelfUpdateEnabled: true, SelfUpdateAdminIDs: "11111111-1111-4111-8111-111111111111", SelfUpdateProjectID: "22222222-2222-4222-8222-222222222222", SelfUpdateWorkerToken: updateTestToken})}
+	for _, token := range []string{"", "wrong", updateTestToken} {
+		req := httptest.NewRequest(http.MethodPost, "/api/self-update/worker/bootstrap", strings.NewReader(`{}`))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		h.SelfUpdateWorkerBootstrap(w, req)
+		want := 401
+		if token == updateTestToken {
+			want = 400
+		}
+		if w.Code != want {
+			t.Fatalf("status=%d want=%d", w.Code, want)
+		}
+	}
+	w := httptest.NewRecorder()
+	h.SelfUpdateWorkerBootstrapStatus(w, httptest.NewRequest(http.MethodGet, "/api/self-update/worker/bootstrap", nil))
+	if w.Code != 401 {
+		t.Fatalf("unauthenticated preflight status=%d", w.Code)
+	}
+}
+
 type updateReleaseSource struct {
 	release selfupdate.Release
 	err     error
