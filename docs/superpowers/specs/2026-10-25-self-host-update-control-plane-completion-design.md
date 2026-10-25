@@ -45,6 +45,7 @@
 - worker 二进制安装到 `~/.multica/self-update/bin/selfhost-updater`，LaunchAgent 只能引用该固定路径。
 - worker 配置和状态继续位于 `~/.multica/self-update/`，均为用户私有权限；生产环境文件在该目录中保存，不能从 Git 工作树读取。
 - 对临时控制面不可用（Docker Desktop、后端尚未启动、短暂重启）采用有界间隔重试，并维持重启后的心跳。配置错误、私有目录权限错误和不可信输入仍然立即失败，便于管理员处理。
+- 当主机 VPN 的系统 DNS 不能解析 Funnel 域名时，worker 只能对已配置的固定公网解析地址重写该一个健康检查连接；TLS 仍使用原 Funnel 主机名，其他请求继续使用系统网络。未配置地址或地址不可信时外部检查必须失败。
 - worker 不接收浏览器提供的 shell 命令、仓库、分支、Docker 参数或凭据。
 
 ## 真实更新验收
