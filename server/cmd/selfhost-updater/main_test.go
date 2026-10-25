@@ -9,8 +9,65 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func TestServeCLIRetriesAndLogsWithoutSecrets(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(root, "production.env")
+	if err = os.WriteFile(env, []byte("POSTGRES_DB=production\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var heartbeats atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/self-update/worker/heartbeat" {
+			if heartbeats.Add(1) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("private-token must not escape"))
+				return
+			}
+			cancel()
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	cfg := selfupdate.WorkerConfig{RepositoryDir: filepath.Join(root, "repo.git"), WorktreeRoot: filepath.Join(root, "trees"), StateDir: filepath.Join(root, "state"), ProductionEnvFile: env, ProductionDatabase: "production", CustomRemote: "https://github.com/example/multica.git", CustomBranch: "custom", ServerURL: server.URL, WorkerToken: "private-token", PollInterval: time.Millisecond}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "config.json")
+	if err = os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.CreateTemp(root, "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	originalStderr := os.Stderr
+	os.Stderr = log
+	defer func() { os.Stderr = originalStderr }()
+	err = run(ctx, []string{"serve", "--config", path}, neverRunner{t})
+	if err != context.Canceled || heartbeats.Load() < 2 {
+		t.Fatalf("serve error = %v, heartbeats = %d; want cancellation after retry", err, heartbeats.Load())
+	}
+	output, err := os.ReadFile(log.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(output) != "worker control plane unavailable\n" {
+		t.Fatal("retry log must contain only the fixed redacted message")
+	}
+}
 
 type neverRunner struct{ t *testing.T }
 

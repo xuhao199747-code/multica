@@ -6,9 +6,132 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func TestWorkerServeRetriesTransientControlPlaneFailure(t *testing.T) {
+	for _, failure := range []string{"503", "transport"} {
+		t.Run(failure, func(t *testing.T) {
+			cfg, _ := candidateFixture(t)
+			cfg.PollInterval = time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			var heartbeats atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/self-update/worker/heartbeat" {
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+				if heartbeats.Add(1) == 1 {
+					if failure == "transport" {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						_ = conn.Close()
+						return
+					}
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				cancel()
+			}))
+			defer server.Close()
+			cfg.ServerURL = server.URL
+			err := (&Worker{Config: cfg, Runner: &fakeRunner{}, Client: server.Client()}).Serve(ctx)
+			if heartbeats.Load() < 2 {
+				t.Fatalf("worker did not retry transient control-plane failure: %d", heartbeats.Load())
+			}
+			if err != context.Canceled {
+				t.Fatalf("Serve error = %v, want context cancellation", err)
+			}
+		})
+	}
+}
+
+func TestWorkerServeRejectsInvalidConfiguration(t *testing.T) {
+	cfg, _ := candidateFixture(t)
+	cfg.PollInterval = -time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := (&Worker{Config: cfg, Runner: &fakeRunner{}}).Serve(ctx); err == nil || err.Error() != "invalid polling interval" {
+		t.Fatalf("Serve error = %v, want validation error", err)
+	}
+}
+
+func TestWorkerServeReturnsTerminalErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		status     int
+	}{
+		{"unauthorized", "worker control plane HTTP 401", http.StatusUnauthorized},
+		{"forbidden", "worker control plane HTTP 403", http.StatusForbidden},
+		{"malformed response", "invalid worker control plane response", http.StatusOK},
+		{"unsafe journal", "host paths cannot contain symlinks", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, job := candidateFixture(t)
+			cfg.PollInterval = time.Millisecond
+			if tc.name == "unsafe journal" {
+				dir := filepath.Join(cfg.StateDir, job.ID)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(cfg.ProductionEnvFile, filepath.Join(dir, "journal.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var heartbeats atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/self-update/worker/heartbeat" {
+					heartbeats.Add(1)
+					w.WriteHeader(tc.status)
+					return
+				}
+				_, _ = w.Write([]byte("invalid JSON"))
+			}))
+			defer server.Close()
+			cfg.ServerURL = server.URL
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			err := (&Worker{Config: cfg, Runner: &fakeRunner{}, Client: server.Client(), OnRetry: func(error) {
+				t.Error("terminal errors must not be reported as retryable")
+			}}).Serve(ctx)
+			if err == nil || err.Error() != tc.want || heartbeats.Load() != 1 {
+				t.Fatalf("Serve error = %v, heartbeats = %d; want terminal error %q after one heartbeat", err, heartbeats.Load(), tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkerServeCancelsRetryWait(t *testing.T) {
+	cfg, _ := candidateFixture(t)
+	cfg.PollInterval = time.Hour
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	cfg.ServerURL = server.URL
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	retries := 0
+	worker := Worker{Config: cfg, Runner: &fakeRunner{}, Client: server.Client(), OnRetry: func(err error) {
+		retries++
+		if err.Error() != "worker control plane HTTP 503" {
+			t.Errorf("unexpected retry error: %v", err)
+		}
+		cancel()
+	}}
+	if err := worker.Serve(ctx); err != context.Canceled || retries != 1 {
+		t.Fatalf("Serve error = %v, retries = %d; want cancellation during retry wait", err, retries)
+	}
+}
 
 func TestWorkerPrepareAndReconcile(t *testing.T) {
 	for _, tc := range []struct {

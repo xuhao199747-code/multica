@@ -50,7 +50,13 @@ func run(ctx context.Context, args []string, runner selfupdate.CommandRunner) er
 		return err
 	}
 	cfg.DryRun = *dry
-	return (&selfupdate.Worker{Config: cfg, Runner: runner}).Serve(ctx)
+	return (&selfupdate.Worker{
+		Config: cfg,
+		Runner: runner,
+		OnRetry: func(error) {
+			fmt.Fprintln(os.Stderr, "worker control plane unavailable")
+		},
+	}).Serve(ctx)
 }
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

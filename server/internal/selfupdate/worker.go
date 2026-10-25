@@ -32,6 +32,8 @@ type Worker struct {
 	Config WorkerConfig
 	Runner CommandRunner
 	Client *http.Client
+	// OnRetry reports transient control-plane failures before the next poll.
+	OnRetry func(error)
 }
 
 // Serve serializes candidate claims while independently maintaining the heartbeat
@@ -79,7 +81,15 @@ func (w *Worker) Serve(ctx context.Context) error {
 	}
 	for {
 		if err = w.PollOnce(ctx); err != nil {
-			return err
+			if !retryableControlPlaneError(err) {
+				return err
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if w.OnRetry != nil {
+				w.OnRetry(err)
+			}
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -89,6 +99,15 @@ func (w *Worker) Serve(ctx context.Context) error {
 		case <-timer.C:
 		}
 	}
+}
+
+func retryableControlPlaneError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return message == "worker control plane unavailable" ||
+		strings.HasPrefix(message, "worker control plane HTTP 5")
 }
 
 // PollOnce reconciles every durable job before asking the server for new work.
