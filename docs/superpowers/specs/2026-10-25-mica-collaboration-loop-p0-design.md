@@ -23,7 +23,7 @@ The current UI also makes the workflow look heavier than it is because configura
 - Let a member confirm a Mica-produced PRD and start the existing workflow in one action.
 - Create an execution, development issue, execution-to-issue link, and agent run as one durable operation.
 - Keep existing projects, issues, agent queues, inbox items, activity records, role bindings, and delivery evidence as their current product objects.
-- Make Project, Tasks, My Tasks, Inbox, and project Mica show compatible views of the same work.
+- Leave Project, Tasks, My Tasks, and Inbox on their existing data boundaries while making the new development task visible through their current behavior.
 - Prove the loop against the real `multica` project with a narrow, safe acceptance request before changing later stages.
 
 ## Non-Goals
@@ -55,19 +55,18 @@ The current UI also makes the workflow look heavier than it is because configura
 | Agent task queue | Run the project-bound development agent | Reuse |
 | Delivery and review receipts | Advance later execution stages | No behavior change in P0 |
 | Project task views | Show development, review, and repair tasks | Add execution context only where useful |
-| My Tasks | Show member-owned work and unresolved Mica decisions | Add a derived decision section; no new task table |
-| Inbox | Notify the member of a needed confirmation, decision, or failure | Reuse existing item and realtime delivery |
-| Activity log and realtime events | Record and refresh durable changes | Publish after transaction commit |
+| My Tasks | Show the existing Issue relations: assigned, created, and involved | No P0 change |
+| Inbox | Deliver existing notifications | No P0 change |
+| Activity log and realtime events | Record and refresh durable changes already emitted by issue and task creation | Reuse; add execution-specific events only if the current project query cannot refresh from existing events |
 
 ## Source of Truth
 
 | Fact | Source of truth | Displayed in |
 | --- | --- | --- |
 | Confirmed scope and acceptance criteria | Frozen execution snapshot | Mica chat, project details, workflow tasks |
-| Current collaboration stage | `project_execution_record.state` | Project summary, My Tasks decision section, Mica context |
+| Current collaboration stage | `project_execution_record.state` | Project summary and Mica context |
 | Concrete work and assignee | Linked Issue plus agent run | Project tasks, global tasks, agent views |
 | Delivery and review evidence | Execution receipt fields, with commit or PR references | Execution details and reviewer context |
-| Member action required | Execution state plus decision ownership | My Tasks |
 | New/unread notification | Inbox item | Inbox and badge |
 | Audit history | Activity log | Project and task history |
 
@@ -97,24 +96,10 @@ Development receipt
 Review result
   -> passed: existing delivery or completion path runs
   -> needs_changes: existing repair path runs
-  -> needs_member_decision: member action is shown in My Tasks and Inbox
+  -> needs_member_decision: Mica asks the confirming member in the project chat
 ```
 
 P0 does not assume that later stages must be rewritten. The first real-project acceptance run decides whether a later handoff is broken before any broader change is proposed.
-
-### 3. Member decision flow
-
-```text
-Execution enters needs_member_decision
-  -> Mica explains the decision in its project chat
-  -> My Tasks derives a "Mica decision" item from the execution
-  -> Inbox sends one notification
-  -> Member chooses in the Mica chat
-  -> Execution advances
-  -> My Tasks item disappears and Inbox is no longer actionable
-```
-
-P0 assigns the decision to the member who confirmed the execution (`created_by`). A later phase may add a configurable project decision owner; P0 does not add delegation or multi-person approval.
 
 ## Architecture
 
@@ -129,11 +114,13 @@ It must:
 3. Create one `project_execution_record` with the frozen snapshot.
 4. Create one development Issue in the same project and assign it to the bound developer.
 5. Create the `project_execution_issue` link with role `development`.
-6. Enqueue the existing agent run for that Issue.
+6. Persist the existing agent run for that Issue.
 7. Commit all durable records in one transaction.
 8. Publish activity and realtime events only after commit.
 
 The operation must reuse lower-level workflow, issue, and task services. It must not call HTTP handlers from another handler or duplicate Issue creation and queueing rules.
+
+`IssueService.Create` currently owns its own transaction, so P0 cannot obtain this atomicity by calling that public method from a new handler. The implementation must first expose a transaction-aware internal creation-and-enqueue path, then call it from the workflow transaction. If that extraction is not safe, P0 must stop rather than ship a compensating-cleanup path that can leave partial workflow records.
 
 If any durable step fails, the transaction rolls back. The system must not leave an execution without its first development Issue or an orphaned development Issue without its execution link.
 
@@ -154,28 +141,14 @@ When later validation finds a completed execution with still-active linked workf
 
 ### Project page
 
-The existing Mica workflow section remains. P0 changes its emphasis:
+The existing Mica workflow section remains the P0 project surface.
 
-```text
-Mica collaboration                         Enabled
-
-Current collaboration
-<goal>
-Development in progress
-
-[Continue with project Mica]
-
-Development task: In progress
-Review task: Not started
-
-> Collaboration members and rules
-> Execution history and evidence
-```
-
-- The primary action opens the project Mica chat.
-- The current execution summary links to real tasks; it does not duplicate task controls.
-- Role selectors, delivery settings, and raw evidence remain available but are visually secondary.
+- Its existing primary action continues to open the project Mica chat.
+- Its existing execution list continues to show created execution records and their evidence.
+- Role selectors, delivery settings, and raw evidence are not redesigned in P0.
 - The existing "automated release" setting is not expanded or reinterpreted in P0.
+
+P0 may add only the minimum cache invalidation or realtime event needed for an execution started from Mica to appear without a manual refresh. It does not add a new project dashboard, a new task board, or a second workflow summary.
 
 ### Project Mica chat
 
@@ -196,40 +169,24 @@ After confirmation, the chat shows a system progress summary and links to the cr
 
 ### Task pages
 
-Workflow-created development, review, and repair work stays in the existing task pages. Each task may show:
+Workflow-created development, review, and repair work stays in the existing task pages. P0 relies on their existing project, assignee, status, and run displays. A later task-page improvement may add:
 
 - Its project.
 - Its workflow role: development, review, or repair.
 - A link to the execution snapshot and Mica conversation.
 - Required evidence or upstream review findings.
 
-No user-visible `Coordinate review` or `Coordinate delivery` task is introduced by P0.
+Existing `Coordinate review` and `Coordinate delivery` tasks remain unchanged in P0. P0 creates no additional coordination-task type and does not hide or rewrite existing coordination records before a real-project acceptance run proves that later handoffs require a targeted change.
 
-### My Tasks
+### My Tasks and Inbox
 
-My Tasks has two derived sections:
+P0 does not change either surface.
 
-```text
-Tasks assigned to me
-  - Existing member-assigned project and non-project tasks
+- My Tasks remains an Issue-only view with its existing assigned, created, and involved scopes.
+- Agent-owned development, review, and repair Issues remain visible through the existing project task list and agent views, not a member's My Tasks by default.
+- Inbox continues to represent existing notifications. P0 does not create a new pending-confirmation or execution-decision notification type.
 
-Mica decisions waiting for me
-  - Active executions in needs_member_decision that I started
-```
-
-The Mica decision row is not a new Issue. It links to the project Mica chat, where the member can view context and decide. It stays visible until the execution state changes, even if the corresponding Inbox item is marked read.
-
-Development, review, and repair tasks assigned to agents do not appear in a member's My Tasks by default. They remain visible from the project task list and project execution summary.
-
-### Inbox
-
-Inbox sends one actionable notification for:
-
-- A PRD confirmation needed from the member.
-- A workflow decision needed from the member.
-- A workflow failure or block that requires member intervention.
-
-Inbox does not notify every task start, progress update, review start, or successful automatic handoff. Those events belong in activity history and the Mica conversation.
+If a later real-project run proves that a member decision is too easy to miss in Mica chat, that work must be designed separately with a durable decision record. It must not be derived from Inbox read state or added as a duplicate Issue.
 
 ## Functional Requirements
 
@@ -253,13 +210,7 @@ Inbox does not notify every task start, progress update, review start, or succes
 - The created development Issue appears in the existing project task list and agent run views.
 - The task links back to its execution and source Mica chat.
 
-### FR-4: Member action visibility
-
-- A pending member decision appears in My Tasks based on execution state, not Inbox unread state.
-- Inbox sends at most one active notification for the same execution decision.
-- Resolving the decision updates Mica chat, My Tasks, Inbox, and project summary through existing realtime patterns.
-
-### FR-5: Acceptance evidence
+### FR-4: Acceptance evidence
 
 - The real `multica` project can complete a safe, narrow workflow acceptance execution.
 - The acceptance record includes the source project Mica chat, execution ID, development Issue, agent run, delivery receipt, review receipt, final execution state, and visible project/task updates.
@@ -272,8 +223,7 @@ P0 is successful when:
 - A member can start a real project execution from Mica without manually running separate confirm and dispatch commands.
 - One member confirmation yields exactly one active execution, one development Issue, one execution-to-issue link, and one queued agent run.
 - The project page, task list, and Mica chat all identify the same active execution.
-- Agent-owned workflow work does not pollute a member's My Tasks.
-- A required member decision remains actionable until resolved, regardless of Inbox read state.
+- Existing My Tasks and Inbox behavior remains unchanged by the new start operation.
 - The real-project acceptance run produces end-to-end evidence.
 
 🔶 Assumption: There is no current product metric for workflow-start completion rate. P0 should add structured logs or audit assertions first; a product metric can be selected after real-project usage produces a baseline.
@@ -285,8 +235,8 @@ P0 is successful when:
 | Duplicate starts from chat retries | Use a confirmation-specific idempotency key and one transaction |
 | Mica starts work without member agreement | Only the member confirmation action may start an execution |
 | New bridge bypasses existing validation | Reuse workflow role, project, Issue, and task queue services |
-| My Tasks becomes another Inbox | Derive only unresolved member-owned work and execution decisions |
-| Workflow creates noisy notifications | Notify only for member confirmation, decision, failure, or block |
+| P0 expands into My Tasks or Inbox redesign | Keep both surfaces unchanged and prove the entry bridge first |
+| Workflow creates noisy notifications | P0 creates no workflow notification type |
 | Historical state inconsistencies are hidden | Preserve history and report discrepancies; do not auto-close old blocked work |
 | Scope expands into delivery automation | Keep Docker, GitHub merge, and release automation out of P0 |
 
@@ -298,8 +248,7 @@ P0 is successful when:
 4. Verify the project page and task list update through realtime events.
 5. Complete the existing delivery and review path with real evidence.
 6. Compare execution state, Issue status, and agent-run state at each transition.
-7. Verify My Tasks stays empty for agent-owned work and shows a member decision only when the execution requires one.
-8. Verify Inbox behavior for one member decision, including read-state independence.
+7. Verify existing My Tasks and Inbox behavior is unchanged by the new start operation.
 
 ## Follow-Up Boundary
 
@@ -308,7 +257,7 @@ Only after the P0 acceptance run, assess evidence for these separate follow-ups:
 - Repairing a proven later-stage handoff failure.
 - Converging linked Issue status when an execution reaches a terminal state.
 - Replacing user-visible coordination tasks with chat-first handoffs.
-- Configurable decision ownership.
+- Durable member decisions, My Tasks integration, Inbox notifications, and configurable decision ownership.
 - GitHub, CI, Docker, and deployment integration.
 
 None of these follow-ups are authorized by P0 alone.
@@ -317,4 +266,4 @@ None of these follow-ups are authorized by P0 alone.
 
 - 🔵 Open Question: Does the current Mica chat tool surface support a structured member-confirmation action, or does P0 need a small project-chat action API and UI card?
 - 🔵 Open Question: Which existing durable event and activity-log shape best represents execution creation without adding a parallel audit mechanism?
-- 🔵 Open Question: Should a project lead be a fallback decision owner when the execution creator is no longer an active project member? P0 recommends no fallback until this case is observed.
+- 🔵 Open Question: Does the current project execution list receive an existing realtime invalidation when a Mica confirmation creates a record, or is one narrow execution-created event needed?
