@@ -188,7 +188,7 @@ func Bootstrap(ctx context.Context, r CommandRunner, cfg WorkerConfig, source, t
 		_ = persist()
 		return err
 	}
-	if err = VerifyDeployment(ctx, client, evidence); err != nil {
+	if err = worker.VerifyDeployment(ctx, evidence); err != nil {
 		_ = persist()
 		return err
 	}
