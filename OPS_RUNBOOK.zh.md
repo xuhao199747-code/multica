@@ -18,7 +18,7 @@
 - 生产数据库容器**发布了宿主端口** `127.0.0.1:5432`（2026-10-15 版"没有发布"已过时）。
 - 对外入口由 `multica-tailscale` 容器的 Funnel 提供，**该容器不要动**（登录态与 serve 配置都在卷 `multica-tailscale-state` 里）；宿主机 Tailscale.app 未运行、也不需要。细节见 §1a。
 - 邮件通道：生产 `.env` 走 **Resend**（`RESEND_API_KEY`、`RESEND_FROM_EMAIL` 已配置；`SMTP_HOST` 为空 = SMTP 未启用）。改邮件 = 改 `.env` + 重启后端容器。机制见 `SELF_HOSTING_ADVANCED.md` 的 Email 一节。本地 dev（18080）不发邮件，验证码打印在后端日志（`[DEV] Verification code ...`，问我"验证码"即可）。
-- 当前运行中的生产栈是 2026-10-16 用 `/tmp/multica-workbench-route-G7mLOS/` 下的 compose 副本启动的（宿主端口 13017/18097/5432 与仓库 compose 默认的 3000/8080 不同，属未收尾变更，见 §10）。frontend/backend/tailscale 重启策略 `unless-stopped`（开机自拉起），**postgres 是 `no`**——机器重启后若后端连不上库，先 `docker start multica-postgres-1`。
+- 当前运行中的生产栈是 2026-10-16 用 `/tmp/multica-workbench-route-G7mLOS/` 下的 compose 副本启动的（宿主端口 13017/18097/5432 与仓库 compose 默认的 3000/8080 不同，属未收尾变更，见 §10）。postgres/frontend/backend/tailscale 都使用 `unless-stopped` 重启策略；Docker Desktop 启动后会恢复整套生产服务。
 - `docker compose` 必须带 `-f docker-compose.selfhost.yml`（必要时加 `-f docker-compose.selfhost.build.yml`）；`.env` 必须存在（密钥已与线上一致，绝不要重新随机生成，否则全员掉登录）。
 - `/health` 返回的 `commit` 字段 = 生产后端的真实版本身份证明（构建时注入）。当前值 `254852f`（即 20261016-1e2268d 那次发布的构建 HEAD，代码版本 = 1e2268d）。
 - 本机网络注意：github.com 时通时断（推送需重试）；brew 不可用（Go 手工装在 `/opt/homebrew/opt/go`）；api.github.com 稳定。
