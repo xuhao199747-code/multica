@@ -464,7 +464,7 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 			continue
 		}
 		foundDeveloper = foundDeveloper || item.IssueID == dispatched.Issue.ID && item.Role == "development"
-		foundCoordinator = foundCoordinator || item.IssueID == result.CoordinationIssue.ID && item.Role == "delivery"
+		foundCoordinator = foundCoordinator || item.IssueID == result.CoordinationIssue.ID && item.Role == "review"
 	}
 	if !foundDeveloper || !foundCoordinator {
 		t.Fatalf("execution issue status is incomplete: %+v", listed.ExecutionIssues)

@@ -889,7 +889,7 @@ func (h *Handler) enqueueProjectWorkflowReviewCoordination(r *http.Request, proj
 	if err != nil {
 		return service.IssueCreateResult{}, err
 	}
-	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: "delivery"}); err != nil {
+	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: "review"}); err != nil {
 		return service.IssueCreateResult{}, err
 	}
 	return result, nil
