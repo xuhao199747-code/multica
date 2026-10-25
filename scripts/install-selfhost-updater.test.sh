@@ -119,6 +119,12 @@ export SELFHOST_EXTERNAL_RESOLVE_IP=103.84.155.217
 unset SELFHOST_WORKER_TOKEN
 reject 'missing worker token'
 export SELFHOST_WORKER_TOKEN='test-only-token"<&'
+printf 'original-production-settings\n' > "$HOME/.multica/self-update/worker.json"
+chmod 600 "$HOME/.multica/self-update/worker.json"
+export SELFHOST_PRODUCTION_ENV_FILE="$HOME/.multica/self-update/worker.json"
+reject 'production env equal to worker config output'
+rg -qx 'original-production-settings' "$HOME/.multica/self-update/worker.json" || fail 'rejected collision overwrote production env bytes'
+export SELFHOST_PRODUCTION_ENV_FILE="$saved_env"
 printf 'PASS: unsafe or missing protected configuration is rejected\n'
 
 SELFHOST_UPDATER_DRY_RUN=0 run_install || fail 'installation with fake host commands failed'

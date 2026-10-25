@@ -85,6 +85,9 @@ for path in [*directories, agent_dir, config_path, plist_path, base / 'bin/selfh
     no_symlinks(path)
 require(not any(env_file == path or path in env_file.parents for path in directories[2:]),
         'Production env must be outside managed directories')
+outputs = (config_path, plist_path, base / 'bin/selfhost-updater')
+require(not any(env_file == path for path in outputs),
+        'Production env must not equal a generated output file')
 if sys.argv[1] == 'validate':
     sys.exit(0)
 
