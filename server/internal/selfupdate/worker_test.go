@@ -13,6 +13,27 @@ import (
 	"time"
 )
 
+func TestWorkerVerifyDeploymentExternalResolver(t *testing.T) {
+	server, base := externalTLSFixture(t, "funnel.example.test")
+	worker := Worker{Config: WorkerConfig{ExternalResolveIP: "127.0.0.1"}, Client: base}
+	e := DeployEvidence{ReadyURL: server.URL + "/readyz", LocalURL: server.URL + "/", ExternalURL: "https://funnel.example.test/"}
+	if err := worker.VerifyDeployment(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	worker.Config.ExternalResolveIP = "invalid"
+	if err := worker.VerifyDeployment(context.Background(), e); err == nil {
+		t.Fatal("worker accepted invalid resolver override")
+	}
+	worker.Config.ExternalResolveIP = ""
+	if err := worker.VerifyDeployment(context.Background(), e); err == nil {
+		t.Fatal("worker silently resolved an external host without the override")
+	}
+	e.ExternalURL = server.URL
+	if err := worker.VerifyDeployment(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkerServeRetriesTransientControlPlaneFailure(t *testing.T) {
 	for _, failure := range []string{"503", "transport"} {
 		t.Run(failure, func(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ type WorkerConfig struct {
 	CustomRemote       string        `json:"custom_remote"`
 	CustomBranch       string        `json:"custom_branch"`
 	ServerURL          string        `json:"server_url"`
+	ExternalResolveIP  string        `json:"external_resolve_ip"`
 	WorkerToken        string        `json:"worker_token"`
 	PollInterval       time.Duration `json:"poll_interval"`
 	DryRun             bool          `json:"-"`
@@ -60,6 +62,11 @@ func LoadWorkerConfig(path string) (WorkerConfig, error) {
 }
 
 func (c WorkerConfig) Validate() error {
+	if c.ExternalResolveIP != "" {
+		if _, err := netip.ParseAddr(c.ExternalResolveIP); err != nil {
+			return fmt.Errorf("external resolver override must be an IP address")
+		}
+	}
 	for _, path := range []string{c.RepositoryDir, c.WorktreeRoot, c.StateDir, c.ProductionEnvFile} {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == string(filepath.Separator) {
 			return fmt.Errorf("host paths must be absolute dedicated paths")

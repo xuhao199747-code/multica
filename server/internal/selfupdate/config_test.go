@@ -100,3 +100,36 @@ func TestCandidateEnvironmentEffectiveDatabase(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerConfigExternalResolveIP(t *testing.T) {
+	cfg, _ := candidateFixture(t)
+	for _, address := range []string{"", "127.0.0.1", "2001:db8::1", "not-an-ip", "127.0.0.1:443", " 127.0.0.1"} {
+		t.Run(address, func(t *testing.T) {
+			data, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			fields["external_resolve_ip"] = address
+			data, err = json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(canonicalTempDir(t), "worker.json")
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := LoadWorkerConfig(path)
+			wantErr := address == "not-an-ip" || address == "127.0.0.1:443" || address == " 127.0.0.1"
+			if (err != nil) != wantErr {
+				t.Fatalf("config validation error = %v, want rejection = %t", err, wantErr)
+			}
+			if err == nil && loaded.ExternalResolveIP != address {
+				t.Fatal("resolver override was not loaded")
+			}
+		})
+	}
+}

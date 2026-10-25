@@ -36,6 +36,15 @@ type Worker struct {
 	OnRetry func(error)
 }
 
+// VerifyDeployment applies the host-only resolver override to external checks.
+func (w *Worker) VerifyDeployment(ctx context.Context, evidence DeployEvidence) error {
+	client, err := externalHealthClient(w.Client, evidence.ExternalURL, w.Config.ExternalResolveIP)
+	if err != nil {
+		return err
+	}
+	return VerifyDeployment(ctx, client, evidence)
+}
+
 // Serve serializes candidate claims while independently maintaining the heartbeat
 // during long checks/builds. A host lock prevents two processes sharing a journal.
 func (w *Worker) Serve(ctx context.Context) error {
