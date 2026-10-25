@@ -174,6 +174,12 @@ export type {
 } from "./chat";
 export type { StorageAdapter } from "./storage";
 export type {
+  SelfUpdateCapability,
+  SelfUpdateRelease,
+  SelfUpdateJob,
+  SelfUpdateStatus,
+} from "./self-update";
+export type {
   Project,
   ProjectStatus,
   ProjectPriority,

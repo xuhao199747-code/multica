@@ -96,6 +96,46 @@ import type {
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 import type { CreateFeedbackResponse } from "../feedback/types";
 
+// Self-host update control plane (`GET /api/self-update/status`,
+// `POST /api/self-update/jobs`, `GET /api/self-update/jobs/:id`). `phase` /
+// `step` stay as plain strings: the worker's vocabulary will evolve across
+// releases, and the client only displays them — a phase this build has never
+// seen must not blank the whole response.
+export const SelfUpdateReleaseSchema = z.object({
+  tag: z.string(),
+  sha: z.string(),
+  url: z.string(),
+}).loose();
+
+export const SelfUpdateJobSchema = z.object({
+  id: z.string(),
+  phase: z.string().default(""),
+  step: z.string().default(""),
+  target_tag: z.string().default(""),
+  target_sha: z.string().default(""),
+  source_sha: z.string().default(""),
+  repair_count: z.number().int().nonnegative().default(0),
+  retry_count: z.number().int().nonnegative().default(0),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+  finished_at: z.string().nullable().default(null),
+}).loose();
+
+// Only the four known capabilities are accepted: an unrecognized capability
+// is contract drift, and for this endpoint every degraded capability affects
+// the same CTA — the UI shows setup/reconnect depending on the value, so
+// collapsing to `null` (and hiding the CTA) is safer than guessing.
+export const SelfUpdateStatusSchema = z.object({
+  capability: z.enum(["unsupported", "needs_setup", "worker_offline", "ready"]),
+  can_update: z.boolean(),
+  latest_release: SelfUpdateReleaseSchema.nullable().default(null),
+  deployed_release: z.string(),
+  deployed_custom_sha: z.string(),
+  active_job: SelfUpdateJobSchema.nullable().default(null),
+  update_available: z.boolean(),
+  check_failed: z.boolean(),
+}).loose();
+
 export const PluginConfigFieldSchema = z.object({
   key: z.string(),
   type: z.string().default("string"),
