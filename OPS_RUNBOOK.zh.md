@@ -148,6 +148,42 @@ docker logs --tail 50 multica-backend-1     # 无 migrate 失败 / panic
 | 迁移 | 无 / 清单+dev 库验证结果 |
 | 回滚锚点 | 上一个 `multica-*:YYYYMMDD-xxxxxxx` 或 `rollback-v061` |
 
+### 5a. 安装持久运行的自托管更新 worker（macOS）
+
+在要安装的源码版本根目录运行 `make selfhost-updater-install`。需要本机已有 Python 3、Go、Git、Docker Compose 和 pnpm；安装时的 `PATH` 会写入 LaunchAgent，需能找到后续构建和验证所需的工具。此目标跳过仓库 `.env` / `.env.worktree` 的读取，不能与其他 Make 目标合并执行。
+
+先在源码仓库之外准备生产环境文件（例如 `~/.multica/self-update/production.env`），权限必须为 `600`，路径及其父目录不能是符号链接。使用经过核对的现有生产配置，不重新生成密钥。安装器只记录该文件的路径，不执行其内容。
+
+必填环境变量：
+
+| 变量 | 含义 / 示例 |
+| --- | --- |
+| `SELFHOST_PRODUCTION_ENV_FILE` | 受保护生产环境文件的绝对路径；不能位于任何带 `.git` 文件或目录的源码仓库内 |
+| `SELFHOST_SERVER_URL` | 更新控制接口的固定后端地址，例如 `http://localhost:18097` |
+| `SELFHOST_PRODUCTION_DATABASE` | 经过核对的实际生产数据库名，例如 `multica` |
+| `SELFHOST_CUSTOM_REMOTE` | 自有 fork 的 HTTPS 仓库地址，不能内嵌账号或令牌 |
+| `SELFHOST_CUSTOM_BRANCH` | 自有 fork 的固定发布分支，例如 `codex/self-host-update-release` |
+| `SELFHOST_WORKER_TOKEN` | 与后端 `MULTICA_SELF_UPDATE_WORKER_TOKEN` 一致的私密令牌，通过安全方式预先导出；不要在终端打印或写入仓库 |
+
+可选变量：`SELFHOST_EXTERNAL_RESOLVE_IP` 是公网健康检查的目标 IP，仅在 Funnel 域名受本机 VPN / DNS 影响时使用；仍按原域名校验证书。`SELFHOST_UPDATER_DRY_RUN=1` 写入配置和 plist、初始化本地裸仓库，但跳过编译和服务加载；默认 `0` 执行安装。
+
+以下命令假定已安全导出 `SELFHOST_WORKER_TOKEN`：
+
+```bash
+SELFHOST_PRODUCTION_ENV_FILE="$HOME/.multica/self-update/production.env" \
+SELFHOST_SERVER_URL=http://localhost:18097 \
+SELFHOST_PRODUCTION_DATABASE=multica \
+SELFHOST_CUSTOM_REMOTE=https://github.com/xuhao199747-code/multica.git \
+SELFHOST_CUSTOM_BRANCH=codex/self-host-update-release \
+make selfhost-updater-install
+
+launchctl print gui/$(id -u)/com.multica.self-update
+```
+
+安装器从当前源码的 `server/` Go 模块编译 `cmd/selfhost-updater`，安装到 `~/.multica/self-update/bin/selfhost-updater`，并注册 `~/Library/LaunchAgents/com.multica.self-update.plist`。登录后由 launchd 启动并保持运行；重装会重新加载服务，保留现有仓库、工作区和执行记录。
+
+`~/.multica/self-update/{bin,repo.git,state,worktrees}` 权限为 `700`，`worker.json` 权限为 `600`。日志位于 `state/worker.stdout.log` 和 `state/worker.stderr.log`。LaunchAgent 固定使用持久二进制和配置文件路径，不依赖 `/tmp`。安装成功只表示服务已注册，仍需确认更新状态接口显示 worker 在线，并在实际更新后验证本地后端 `/readyz` 和公网 Funnel 根地址 `/` 均返回 `200`。
+
 ## 6. 本地工作区链路（浏览器聊天 ↔ 本机文件夹）
 
 > 记录的是 2026-10-16 时点的当前形态。这条链还在演进，细节以代码为准；有功能改动时同步更新本节。

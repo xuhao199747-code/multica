@@ -1,11 +1,13 @@
-.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree remove-worktree db-up db-down db-drop db-reset selfhost selfhost-build selfhost-stop up down status list destroy gc env-exec api-dev web-dev desktop-dev
+.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree remove-worktree db-up db-down db-drop db-reset selfhost selfhost-build selfhost-stop selfhost-updater-install up down status list destroy gc env-exec api-dev web-dev desktop-dev
 
 MAIN_ENV_FILE ?= .env
 WORKTREE_ENV_FILE ?= .env.worktree
 ENV_FILE ?= $(if $(wildcard $(MAIN_ENV_FILE)),$(MAIN_ENV_FILE),$(if $(wildcard $(WORKTREE_ENV_FILE)),$(WORKTREE_ENV_FILE),$(MAIN_ENV_FILE)))
 
+ifeq ($(filter selfhost-updater-install,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(ENV_FILE)),)
 include $(ENV_FILE)
+endif
 endif
 
 POSTGRES_DB ?= multica
@@ -78,6 +80,9 @@ makehelp: help ## Alias for `make help`
 
 # ---------- Self-hosting (Docker Compose) ----------
 ##@ Self-hosting
+
+selfhost-updater-install: ## Install the durable macOS self-host update worker from explicit host configuration
+	bash scripts/install-selfhost-updater.sh
 
 selfhost: ## Create .env if needed, then pull and start the official self-hosted images
 	$(REQUIRE_COMPOSE)
