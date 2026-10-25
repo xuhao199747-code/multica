@@ -104,6 +104,6 @@ RETURNING *;
 SELECT * FROM project_execution_record
 WHERE source_chat_session_id = $1
   AND workspace_id = $2
-  AND state NOT IN ('completed', 'canceled')
+  AND state NOT IN ('completed', 'cancelled', 'canceled')
 ORDER BY created_at DESC
 LIMIT 1;

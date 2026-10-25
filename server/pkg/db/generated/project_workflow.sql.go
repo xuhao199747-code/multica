@@ -172,7 +172,7 @@ const getActiveProjectExecutionBySourceChat = `-- name: GetActiveProjectExecutio
 SELECT id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at FROM project_execution_record
 WHERE source_chat_session_id = $1
   AND workspace_id = $2
-  AND state NOT IN ('completed', 'canceled')
+  AND state NOT IN ('completed', 'cancelled', 'canceled')
 ORDER BY created_at DESC
 LIMIT 1
 `

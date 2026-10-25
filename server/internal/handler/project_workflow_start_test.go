@@ -154,3 +154,81 @@ func TestStartProjectWorkflowExecutionFromChatRequiresDeveloper(t *testing.T) {
 		t.Fatalf("execution count = %d, err = %v, want 0", executionCount, err)
 	}
 }
+
+// TestStartProjectWorkflowExecutionFromChatSkipsCancelledExecution ensures a
+// cancelled execution does not block a fresh start from the same chat. The
+// active-execution lookup must not treat cancelled rows as active.
+func TestStartProjectWorkflowExecutionFromChatSkipsCancelledExecution(t *testing.T) {
+	w := httptest.NewRecorder()
+	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Start bridge after cancel"}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.NewDecoder(w.Body).Decode(&project); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+project.ID, nil), "id", project.ID))
+	})
+	enableProjectWorkflowForTest(t, project.ID)
+
+	prdID := createHandlerTestAgent(t, "start-bridge-cancel-prd", nil)
+	developerID := createHandlerTestAgent(t, "start-bridge-cancel-developer", nil)
+	for _, binding := range []struct{ agentID, role string }{{prdID, "prd"}, {developerID, "developer"}} {
+		w = httptest.NewRecorder()
+		testHandler.CreateProjectAgentBinding(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/agents", map[string]any{"agent_id": binding.agentID, "role": binding.role}), "id", project.ID))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("bind %s: %d %s", binding.role, w.Code, w.Body.String())
+		}
+	}
+	sessionID := createChatSessionWithProjectForTest(t, prdID, project.ID)
+
+	body := map[string]any{
+		"source_chat_session_id": sessionID,
+		"snapshot": map[string]any{
+			"goal":                "First attempt",
+			"scope":               []string{},
+			"acceptance_criteria": []string{},
+			"risks":               []string{},
+		},
+	}
+	w = httptest.NewRecorder()
+	testHandler.StartProjectWorkflowExecutionFromChat(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/start", body), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("first start: %d %s", w.Code, w.Body.String())
+	}
+	var first struct {
+		Execution ProjectExecutionResponse `json:"execution"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the member cancelling the execution before it advances.
+	if _, err := testPool.Exec(context.Background(), `UPDATE project_execution_record SET state = 'cancelled' WHERE id = $1`, first.Execution.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh confirmation from the same chat must create a new execution,
+	// not return the cancelled one.
+	body["title"] = "Second attempt after cancel"
+	w = httptest.NewRecorder()
+	testHandler.StartProjectWorkflowExecutionFromChat(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/start", body), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("restart after cancel: %d %s", w.Code, w.Body.String())
+	}
+	var second struct {
+		Execution ProjectExecutionResponse `json:"execution"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	if second.Execution.ID == first.Execution.ID {
+		t.Fatalf("restart returned the cancelled execution %s", second.Execution.ID)
+	}
+	var executionCount int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM project_execution_record WHERE source_chat_session_id = $1`, sessionID).Scan(&executionCount); err != nil || executionCount != 2 {
+		t.Fatalf("execution count = %d, err = %v, want 2", executionCount, err)
+	}
+}
