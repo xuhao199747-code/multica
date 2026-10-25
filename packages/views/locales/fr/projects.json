@@ -181,13 +181,22 @@
     "evidence_review": "Revue",
     "roles_label": "Agents du projet",
     "choose_agent": "Choisir un agent",
-    "roles": { "mika": "Mica", "prd": "PRD", "developer": "Développement", "reviewer": "Revue" },
+    "roles": {
+      "mika": "Mica",
+      "prd": "PRD",
+      "developer": "Développement",
+      "reviewer": "Revue"
+    },
     "delivery_modes": {
       "notify_only": "Notifier seulement",
       "pull_request": "Créer une pull request",
       "manual_release": "Préparer une publication manuelle",
       "automated_release": "Publier automatiquement"
-    }
+    },
+    "start_button": "Confirmer et démarrer",
+    "start_pending": "Démarrage…",
+    "toast_started": "Exécution démarrée",
+    "toast_start_failed": "Échec du démarrage de l’exécution"
   },
   "toolbar": {
     "result_count_title": "Projets correspondants / tous les projets",

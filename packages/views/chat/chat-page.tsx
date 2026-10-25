@@ -62,6 +62,7 @@ import { ChatInput } from "./components/chat-input";
 import { ChatQueue } from "./components/chat-queue";
 import { ChatThreadList } from "./components/chat-thread-list";
 import { ChatSessionHeader } from "./components/chat-session-header";
+import { ProjectWorkflowStartPanel } from "./components/project-workflow-start-panel";
 import { EmptyState } from "./components/chat-empty-state";
 import { useChatController } from "./components/use-chat-controller";
 import { OfflineBanner } from "./components/offline-banner";
@@ -703,6 +704,17 @@ export function ChatPage() {
           session={c.currentSession}
           agent={c.activeAgent}
           onArchive={handleArchive}
+        />
+      )}
+      {c.currentSession && c.activeProjectId && c.activeAgent && (
+        <ProjectWorkflowStartPanel
+          sessionId={c.currentSession.id}
+          projectId={c.activeProjectId}
+          agentId={c.activeAgent.id}
+          projectTitle={
+            c.projects.find((project) => project.id === c.activeProjectId)?.title ?? ""
+          }
+          messages={c.messages}
         />
       )}
       {c.showSkeleton ? (

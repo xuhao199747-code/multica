@@ -180,13 +180,22 @@
     "evidence_review": "レビュー",
     "roles_label": "プロジェクトエージェント",
     "choose_agent": "エージェントを選択",
-    "roles": { "mika": "Mica", "prd": "PRD", "developer": "開発", "reviewer": "レビュー" },
+    "roles": {
+      "mika": "Mica",
+      "prd": "PRD",
+      "developer": "開発",
+      "reviewer": "レビュー"
+    },
     "delivery_modes": {
       "notify_only": "通知のみ",
       "pull_request": "プルリクエストを作成",
       "manual_release": "手動リリースを準備",
       "automated_release": "自動リリース"
-    }
+    },
+    "start_button": "確認して開始",
+    "start_pending": "開始中…",
+    "toast_started": "実行を開始しました",
+    "toast_start_failed": "実行を開始できませんでした"
   },
   "toolbar": {
     "result_count_title": "該当プロジェクト / すべてのプロジェクト",

@@ -168,6 +168,40 @@ func (q *Queries) DeleteProjectWorkflowSettings(ctx context.Context, arg DeleteP
 	return err
 }
 
+const getActiveProjectExecutionBySourceChat = `-- name: GetActiveProjectExecutionBySourceChat :one
+SELECT id, workspace_id, project_id, source_chat_session_id, source_agent_id, snapshot, state, review_round, delivery_result, created_by, created_at, updated_at FROM project_execution_record
+WHERE source_chat_session_id = $1
+  AND workspace_id = $2
+  AND state NOT IN ('completed', 'canceled')
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetActiveProjectExecutionBySourceChatParams struct {
+	SourceChatSessionID pgtype.UUID `json:"source_chat_session_id"`
+	WorkspaceID         pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetActiveProjectExecutionBySourceChat(ctx context.Context, arg GetActiveProjectExecutionBySourceChatParams) (ProjectExecutionRecord, error) {
+	row := q.db.QueryRow(ctx, getActiveProjectExecutionBySourceChat, arg.SourceChatSessionID, arg.WorkspaceID)
+	var i ProjectExecutionRecord
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.SourceChatSessionID,
+		&i.SourceAgentID,
+		&i.Snapshot,
+		&i.State,
+		&i.ReviewRound,
+		&i.DeliveryResult,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getProjectExecutionIssue = `-- name: GetProjectExecutionIssue :one
 SELECT execution_record_id, workspace_id, project_id, issue_id, role, created_at FROM project_execution_issue
 WHERE execution_record_id = $1 AND issue_id = $2 AND project_id = $3 AND workspace_id = $4

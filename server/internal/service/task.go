@@ -796,6 +796,27 @@ func (s *TaskService) applyAttributionFallback(ctx context.Context, attr attribu
 	return fallback, nil
 }
 
+func (s *TaskService) applyAttributionFallbackWithQueries(ctx context.Context, q *db.Queries, attr attribution.Result, agent db.Agent) (attribution.Result, error) {
+	if attr.Source != attribution.SourceUnattributed {
+		return attr, nil
+	}
+	if q == nil || !agent.WorkspaceID.Valid {
+		return attr, fmt.Errorf("%w: workspace policy unavailable", ErrAttributionFailClosed)
+	}
+	failClosed, err := q.GetWorkspaceAttributionFailClosed(ctx, agent.WorkspaceID)
+	if err != nil {
+		return attr, fmt.Errorf("%w: policy read failed: %v", ErrAttributionFailClosed, err)
+	}
+	if failClosed {
+		return attr, ErrAttributionFailClosed
+	}
+	fallback := attribution.OwnerFallback(attr, agent.OwnerID)
+	if fallback.Source == attribution.SourceUnattributed {
+		return attr, fmt.Errorf("%w: no agent owner to attribute", ErrAttributionFailClosed)
+	}
+	return fallback, nil
+}
+
 // attributionCreateParams maps a resolved attribution onto the CreateAgentTask
 // provenance columns. originator_source is always stamped (never NULL for a new
 // row); delegation lineage and evidence are stamped only when present.
@@ -1126,6 +1147,68 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 	return s.enqueueIssueTask(ctx, issue, commentID, false, "", pgtype.UUID{}, pgtype.UUID{}, pgtype.Timestamptz{}, OriginDerived)
 }
 
+// createIssueTaskWithQueries inserts a ready task through a caller-owned
+// transaction. Publishing its event and waking the runtime remain post-commit.
+func (s *TaskService) createIssueTaskWithQueries(ctx context.Context, q *db.Queries, issue db.Issue) (db.AgentTaskQueue, error) {
+	return s.enqueueIssueTaskWithQueries(ctx, q, issue, pgtype.UUID{}, nil, false, "", pgtype.UUID{}, pgtype.UUID{}, pgtype.Timestamptz{})
+}
+
+// enqueueIssueTaskWithQueries is the transaction-scoped implementation of
+// enqueueIssueTask: it reads and writes only through q and never emits the
+// public queued event or runtime wakeup. The caller decides when the task
+// becomes observable.
+func (s *TaskService) enqueueIssueTaskWithQueries(ctx context.Context, q *db.Queries, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, fireAt pgtype.Timestamptz) (db.AgentTaskQueue, error) {
+	var createParams db.CreateAgentTaskParams
+	var overlay runtimeMCPOverlayData
+	agent, err := q.GetAgent(ctx, issue.AssigneeID)
+	if err != nil {
+		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+	}
+	if agent.ArchivedAt.Valid {
+		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+	}
+	if !agent.RuntimeID.Valid {
+		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+	}
+	attr := s.attributionForIssueTask(ctx, issue, triggerCommentID, attribution.SourceCommentSource, actorUserID)
+	attr, err = s.applyAttributionFallbackWithQueries(ctx, q, attr, agent)
+	if err != nil {
+		return db.AgentTaskQueue{}, err
+	}
+	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
+	createParams = db.CreateAgentTaskParams{
+		ID:                   dbid.NewV7(),
+		AgentID:              issue.AssigneeID,
+		RuntimeID:            agent.RuntimeID,
+		IssueID:              issue.ID,
+		Priority:             priorityToInt(issue.Priority),
+		TriggerCommentID:     triggerCommentID,
+		CoalescedCommentIds:  coalescedCommentIDs,
+		TriggerSummary:       s.buildCommentTriggerSummary(ctx, issue.WorkspaceID, triggerCommentID),
+		ForceFreshSession:    pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
+		HandoffNote:          pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
+		OriginatorUserID:     attr.UserID,
+		AccountableUserID:    attr.AccountableUserID,
+		RuleVersionID:        attr.RuleVersionID,
+		RerunOfTaskID:        rerunOfTaskID,
+		RuntimeMcpOverlay:    overlay.Overlay,
+		RuntimeConnectedApps: overlay.ConnectedApps,
+		OriginatorSource:     attrSource,
+		DelegatedFromTaskID:  attrDelegatedFrom,
+		TriggerEvidenceKind:  attrEvidenceKind,
+		TriggerEvidenceRefID: attrEvidenceRef,
+		HeadSha:              headShaText(s.ResolveIssueReviewSHA(ctx, issue.ID)),
+	}
+	task, err := q.CreateAgentTask(ctx, createParams)
+	if err != nil {
+		if isDuplicatePendingTaskErr(err) {
+			return db.AgentTaskQueue{}, ErrDuplicatePendingTask
+		}
+		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
+	}
+	return task, nil
+}
+
 // EnqueueDeferredChannelIssueTask persists the assigned task for a media-backed
 // channel /issue turn without making it claimable yet. The fireAt deadline is a
 // crash-safe fallback; the channel router promotes the task as soon as the
@@ -1246,10 +1329,10 @@ func (s *TaskService) ResolveIssueReviewSHAParam(ctx context.Context, issueID pg
 }
 
 func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, fireAt pgtype.Timestamptz, origin RunOrigin) (db.AgentTaskQueue, error) {
-	return s.enqueueIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, nil, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID, fireAt, origin)
+	return s.enqueueIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, nil, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID, fireAt, origin, true)
 }
 
-func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, fireAt pgtype.Timestamptz, origin RunOrigin) (db.AgentTaskQueue, error) {
+func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, fireAt pgtype.Timestamptz, origin RunOrigin, publish bool) (db.AgentTaskQueue, error) {
 	if !issue.AssigneeID.Valid {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
 		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
@@ -1365,7 +1448,7 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 		"agent_id", util.UUIDToString(issue.AssigneeID),
 		"force_fresh_session", forceFreshSession,
 	)
-	if fireAt.Valid {
+	if fireAt.Valid || !publish {
 		return task, nil
 	}
 	// Order matters: broadcast first, notify daemon second. notifyTaskAvailable
@@ -5918,7 +6001,7 @@ func (s *TaskService) promoteNewestSurvivingComment(ctx context.Context, ids []p
 func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, isLeader bool, squadID pgtype.UUID, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, origin RunOrigin) (db.AgentTaskQueue, error) {
 	if issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid &&
 		util.UUIDToString(issue.AssigneeID) == util.UUIDToString(agentID) {
-		return s.enqueueIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, coalescedCommentIDs, true, "", actorUserID, rerunOfTaskID, pgtype.Timestamptz{}, origin)
+		return s.enqueueIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, coalescedCommentIDs, true, "", actorUserID, rerunOfTaskID, pgtype.Timestamptz{}, origin, true)
 	}
 	return s.enqueueMentionTaskWithCommentPlan(ctx, issue, agentID, triggerCommentID, coalescedCommentIDs, isLeader, squadID, true, "", actorUserID, rerunOfTaskID, origin)
 }

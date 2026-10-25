@@ -3472,6 +3472,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if errors.Is(err, service.ErrActiveDuplicate) {
+		if res.DuplicateIssue == nil {
+			writeError(w, http.StatusConflict, "an active duplicate issue already exists")
+			return
+		}
 		dup := *res.DuplicateIssue
 		existing := issueToResponse(dup, h.getIssuePrefix(r.Context(), dup.WorkspaceID))
 		h.fillStatusCategory(r.Context(), dup.WorkspaceID, &existing)

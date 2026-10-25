@@ -180,13 +180,22 @@
     "evidence_review": "审核",
     "roles_label": "项目智能体",
     "choose_agent": "选择智能体",
-    "roles": { "mika": "Mica", "prd": "PRD", "developer": "开发", "reviewer": "审核" },
+    "roles": {
+      "mika": "Mica",
+      "prd": "PRD",
+      "developer": "开发",
+      "reviewer": "审核"
+    },
     "delivery_modes": {
       "notify_only": "仅通知",
       "pull_request": "创建 Pull Request",
       "manual_release": "准备手动发布",
       "automated_release": "自动发布"
-    }
+    },
+    "start_button": "确认并开始",
+    "start_pending": "开始中…",
+    "toast_started": "已启动执行",
+    "toast_start_failed": "启动执行失败"
   },
   "toolbar": {
     "result_count_title": "当前结果 / 全部项目",

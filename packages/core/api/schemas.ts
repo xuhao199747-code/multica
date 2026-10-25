@@ -91,6 +91,7 @@ import type {
   ProjectWorkflowSettings,
   ListProjectAgentBindingsResponse,
   ListProjectExecutionsResponse,
+  StartProjectWorkflowExecutionResponse,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 import type { CreateFeedbackResponse } from "../feedback/types";
@@ -1458,6 +1459,12 @@ export const ListProjectExecutionsResponseSchema: z.ZodType<ListProjectExecution
   executions: z.array(ProjectExecutionSchema).default([]), total: z.number().default(0),
 }).loose();
 export const EMPTY_PROJECT_EXECUTIONS_RESPONSE: ListProjectExecutionsResponse = { executions: [], total: 0 };
+export const StartProjectWorkflowExecutionResponseSchema: z.ZodType<StartProjectWorkflowExecutionResponse> = z.object({
+  execution: ProjectExecutionSchema,
+  issue: z.record(z.string(), z.unknown()).nullable().default(null),
+  execution_issue: z.record(z.string(), z.unknown()).nullable().default(null),
+  task_id: z.string().nullable().default(null),
+}).loose();
 
 const SearchProjectResultSchema = ProjectSchema.extend({
   match_source: z.string(),

@@ -106,6 +106,8 @@ import type {
   StartMikaOnboardingResponse,
   CancelTaskResponse,
   Project,
+  StartProjectWorkflowExecutionRequest,
+  StartProjectWorkflowExecutionResponse,
   CreateProjectRequest,
   UpdateProjectRequest,
   ListProjectsResponse,
@@ -439,6 +441,7 @@ import {
   EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE,
   ListProjectExecutionsResponseSchema,
   EMPTY_PROJECT_EXECUTIONS_RESPONSE,
+  StartProjectWorkflowExecutionResponseSchema,
   GitHubConnectResponseSchema,
   ListGitHubInstallationsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
@@ -4142,6 +4145,33 @@ export class ApiClient {
     return this.fetch(`/api/projects/${projectId}/workflow/mika-session`, {
       method: "POST",
     });
+  }
+
+  async startProjectWorkflowExecution(
+    projectId: string,
+    data: StartProjectWorkflowExecutionRequest,
+  ): Promise<StartProjectWorkflowExecutionResponse> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/workflow/executions/start`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, StartProjectWorkflowExecutionResponseSchema, {
+      execution: {
+        id: "",
+        project_id: projectId,
+        workspace_id: "",
+        source_chat_session_id: "",
+        source_agent_id: "",
+        snapshot: {},
+        delivery_result: {},
+        state: "development",
+        review_round: 0,
+        created_at: "",
+      },
+      issue: null,
+      execution_issue: null,
+      task_id: null,
+    }, { endpoint: "POST /api/projects/{id}/workflow/executions/start" });
   }
 
   async listProjectExecutions(projectId: string): Promise<ListProjectExecutionsResponse> {
