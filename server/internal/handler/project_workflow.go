@@ -1240,14 +1240,19 @@ type ProjectAgentBindingResponse struct {
 	WorkspaceID string `json:"workspace_id"`
 	AgentID     string `json:"agent_id"`
 	Role        string `json:"role"`
+	Source      string `json:"source"`
 	CreatedAt   string `json:"created_at"`
 }
 
 func projectAgentBindingToResponse(binding db.ProjectAgentBinding) ProjectAgentBindingResponse {
+	source := binding.Source
+	if source == "" {
+		source = "manual"
+	}
 	return ProjectAgentBindingResponse{
 		ID: uuidToString(binding.ID), ProjectID: uuidToString(binding.ProjectID),
 		WorkspaceID: uuidToString(binding.WorkspaceID), AgentID: uuidToString(binding.AgentID),
-		Role: binding.Role, CreatedAt: timestampToString(binding.CreatedAt),
+		Role: binding.Role, Source: source, CreatedAt: timestampToString(binding.CreatedAt),
 	}
 }
 
@@ -1310,7 +1315,7 @@ func (h *Handler) CreateProjectAgentBinding(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	binding, err := h.Queries.CreateProjectAgentBinding(r.Context(), db.CreateProjectAgentBindingParams{
-		WorkspaceID: project.WorkspaceID, ProjectID: project.ID, AgentID: agentID, Role: role,
+		WorkspaceID: project.WorkspaceID, ProjectID: project.ID, AgentID: agentID, Role: role, Source: "manual",
 	})
 	if isUniqueViolation(err) {
 		if role == "mika" {

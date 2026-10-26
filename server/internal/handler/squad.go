@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -50,12 +51,13 @@ type squadMemberSummary struct {
 }
 
 type SquadMemberResponse struct {
-	ID         string `json:"id"`
-	SquadID    string `json:"squad_id"`
-	MemberType string `json:"member_type"`
-	MemberID   string `json:"member_id"`
-	Role       string `json:"role"`
-	CreatedAt  string `json:"created_at"`
+	ID           string  `json:"id"`
+	SquadID      string  `json:"squad_id"`
+	MemberType   string  `json:"member_type"`
+	MemberID     string  `json:"member_id"`
+	Role         string  `json:"role"`
+	StandardRole *string `json:"standard_role"`
+	CreatedAt    string  `json:"created_at"`
 }
 
 // ── Converters ──────────────────────────────────────────────────────────────
@@ -79,13 +81,18 @@ func (h *Handler) squadToResponse(s db.Squad) SquadResponse {
 }
 
 func squadMemberToResponse(m db.SquadMember) SquadMemberResponse {
+	var standardRole *string
+	if m.StandardRole.Valid {
+		standardRole = &m.StandardRole.String
+	}
 	return SquadMemberResponse{
-		ID:         uuidToString(m.ID),
-		SquadID:    uuidToString(m.SquadID),
-		MemberType: m.MemberType,
-		MemberID:   uuidToString(m.MemberID),
-		Role:       m.Role,
-		CreatedAt:  timestampToString(m.CreatedAt),
+		ID:           uuidToString(m.ID),
+		SquadID:      uuidToString(m.SquadID),
+		MemberType:   m.MemberType,
+		MemberID:     uuidToString(m.MemberID),
+		Role:         m.Role,
+		StandardRole: standardRole,
+		CreatedAt:    timestampToString(m.CreatedAt),
 	}
 }
 
@@ -785,9 +792,10 @@ func (h *Handler) AddSquadMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		MemberType string `json:"member_type"`
-		MemberID   string `json:"member_id"`
-		Role       string `json:"role"`
+		MemberType   string  `json:"member_type"`
+		MemberID     string  `json:"member_id"`
+		Role         string  `json:"role"`
+		StandardRole *string `json:"standard_role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -926,9 +934,10 @@ func (h *Handler) UpdateSquadMemberRole(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		MemberType string `json:"member_type"`
-		MemberID   string `json:"member_id"`
-		Role       string `json:"role"`
+		MemberType   string  `json:"member_type"`
+		MemberID     string  `json:"member_id"`
+		Role         string  `json:"role"`
+		StandardRole *string `json:"standard_role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -940,13 +949,31 @@ func (h *Handler) UpdateSquadMemberRole(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	sm, err := h.Queries.UpdateSquadMemberRole(r.Context(), db.UpdateSquadMemberRoleParams{
+	var standardRole pgtype.Text
+	if req.StandardRole != nil {
+		trimmed := strings.TrimSpace(*req.StandardRole)
+		if trimmed != "" {
+			switch trimmed {
+			case "prd", "developer", "reviewer":
+			default:
+				writeError(w, http.StatusBadRequest, "standard_role must be prd, developer, or reviewer")
+				return
+			}
+			standardRole = pgtype.Text{String: trimmed, Valid: true}
+		}
+	}
+
+	sm, err := h.Queries.UpdateSquadMemberStandardRole(r.Context(), db.UpdateSquadMemberStandardRoleParams{
 		SquadID:    squad.ID,
 		MemberType: req.MemberType,
 		MemberID:   memberUUID,
-		Role:       req.Role,
+		StandardRole: standardRole,
 	})
 	if err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "this standard role is already assigned to another squad member")
+			return
+		}
 		writeError(w, http.StatusNotFound, "squad member not found")
 		return
 	}

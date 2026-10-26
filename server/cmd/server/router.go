@@ -2162,6 +2162,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/workflow/agents", h.ListProjectAgentBindings)
 				r.Post("/workflow/agents", h.CreateProjectAgentBinding)
 				r.Delete("/workflow/agents/{bindingId}", h.DeleteProjectAgentBinding)
+				r.Put("/collaboration-squad", h.SetProjectCollaborationSquad)
+				r.Get("/role-source", h.GetProjectRoleSource)
+				r.Post("/sync-squad", h.SyncProjectSquad)
+				r.Post("/restore-squad-config", h.RestoreProjectSquadConfig)
 				})
 			})
 
