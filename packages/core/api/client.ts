@@ -106,6 +106,8 @@ import type {
   StartMikaOnboardingResponse,
   CancelTaskResponse,
   Project,
+  StartProjectWorkflowExecutionRequest,
+  StartProjectWorkflowExecutionResponse,
   CreateProjectRequest,
   UpdateProjectRequest,
   ListProjectsResponse,
@@ -233,6 +235,8 @@ import type {
   PurchaseWorkspaceSeatsRequest,
   PurchaseWorkspaceSeatsResponse,
   CreateWorkspaceSubscriptionPortalResponse,
+  SelfUpdateJob,
+  SelfUpdateStatus,
   SourceContextPreview,
   CreateCommentSubIssueManualRequest,
   CreateCommentSubIssueAgentRequest,
@@ -369,6 +373,8 @@ import {
   WorkspaceSeatPurchasePreviewSchema,
   PurchaseWorkspaceSeatsResponseSchema,
   CreateWorkspaceSubscriptionPortalResponseSchema,
+  SelfUpdateJobSchema,
+  SelfUpdateStatusSchema,
   DingTalkInstallationSchema,
   ListDingTalkInstallationsResponseSchema,
   ListDingTalkGroupsResponseSchema,
@@ -439,6 +445,7 @@ import {
   EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE,
   ListProjectExecutionsResponseSchema,
   EMPTY_PROJECT_EXECUTIONS_RESPONSE,
+  StartProjectWorkflowExecutionResponseSchema,
   GitHubConnectResponseSchema,
   ListGitHubInstallationsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
@@ -2333,6 +2340,44 @@ export class ApiClient {
     );
   }
 
+  // Self-host update control plane. `null` means the 200 body was
+  // syntactically malformed; non-2xx still surfaces as ApiError from
+  // fetchRaw, so a 404 here means the backend has not shipped the endpoints
+  // yet rather than "malformed".
+  async getSelfUpdateStatus(): Promise<SelfUpdateStatus | null> {
+    const raw = await this.fetch<unknown>("/api/self-update/status");
+    return parseWithFallback(raw, SelfUpdateStatusSchema, null, {
+      endpoint: "GET /api/self-update/status",
+    });
+  }
+
+  async createSelfUpdateJob(
+    targetTag: string,
+    idempotencyKey: string,
+  ): Promise<SelfUpdateJob | null> {
+    const res = await this.fetchRaw("/api/self-update/jobs", {
+      method: "POST",
+      body: JSON.stringify({ target_tag: targetTag }),
+      extraHeaders: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+    });
+    const raw = (await res.json()) as unknown;
+    return parseWithFallback(raw, SelfUpdateJobSchema, null, {
+      endpoint: "POST /api/self-update/jobs",
+    });
+  }
+
+  async getSelfUpdateJob(id: string): Promise<SelfUpdateJob | null> {
+    const raw = await this.fetch<unknown>(
+      `/api/self-update/jobs/${encodeURIComponent(id)}`,
+    );
+    return parseWithFallback(raw, SelfUpdateJobSchema, null, {
+      endpoint: "GET /api/self-update/jobs/:id",
+    });
+  }
+
   async deleteRuntime(runtimeId: string): Promise<void> {
     await this.fetch(`/api/runtimes/${runtimeId}`, { method: "DELETE" });
   }
@@ -4142,6 +4187,33 @@ export class ApiClient {
     return this.fetch(`/api/projects/${projectId}/workflow/mika-session`, {
       method: "POST",
     });
+  }
+
+  async startProjectWorkflowExecution(
+    projectId: string,
+    data: StartProjectWorkflowExecutionRequest,
+  ): Promise<StartProjectWorkflowExecutionResponse> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/workflow/executions/start`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, StartProjectWorkflowExecutionResponseSchema, {
+      execution: {
+        id: "",
+        project_id: projectId,
+        workspace_id: "",
+        source_chat_session_id: "",
+        source_agent_id: "",
+        snapshot: {},
+        delivery_result: {},
+        state: "development",
+        review_round: 0,
+        created_at: "",
+      },
+      issue: null,
+      execution_issue: null,
+      task_id: null,
+    }, { endpoint: "POST /api/projects/{id}/workflow/executions/start" });
   }
 
   async listProjectExecutions(projectId: string): Promise<ListProjectExecutionsResponse> {

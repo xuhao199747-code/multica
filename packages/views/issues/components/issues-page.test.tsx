@@ -612,33 +612,6 @@ const mockIssues: Issue[] = [
   },
 ];
 
-function mockAssigneeGroups(issues: Issue[]) {
-  const groups = new Map<string, { assignee_type: Issue["assignee_type"]; assignee_id: string | null; issues: Issue[] }>();
-  for (const issue of issues) {
-    const id =
-      issue.assignee_type && issue.assignee_id
-        ? `assignee:${issue.assignee_type}:${issue.assignee_id}`
-        : "assignee:unassigned";
-    if (!groups.has(id)) {
-      groups.set(id, {
-        assignee_type: issue.assignee_type,
-        assignee_id: issue.assignee_id,
-        issues: [],
-      });
-    }
-    groups.get(id)!.issues.push(issue);
-  }
-  return {
-    groups: [...groups.entries()].map(([id, group]) => ({
-      id,
-      assignee_type: group.assignee_type,
-      assignee_id: group.assignee_id,
-      issues: group.issues,
-      total: group.issues.length,
-    })),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Import component under test (after mocks)
 // ---------------------------------------------------------------------------

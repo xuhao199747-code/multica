@@ -60,3 +60,17 @@ export interface ListProjectExecutionsResponse {
   executions: ProjectExecution[];
   total: number;
 }
+
+export interface StartProjectWorkflowExecutionRequest {
+  source_chat_session_id: string;
+  source_agent_id?: string;
+  snapshot: Record<string, unknown>;
+  title?: string;
+}
+
+export interface StartProjectWorkflowExecutionResponse {
+  execution: ProjectExecution;
+  issue: Record<string, unknown> | null;
+  execution_issue: Record<string, unknown> | null;
+  task_id: string | null;
+}

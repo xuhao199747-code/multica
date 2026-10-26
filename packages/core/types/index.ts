@@ -174,6 +174,12 @@ export type {
 } from "./chat";
 export type { StorageAdapter } from "./storage";
 export type {
+  SelfUpdateCapability,
+  SelfUpdateRelease,
+  SelfUpdateJob,
+  SelfUpdateStatus,
+} from "./self-update";
+export type {
   Project,
   ProjectStatus,
   ProjectPriority,
@@ -200,6 +206,8 @@ export type {
   ListProjectAgentBindingsResponse,
   ProjectExecution,
   ListProjectExecutionsResponse,
+  StartProjectWorkflowExecutionRequest,
+  StartProjectWorkflowExecutionResponse,
 } from "./project-workflow";
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
 export type {

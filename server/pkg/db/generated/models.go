@@ -1437,6 +1437,39 @@ type SeatCapacityOutbox struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SelfUpdateInstallation struct {
+	Singleton          bool               `json:"singleton"`
+	DeployedReleaseTag string             `json:"deployed_release_tag"`
+	DeployedCustomSha  string             `json:"deployed_custom_sha"`
+	BackendDigest      string             `json:"backend_digest"`
+	WebDigest          string             `json:"web_digest"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	WorkerHeartbeatAt  pgtype.Timestamptz `json:"worker_heartbeat_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SelfUpdateJob struct {
+	ID              pgtype.UUID        `json:"id"`
+	RequesterID     pgtype.UUID        `json:"requester_id"`
+	TargetTag       string             `json:"target_tag"`
+	TargetSha       string             `json:"target_sha"`
+	SourceSha       string             `json:"source_sha"`
+	StagingBranch   string             `json:"staging_branch"`
+	CandidateSha    string             `json:"candidate_sha"`
+	ApprovedSha     string             `json:"approved_sha"`
+	PushedCustomSha string             `json:"pushed_custom_sha"`
+	Phase           string             `json:"phase"`
+	Step            []byte             `json:"step"`
+	Result          []byte             `json:"result"`
+	RepairCount     int32              `json:"repair_count"`
+	RetryCount      int32              `json:"retry_count"`
+	IdempotencyKey  string             `json:"idempotency_key"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
+}
+
 type Skill struct {
 	ID                   pgtype.UUID        `json:"id"`
 	WorkspaceID          pgtype.UUID        `json:"workspace_id"`

@@ -269,6 +269,131 @@ describe("ApiClient pull-request response schema", () => {
   });
 });
 
+describe("ApiClient self-update", () => {
+  function jsonResponse(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  it("parses the self-update status payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      capability: "ready",
+      can_update: true,
+      latest_release: {
+        tag: "v0.7.0",
+        sha: "dbdbb299164347586e2650bb67684a490726a798",
+        url: "https://github.com/multica-ai/multica/releases/tag/v0.7.0",
+      },
+      deployed_release: "v0.6.0",
+      deployed_custom_sha: "1d43ac43d8a0fb9028a52830e729891d430c70eb",
+      active_job: null,
+      update_available: true,
+      check_failed: false,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new ApiClient("https://api.example.test").getSelfUpdateStatus()).resolves.toEqual({
+      capability: "ready",
+      can_update: true,
+      latest_release: {
+        tag: "v0.7.0",
+        sha: "dbdbb299164347586e2650bb67684a490726a798",
+        url: "https://github.com/multica-ai/multica/releases/tag/v0.7.0",
+      },
+      deployed_release: "v0.6.0",
+      deployed_custom_sha: "1d43ac43d8a0fb9028a52830e729891d430c70eb",
+      active_job: null,
+      update_available: true,
+      check_failed: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/api/self-update/status");
+  });
+
+  it("posts an idempotent self-update job and returns the typed job", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      id: "job-1",
+      phase: "queued",
+      step: "created",
+      target_tag: "v0.7.0",
+      target_sha: "dbdbb299164347586e2650bb67684a490726a798",
+      source_sha: "1d43ac43d8a0fb9028a52830e729891d430c70eb",
+      repair_count: 0,
+      retry_count: 0,
+      created_at: "2026-10-25T00:00:00Z",
+      updated_at: "2026-10-25T00:00:00Z",
+      finished_at: null,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await new ApiClient("https://api.example.test").createSelfUpdateJob(
+      "v0.7.0",
+      "idem-1",
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/api/self-update/jobs");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      target_tag: "v0.7.0",
+    });
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Idempotency-Key")).toBe("idem-1");
+    expect(job).toEqual({
+      id: "job-1",
+      phase: "queued",
+      step: "created",
+      target_tag: "v0.7.0",
+      target_sha: "dbdbb299164347586e2650bb67684a490726a798",
+      source_sha: "1d43ac43d8a0fb9028a52830e729891d430c70eb",
+      repair_count: 0,
+      retry_count: 0,
+      created_at: "2026-10-25T00:00:00Z",
+      updated_at: "2026-10-25T00:00:00Z",
+      finished_at: null,
+    });
+  });
+
+  it("fetches a self-update job by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      id: "job-1",
+      phase: "repairing",
+      step: "restart",
+      target_tag: "v0.7.0",
+      target_sha: "dbdbb299164347586e2650bb67684a490726a798",
+      source_sha: "1d43ac43d8a0fb9028a52830e729891d430c70eb",
+      repair_count: 2,
+      retry_count: 1,
+      created_at: "2026-10-25T00:00:00Z",
+      updated_at: "2026-10-25T00:01:00Z",
+      finished_at: null,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new ApiClient("https://api.example.test").getSelfUpdateJob("job-1"),
+    ).resolves.toMatchObject({ id: "job-1", phase: "repairing" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/api/self-update/jobs/job-1");
+  });
+
+  it("returns null for a malformed success body instead of casting it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      capability: "ready",
+      can_update: true,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new ApiClient("https://api.example.test").getSelfUpdateStatus()).resolves.toBeNull();
+  });
+
+  it("keeps non-2xx self-update failures as ApiError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "not found" }, 404)));
+
+    await expect(new ApiClient("https://api.example.test").getSelfUpdateStatus()).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
 describe("ApiClient Plugin preview response schema", () => {
   it("degrades a malformed preview so a blank scope list is never shown as approval", async () => {
     vi.stubGlobal(

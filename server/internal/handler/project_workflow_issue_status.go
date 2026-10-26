@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -73,4 +75,61 @@ func recordWorkflowIssueEvidence(evidence map[string]any, issueID pgtype.UUID) {
 		}
 	}
 	evidence["submitted_issue_ids"] = append(receipts, id)
+}
+
+// closeStaleWorkflowIssues moves intermediate issues from completed execution
+// phases to done so they do not linger in todo/in_review and look like stuck
+// or duplicate work. Every issue linked with a completed role is closed,
+// including the issue whose evidence triggered the transition: the agent that
+// submitted delivery or recorded a review has finished that phase's work.
+func (h *Handler) closeStaleWorkflowIssues(ctx context.Context, workspaceID pgtype.UUID, projectID pgtype.UUID, executionID pgtype.UUID, completedRoles []string) {
+	links, err := h.Queries.ListProjectExecutionIssuesForProject(ctx, db.ListProjectExecutionIssuesForProjectParams{
+		ProjectID:   projectID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		slog.Warn("close stale workflow issues: list links failed", "execution_id", uuidToString(executionID), "error", err)
+		return
+	}
+	roleSet := make(map[string]bool, len(completedRoles))
+	for _, r := range completedRoles {
+		roleSet[r] = true
+	}
+	for _, link := range links {
+		if link.ExecutionRecordID != executionID {
+			continue
+		}
+		if !roleSet[link.Role] {
+			continue
+		}
+		h.closeSingleWorkflowIssue(ctx, workspaceID, link.IssueID)
+	}
+}
+
+// closeSingleWorkflowIssue sets one issue to done and cancels its pending
+// tasks so a completed phase leaves no active runs behind.
+func (h *Handler) closeSingleWorkflowIssue(ctx context.Context, workspaceID pgtype.UUID, issueID pgtype.UUID) {
+	issue, err := h.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
+		ID:          issueID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		slog.Warn("close workflow issue: load failed", "issue_id", uuidToString(issueID), "error", err)
+		return
+	}
+	effective := issuestatus.Effective(ctx, h.Queries, workspaceID, issue.Status)
+	if effective == "done" || effective == "cancelled" {
+		return
+	}
+	if _, err := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+		ID:          issueID,
+		Status:      "done",
+		WorkspaceID: workspaceID,
+	}); err != nil {
+		slog.Warn("close workflow issue: status update failed", "issue_id", uuidToString(issueID), "error", err)
+		return
+	}
+	if err := h.TaskService.CancelTasksForIssue(ctx, issueID); err != nil {
+		slog.Warn("close workflow issue: cancel tasks failed", "issue_id", uuidToString(issueID), "error", err)
+	}
 }

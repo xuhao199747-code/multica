@@ -378,6 +378,66 @@ func TestCreateIssuePropertiesCommitFailureHasNoSideEffects(t *testing.T) {
 	}
 }
 
+func TestCreateWithTxForWorkflowPersistsAssignedTaskBeforeCommit(t *testing.T) {
+	pool := newResolveOriginatorPool(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	workspaceID, userID, agentID, _ := seedAttributionFixture(t, pool)
+	workspaceUUID := util.MustParseUUID(workspaceID)
+	userUUID := util.MustParseUUID(userID)
+	agentUUID := util.MustParseUUID(agentID)
+	wakeup := &stubWakeup{}
+	taskService := &TaskService{Queries: q, TxStarter: pool, Wakeup: wakeup}
+	issueService := NewIssueService(q, pool, events.New(), nil, taskService)
+	title := "Workflow task must share the issue transaction"
+
+	result, tx, err := issueService.CreateWithTxForWorkflow(ctx, IssueCreateParams{
+		WorkspaceID:  workspaceUUID,
+		Title:        title,
+		Status:       "todo",
+		Priority:     "none",
+		AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:   agentUUID,
+		CreatorType:  "member",
+		CreatorID:    userUUID,
+	}, IssueCreateOpts{})
+	if err != nil {
+		t.Fatalf("CreateWithTxForWorkflow: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if !result.AssignedTaskID.Valid {
+		t.Fatal("workflow issue did not create its assigned task in the transaction")
+	}
+
+	var taskID pgtype.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM agent_task_queue
+		WHERE issue_id = $1 AND agent_id = $2`, result.Issue.ID, agentUUID).Scan(&taskID); err != nil {
+		t.Fatalf("load transaction-scoped assigned task: %v", err)
+	}
+	if taskID != result.AssignedTaskID {
+		t.Fatalf("transaction task = %s, want %s", util.UUIDToString(taskID), util.UUIDToString(result.AssignedTaskID))
+	}
+	if len(wakeup.calls) != 0 {
+		t.Fatalf("transactional task woke an agent before commit: %+v", wakeup.calls)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback workflow transaction: %v", err)
+	}
+
+	var issueCount, taskCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM issue WHERE workspace_id = $1 AND title = $2`, workspaceUUID, title).Scan(&issueCount); err != nil {
+		t.Fatalf("count rolled back issues: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM agent_task_queue WHERE issue_id = $1`, result.Issue.ID).Scan(&taskCount); err != nil {
+		t.Fatalf("count rolled back tasks: %v", err)
+	}
+	if issueCount != 0 || taskCount != 0 {
+		t.Fatalf("rollback left workflow rows: issues=%d tasks=%d", issueCount, taskCount)
+	}
+}
+
 func TestCreateIssuePropertiesAreVisibleAtCommitBeforeEnqueue(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()

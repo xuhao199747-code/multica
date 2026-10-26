@@ -207,6 +207,10 @@ type IssueCreateResult struct {
 	// understood label_ids (see the create handler's compatibility contract).
 	Labels         []db.IssueLabel
 	DuplicateIssue *db.Issue
+
+	assignedTask       db.AgentTaskQueue
+	assignedTaskQueued bool
+	actorID            string
 }
 
 // Create runs the full issue-creation pipeline atomically end-to-end:
@@ -233,17 +237,71 @@ type IssueCreateResult struct {
 // Caller-owned validation is limited to transport-shaped checks: title
 // required, RFC3339 date format, assignee pair sanity.
 func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts IssueCreateOpts) (IssueCreateResult, error) {
+	result, tx, err := s.createWithTx(ctx, p, opts, false)
+	if tx != nil {
+		defer tx.Rollback(ctx)
+	}
+	if err != nil {
+		return IssueCreateResult{DuplicateIssue: result.DuplicateIssue}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return IssueCreateResult{}, fmt.Errorf("commit: %w", err)
+	}
+
+	return s.issueCreatePostCommit(ctx, p, opts, result), nil
+}
+
+// CreateWithTxForWorkflow exposes the transaction-scoped issue creation used
+// by the project workflow bridge. The caller receives the open transaction
+// and MUST either Commit or Rollback it. After Commit the caller should run
+// CreatePostCommitForWorkflow for the standard post-commit side effects.
+func (s *IssueService) CreateWithTxForWorkflow(ctx context.Context, p IssueCreateParams, opts IssueCreateOpts) (IssueCreateResult, pgx.Tx, error) {
+	r, tx, err := s.createWithTx(ctx, p, opts, true)
+	if err != nil {
+		return IssueCreateResult{}, tx, err
+	}
+	result := IssueCreateResult{
+		Issue:              r.Issue,
+		Labels:             r.Labels,
+		DuplicateIssue:     r.DuplicateIssue,
+		AssignedTaskID:     r.assignedTask.ID,
+		assignedTask:       r.assignedTask,
+		assignedTaskQueued: r.assignedTaskQueued,
+		actorID:            r.actorID,
+	}
+	return result, tx, nil
+}
+
+// CreatePostCommitForWorkflow runs the shared post-commit side effects for an
+// issue created through CreateWithTxForWorkflow.
+func (s *IssueService) CreatePostCommitForWorkflow(ctx context.Context, p IssueCreateParams, opts IssueCreateOpts, r IssueCreateResult) IssueCreateResult {
+	return s.issueCreatePostCommit(ctx, p, opts, issueCreateTxResult{
+		Issue:              r.Issue,
+		Labels:             r.Labels,
+		DuplicateIssue:     r.DuplicateIssue,
+		assignedTask:       r.assignedTask,
+		assignedTaskQueued: r.assignedTaskQueued,
+		actorID:            r.actorID,
+	})
+}
+
+// createWithTx runs the issue-creation pipeline through commit, returning the
+// transaction so a caller that needs to write more rows in the same commit
+// (e.g. a project execution record and its execution-issue link) can do so
+// before calling Commit itself. Post-commit steps (attachments, events,
+// enqueue) stay in Create; the caller owns them for its own flow.
+func (s *IssueService) createWithTx(ctx context.Context, p IssueCreateParams, opts IssueCreateOpts, persistAssignedTask bool) (issueCreateTxResult, pgx.Tx, error) {
 	issueCountPolicy := ResolveIssueCountPolicy(ctx, s.Entitlements, p.WorkspaceID)
 	tx, err := s.TxStarter.Begin(ctx)
 	if err != nil {
-		return IssueCreateResult{}, fmt.Errorf("begin tx: %w", err)
+		return issueCreateTxResult{}, nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
 	qtx := s.Queries.WithTx(tx)
 
 	properties, err := validateIssueCreateProperties(ctx, tx, qtx, p.WorkspaceID, p.Properties)
 	if err != nil {
-		return IssueCreateResult{}, err
+		return issueCreateTxResult{}, tx, err
 	}
 
 	if p.SourceContext != nil {
@@ -251,26 +309,26 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 			ID: p.SourceContext.SourceIssueID, WorkspaceID: p.WorkspaceID,
 		}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return IssueCreateResult{}, ErrSourceIssueDeleted
+				return issueCreateTxResult{}, tx, ErrSourceIssueDeleted
 			}
-			return IssueCreateResult{}, fmt.Errorf("lock source issue: %w", err)
+			return issueCreateTxResult{}, tx, fmt.Errorf("lock source issue: %w", err)
 		}
 		locked, err := qtx.LockCommentAncestorPath(ctx, db.LockCommentAncestorPathParams{
 			CommentID: p.SourceContext.AnchorCommentID, WorkspaceID: p.WorkspaceID,
 			IssueID: p.SourceContext.SourceIssueID,
 		})
 		if err != nil {
-			return IssueCreateResult{}, fmt.Errorf("lock anchor comment thread: %w", err)
+			return issueCreateTxResult{}, tx, fmt.Errorf("lock anchor comment thread: %w", err)
 		}
 		if len(locked) == 0 {
-			return IssueCreateResult{}, ErrAnchorCommentDeleted
+			return issueCreateTxResult{}, tx, ErrAnchorCommentDeleted
 		}
 		current, err := BuildSourceContext(ctx, qtx, p.WorkspaceID, p.SourceContext.AnchorCommentID)
 		if err != nil {
-			return IssueCreateResult{}, err
+			return issueCreateTxResult{}, tx, err
 		}
 		if current.Digest != p.SourceContext.Digest {
-			return IssueCreateResult{}, ErrSourceContextChanged
+			return issueCreateTxResult{}, tx, ErrSourceContextChanged
 		}
 	}
 
@@ -283,13 +341,13 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	// never be archived, so the common path is unchanged. (MUL-6243)
 	if !issuestatus.IsBuiltIn(p.Status) {
 		if err := qtx.LockIssueStatusCatalogShared(ctx, p.WorkspaceID); err != nil {
-			return IssueCreateResult{}, err
+			return issueCreateTxResult{}, tx, err
 		}
 		if _, err := issuestatus.Resolve(ctx, qtx, p.WorkspaceID, p.Status); err != nil {
 			if errors.Is(err, issuestatus.ErrUnknownStatus) {
-				return IssueCreateResult{}, ErrIssueStatusUnavailable
+				return issueCreateTxResult{}, tx, ErrIssueStatusUnavailable
 			}
-			return IssueCreateResult{}, err
+			return issueCreateTxResult{}, tx, err
 		}
 	}
 
@@ -305,7 +363,7 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 			WorkspaceID: p.WorkspaceID,
 		})
 		if err != nil || !parent.ID.Valid {
-			return IssueCreateResult{}, ErrParentIssueNotFound
+			return issueCreateTxResult{}, tx, ErrParentIssueNotFound
 		}
 		// Back-fill project from parent when the caller did not pin
 		// one explicitly. Matches the long-standing HTTP behavior: a
@@ -319,7 +377,7 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 			ID:          projectID,
 			WorkspaceID: p.WorkspaceID,
 		}); err != nil {
-			return IssueCreateResult{}, ErrProjectNotFound
+			return issueCreateTxResult{}, tx, ErrProjectNotFound
 		}
 	}
 
@@ -329,21 +387,21 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	// echoed back as the authoritative snapshot in the result.
 	labels, err := validateIssueLabels(ctx, qtx, p.WorkspaceID, p.LabelIDs)
 	if err != nil {
-		return IssueCreateResult{}, err
+		return issueCreateTxResult{}, tx, err
 	}
 
 	duplicate, found, err := issueguard.LockAndFindActiveDuplicate(ctx, qtx, p.WorkspaceID, projectID, p.ParentIssueID, p.Title, p.AllowDuplicate)
 	if err != nil {
-		return IssueCreateResult{}, fmt.Errorf("duplicate guard: %w", err)
+		return issueCreateTxResult{}, tx, fmt.Errorf("duplicate guard: %w", err)
 	}
 	if found {
 		dup := duplicate
-		return IssueCreateResult{DuplicateIssue: &dup}, ErrActiveDuplicate
+		return issueCreateTxResult{DuplicateIssue: &dup}, tx, ErrActiveDuplicate
 	}
 
 	issueNumber, err := AllocateIssueNumber(ctx, qtx, p.WorkspaceID, issueCountPolicy)
 	if err != nil {
-		return IssueCreateResult{}, fmt.Errorf("allocate issue number: %w", err)
+		return issueCreateTxResult{}, tx, fmt.Errorf("allocate issue number: %w", err)
 	}
 
 	// New issues sort to the top of their (workspace, status) column for
@@ -357,7 +415,7 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	// to the secondary ORDER BY key.
 	newPosition, err := issueposition.NextTopPosition(ctx, tx, p.WorkspaceID, p.Status)
 	if err != nil {
-		return IssueCreateResult{}, fmt.Errorf("next top position: %w", err)
+		return issueCreateTxResult{}, tx, fmt.Errorf("next top position: %w", err)
 	}
 
 	var issue db.Issue
@@ -410,64 +468,64 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.ConstraintName == "issue_properties_size_limit" {
-			return IssueCreateResult{}, ErrIssuePropertiesTooLarge
+			return issueCreateTxResult{}, tx, ErrIssuePropertiesTooLarge
 		}
-		return IssueCreateResult{}, fmt.Errorf("create issue: %w", err)
+		return issueCreateTxResult{}, tx, fmt.Errorf("create issue: %w", err)
 	}
 
 	if p.SourceContext != nil {
 		if _, err := PersistSourceContext(ctx, qtx, *p.SourceContext, issue.ID, pgtype.UUID{}); err != nil {
-			return IssueCreateResult{}, fmt.Errorf("persist source context: %w", err)
+			return issueCreateTxResult{}, tx, fmt.Errorf("persist source context: %w", err)
 		}
 	} else if p.OriginType.Valid && p.OriginType.String == "quick_create" && p.OriginID.Valid {
 		task, taskErr := qtx.GetAgentTaskInWorkspace(ctx, db.GetAgentTaskInWorkspaceParams{
 			ID: p.OriginID, WorkspaceID: p.WorkspaceID,
 		})
 		if taskErr != nil {
-			return IssueCreateResult{}, fmt.Errorf("load quick-create origin task: %w", taskErr)
+			return issueCreateTxResult{}, tx, fmt.Errorf("load quick-create origin task: %w", taskErr)
 		}
 		if p.CreatorType != "agent" || !p.CreatorID.Valid || p.CreatorID != task.AgentID {
-			return IssueCreateResult{}, errors.New("quick-create origin task does not belong to the creating agent")
+			return issueCreateTxResult{}, tx, errors.New("quick-create origin task does not belong to the creating agent")
 		}
 		var quickCreate QuickCreateContext
 		if err := json.Unmarshal(task.Context, &quickCreate); err != nil {
-			return IssueCreateResult{}, fmt.Errorf("decode quick-create origin context: %w", err)
+			return issueCreateTxResult{}, tx, fmt.Errorf("decode quick-create origin context: %w", err)
 		}
 		if quickCreate.Type != QuickCreateContextType {
-			return IssueCreateResult{}, errors.New("quick-create origin task has invalid context type")
+			return issueCreateTxResult{}, tx, errors.New("quick-create origin task has invalid context type")
 		}
 		contextWorkspaceID, parseErr := util.ParseUUID(quickCreate.WorkspaceID)
 		if parseErr != nil || contextWorkspaceID != p.WorkspaceID {
-			return IssueCreateResult{}, errors.New("quick-create origin context has invalid workspace")
+			return issueCreateTxResult{}, tx, errors.New("quick-create origin context has invalid workspace")
 		}
 		if quickCreate.SourceContextID != "" {
 			contextID, parseErr := util.ParseUUID(quickCreate.SourceContextID)
 			if parseErr != nil {
-				return IssueCreateResult{}, fmt.Errorf("invalid quick-create source context id: %w", parseErr)
+				return issueCreateTxResult{}, tx, fmt.Errorf("invalid quick-create source context id: %w", parseErr)
 			}
 			requesterID, parseErr := util.ParseUUID(quickCreate.RequesterID)
 			if parseErr != nil || !task.OriginatorUserID.Valid || requesterID != task.OriginatorUserID {
-				return IssueCreateResult{}, errors.New("quick-create source context has invalid requester")
+				return issueCreateTxResult{}, tx, errors.New("quick-create source context has invalid requester")
 			}
 			pending, pendingErr := qtx.GetPendingIssueSourceContextByOriginTask(ctx, db.GetPendingIssueSourceContextByOriginTaskParams{
 				WorkspaceID: p.WorkspaceID, OriginTaskID: task.ID,
 			})
 			if pendingErr != nil {
 				if errors.Is(pendingErr, pgx.ErrNoRows) {
-					return IssueCreateResult{}, ErrSourceContextAlreadyAttached
+					return issueCreateTxResult{}, tx, ErrSourceContextAlreadyAttached
 				}
-				return IssueCreateResult{}, fmt.Errorf("load pending quick-create source context: %w", pendingErr)
+				return issueCreateTxResult{}, tx, fmt.Errorf("load pending quick-create source context: %w", pendingErr)
 			}
 			if pending.ID != contextID || pending.CapturedByUserID != requesterID {
-				return IssueCreateResult{}, errors.New("quick-create source context ownership mismatch")
+				return issueCreateTxResult{}, tx, errors.New("quick-create source context ownership mismatch")
 			}
 			if _, attachErr := qtx.AttachIssueSourceContext(ctx, db.AttachIssueSourceContextParams{
 				IssueID: issue.ID, WorkspaceID: p.WorkspaceID, ID: contextID, OriginTaskID: task.ID,
 			}); attachErr != nil {
 				if errors.Is(attachErr, pgx.ErrNoRows) {
-					return IssueCreateResult{}, ErrSourceContextAlreadyAttached
+					return issueCreateTxResult{}, tx, ErrSourceContextAlreadyAttached
 				}
-				return IssueCreateResult{}, fmt.Errorf("attach quick-create source context: %w", attachErr)
+				return issueCreateTxResult{}, tx, fmt.Errorf("attach quick-create source context: %w", attachErr)
 			}
 		}
 	}
@@ -484,63 +542,84 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 			LabelID:     label.ID,
 			WorkspaceID: p.WorkspaceID,
 		}); err != nil {
-			return IssueCreateResult{}, fmt.Errorf("attach issue label: %w", err)
+			return issueCreateTxResult{}, tx, fmt.Errorf("attach issue label: %w", err)
 		}
 	}
 
-	if !opts.AssignedAgentRunFireAt.IsZero() && s.shouldEnqueueAgentTaskWithQueries(ctx, qtx, issue) {
-		// The issue must never become visible without its media-gated assigned
-		// task. Inserting both rows through qtx makes the unique-index winner
-		// deterministic: any observer that can discover the committed issue also
-		// sees the inert deferred task and must merge into it.
-		assignedTask, err = s.TaskService.createDeferredChannelIssueTaskWithQueries(ctx, qtx, issue, opts.AssignedAgentRunFireAt)
-		if err != nil {
-			return IssueCreateResult{}, fmt.Errorf("create deferred channel issue task: %w", err)
+	assignedTaskQueued := false
+	if s.shouldEnqueueAgentTaskWithQueries(ctx, qtx, issue) {
+		if !opts.AssignedAgentRunFireAt.IsZero() {
+			// The issue must never become visible without its media-gated assigned
+			// task. Inserting both rows through qtx makes the unique-index winner
+			// deterministic: any observer that can discover the committed issue also
+			// sees the inert deferred task and must merge into it.
+			assignedTask, err = s.TaskService.createDeferredChannelIssueTaskWithQueries(ctx, qtx, issue, opts.AssignedAgentRunFireAt)
+			if err != nil {
+				return issueCreateTxResult{}, tx, fmt.Errorf("create deferred channel issue task: %w", err)
+			}
+		} else if persistAssignedTask {
+			assignedTask, err = s.TaskService.createIssueTaskWithQueries(ctx, qtx, issue)
+			if err != nil {
+				return issueCreateTxResult{}, tx, fmt.Errorf("create assigned issue task: %w", err)
+			}
+			assignedTaskQueued = true
 		}
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return IssueCreateResult{}, fmt.Errorf("commit: %w", err)
-	}
-
-	attachments := s.linkAttachments(ctx, issue, p.AttachmentIDs)
 
 	actorID := opts.ActorID
 	if actorID == "" {
 		actorID = util.UUIDToString(issue.CreatorID)
 	}
 
-	var assignedTaskID pgtype.UUID
-	if !opts.AssignedAgentRunFireAt.IsZero() {
-		assignedTaskID = assignedTask.ID
-		if assignedTaskID.Valid {
-			// The deferred task became durable with the issue at commit. Refresh the
-			// daemon's schedule only now so a wakeup can never race uncommitted data.
-			s.TaskService.notifyRuntimeMayHaveWork(assignedTask.RuntimeID, "")
-			if err := s.TaskService.hydrateDeferredChannelIssueTaskOverlay(ctx, assignedTask); err != nil {
-				// Runtime overlays are best-effort on every enqueue path. The task is
-				// already durable and safely deferred, so an optional integration
-				// failure must not turn a committed issue into a retry duplicate.
-				slog.Warn("hydrate deferred channel issue task overlay failed",
-					"issue_id", util.UUIDToString(issue.ID),
-					"task_id", util.UUIDToString(assignedTask.ID),
-					"error", err)
-			}
-		} else if s.shouldEnqueueSquadLeaderOnAssign(ctx, issue) {
-			// AssignedAgentRunFireAt currently belongs to channel /issue, which
-			// always resolves an agent assignee. Preserve the ordinary squad path
-			// for any future caller that supplies the option with a squad.
-			s.enqueueSquadLeaderTask(ctx, issue, pgtype.UUID{}, p.CreatorType, actorID)
-		}
+	return issueCreateTxResult{
+		Issue:              issue,
+		Labels:             labels,
+		assignedTask:       assignedTask,
+		assignedTaskQueued: assignedTaskQueued,
+		actorID:            actorID,
+	}, tx, nil
+}
+
+// issueCreateTxResult carries everything the create transaction produced so
+// callers extending the commit can publish and enqueue after it.
+type issueCreateTxResult struct {
+	Issue              db.Issue
+	Labels             []db.IssueLabel
+	DuplicateIssue     *db.Issue
+	assignedTask       db.AgentTaskQueue
+	assignedTaskQueued bool
+	actorID            string
+}
+
+// issueCreatePostCommit runs the steps Create performs after its transaction
+// commits: attachment linking, issue-created broadcast, analytics, and the
+// assigned-agent enqueue. Callers that extended the commit with their own
+// rows (e.g. the project workflow bridge) reuse this instead of duplicating
+// the side-effect ordering rules.
+func (s *IssueService) issueCreatePostCommit(ctx context.Context, p IssueCreateParams, opts IssueCreateOpts, r issueCreateTxResult) IssueCreateResult {
+	attachments := s.linkAttachments(ctx, r.Issue, p.AttachmentIDs)
+
+	s.publishIssueCreated(r.Issue, attachments, r.Labels, p.CreatorType, r.actorID, opts)
+	s.captureCreatedAnalytics(r.Issue, p.CreatorType, r.actorID, opts)
+	assignedTaskID := r.assignedTask.ID
+	if r.assignedTaskQueued {
+		s.TaskService.broadcastTaskEvent(ctx, protocol.EventTaskQueued, r.assignedTask)
+		s.TaskService.NotifyTaskEnqueued(ctx, r.assignedTask)
+	} else if !opts.AssignedAgentRunFireAt.IsZero() && r.assignedTask.ID.Valid {
+		s.TaskService.notifyRuntimeMayHaveWork(r.assignedTask.RuntimeID, "")
+	} else if opts.AssignedAgentRunFireAt.IsZero() {
+		assignedTaskID = s.maybeEnqueueOnAssign(ctx, r.Issue, p.CreatorType, r.actorID, opts.AssignedAgentRunFireAt)
 	}
 
-	s.publishIssueCreated(issue, attachments, labels, p.CreatorType, actorID, opts)
-	s.captureCreatedAnalytics(issue, p.CreatorType, actorID, opts)
-	if opts.AssignedAgentRunFireAt.IsZero() {
-		assignedTaskID = s.maybeEnqueueOnAssign(ctx, issue, p.CreatorType, actorID, opts.AssignedAgentRunFireAt)
+	return IssueCreateResult{
+		Issue:              r.Issue,
+		Attachments:        attachments,
+		Labels:             r.Labels,
+		AssignedTaskID:     assignedTaskID,
+		assignedTask:       r.assignedTask,
+		assignedTaskQueued: r.assignedTaskQueued,
+		actorID:            r.actorID,
 	}
-
-	return IssueCreateResult{Issue: issue, Attachments: attachments, Labels: labels, AssignedTaskID: assignedTaskID}, nil
 }
 
 // validateIssueCreateProperties returns the canonical JSONB bag to put on the

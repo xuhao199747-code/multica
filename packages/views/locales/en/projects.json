@@ -181,13 +181,22 @@
     "evidence_review": "Review",
     "roles_label": "Project agents",
     "choose_agent": "Choose an agent",
-    "roles": { "mika": "Mica", "prd": "PRD", "developer": "Development", "reviewer": "Review" },
+    "roles": {
+      "mika": "Mica",
+      "prd": "PRD",
+      "developer": "Development",
+      "reviewer": "Review"
+    },
     "delivery_modes": {
       "notify_only": "Notify only",
       "pull_request": "Create a pull request",
       "manual_release": "Prepare for manual release",
       "automated_release": "Release automatically"
-    }
+    },
+    "start_button": "Confirm and start",
+    "start_pending": "Starting…",
+    "toast_started": "Execution started",
+    "toast_start_failed": "Failed to start execution"
   },
   "toolbar": {
     "result_count_title": "Matching projects / all projects",
