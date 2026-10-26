@@ -140,5 +140,18 @@
     "filter_label": "フィルター",
     "filter_active_count_other": "{{count}} 件のフィルター",
     "clear_filters": "フィルターをクリア"
+  },
+  "mapping_incomplete_note": "スクワッドの割り当てがすべてのロールをカバーしなくなったため、同期と復元は利用できません。",
+  "standard_label": "プロジェクトロール",
+  "standard_description": "プロジェクトがこのスクワッドをロールテンプレートとして使う場合に、各標準ロールを担うエージェントを指定します。1 ロールにつき 1 人です。",
+  "standard_none": "未設定",
+  "division_label": "スクワッド内の役割",
+  "division_description": "スクワッド内で表示される自由入力の役割で、プロジェクトのロールテンプレートには影響しません。",
+  "standard_saved": "プロジェクトロールを更新しました",
+  "standard_save_failed": "プロジェクトロールの更新に失敗しました",
+  "standard_conflict": "このロールはすでに別のメンバーが担当中です",
+  "role_labels": {
+    "developer": "開発",
+    "reviewer": "レビュー"
   }
 }

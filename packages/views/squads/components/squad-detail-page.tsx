@@ -26,6 +26,13 @@ import {
   PopoverTrigger,
 } from "@multica/ui/components/ui/popover";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@multica/ui/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -59,7 +66,7 @@ import {
 } from "../../issues/components/pickers/property-picker";
 import { ChevronDown, UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import type { Squad, SquadMember, SquadMemberStatus, SquadMemberStatusValue, Agent, MemberWithUser } from "@multica/core/types";
+import type { Squad, SquadMember, SquadMemberStatus, SquadMemberStatusValue, Agent, MemberWithUser, SquadStandardRole } from "@multica/core/types";
 import { useT } from "../../i18n";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 
@@ -158,6 +165,22 @@ export function SquadDetailPage() {
       toast.error(err instanceof Error && err.message ? err.message : t(($) => $.toasts.role_update_failed)),
   });
 
+  // Project roles: which standard role this agent covers when a project uses
+  // the squad as its role template. One agent per role (server enforces the
+  // partial unique index); conflicts surface as toasts.
+  const updateStandardRoleMut = useMutation({
+    mutationFn: (input: { member: SquadMember; standard_role: string }) =>
+      api.updateSquadMemberRole(squadId, {
+        member_type: input.member.member_type,
+        member_id: input.member.member_id,
+        role: input.member.role,
+        standard_role: (input.standard_role || null) as SquadStandardRole | null,
+      }),
+    onSuccess: () => { refetchMembers(); toast.success(t(($) => $.standard_saved)); },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : t(($) => $.standard_save_failed)),
+  });
+
   const setLeaderMut = useMutation({
     mutationFn: (agentId: string) => api.updateSquad(squadId, { leader_id: agentId }),
     onSuccess: () => {
@@ -247,6 +270,7 @@ export function SquadDetailPage() {
           onSetLeader={(id) => setLeaderMut.mutate(id)}
           onRemoveMember={(m) => removeMemberMut.mutate(m)}
           onUpdateRole={async (m, role) => { await updateRoleMut.mutateAsync({ member: m, role }); }}
+          onUpdateStandardRole={async (m, standardRole) => { await updateStandardRoleMut.mutateAsync({ member: m, standard_role: standardRole }); }}
           onSaveInstructions={async (next) => { await updateSquadMut.mutateAsync({ instructions: next }); toast.success(t(($) => $.toasts.instructions_saved)); }}
           setLeaderPending={setLeaderMut.isPending}
         />
@@ -956,6 +980,7 @@ function SquadOverviewPane({
   onSetLeader,
   onRemoveMember,
   onUpdateRole,
+  onUpdateStandardRole,
   onSaveInstructions,
   setLeaderPending,
 }: {
@@ -977,6 +1002,7 @@ function SquadOverviewPane({
   onSetLeader: (agentId: string) => void;
   onRemoveMember: (m: SquadMember) => void;
   onUpdateRole: (m: SquadMember, role: string) => Promise<void>;
+  onUpdateStandardRole: (m: SquadMember, standardRole: string) => Promise<void>;
   onSaveInstructions: (next: string) => Promise<void>;
   setLeaderPending: boolean;
 }) {
@@ -1034,6 +1060,7 @@ function SquadOverviewPane({
               onSetLeader={onSetLeader}
               onRemoveMember={onRemoveMember}
               onUpdateRole={onUpdateRole}
+              onUpdateStandardRole={onUpdateStandardRole}
               setLeaderPending={setLeaderPending}
             />
           </div>
@@ -1099,6 +1126,7 @@ function SquadMembersTab({
   onSetLeader,
   onRemoveMember,
   onUpdateRole,
+  onUpdateStandardRole,
   setLeaderPending,
 }: {
   members: SquadMember[];
@@ -1115,13 +1143,57 @@ function SquadMembersTab({
   onSetLeader: (agentId: string) => void;
   onRemoveMember: (m: SquadMember) => void;
   onUpdateRole: (m: SquadMember, role: string) => Promise<void>;
+  onUpdateStandardRole: (m: SquadMember, standardRole: string) => Promise<void>;
   setLeaderPending: boolean;
 }) {
   const { t } = useT("squads");
   const timeAgo = useTimeAgo();
   const p = useWorkspacePaths();
+  const standardRoles: { value: string; label: string }[] = [
+    { value: "", label: t(($) => $.standard_none) },
+    { value: "prd", label: "PRD" },
+    { value: "developer", label: t(($) => $.role_labels.developer) },
+    { value: "reviewer", label: t(($) => $.role_labels.reviewer) },
+  ];
   return (
     <div className="flex flex-col gap-4">
+      {/* Project roles: which agent covers each standard role when a project
+          uses this squad as its role template. Kept visually separate from the
+          free-text squad duties below. */}
+      <div className="rounded-lg border bg-muted/20 p-3">
+        <div className="mb-1 text-micro font-medium uppercase tracking-wider text-muted-foreground">
+          {t(($) => $.standard_label)}
+        </div>
+        <p className="mb-2 text-caption text-muted-foreground">{t(($) => $.standard_description)}</p>
+        <div className="space-y-1.5">
+          {members.filter((m) => m.member_type === "agent").map((m) => (
+            <div key={`std-${m.id}`} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-caption">{getEntityName(m.member_type, m.member_id)}</span>
+              <Select
+                items={standardRoles}
+                value={m.standard_role ?? ""}
+                onValueChange={(value) => void onUpdateStandardRole(m, value ?? "")}
+                disabled={!canManage}
+              >
+                <SelectTrigger className="h-7 w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {standardRoles.map((role) => (
+                    <SelectItem key={role.value || "none"} value={role.value}>{role.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="mb-1 text-micro font-medium uppercase tracking-wider text-muted-foreground">
+          {t(($) => $.division_label)}
+        </div>
+        <p className="mb-2 text-caption text-muted-foreground">{t(($) => $.division_description)}</p>
+      </div>
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-body font-medium">{t(($) => $.members_tab.section_title)}</h3>

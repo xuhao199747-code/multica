@@ -144,5 +144,18 @@
     "filter_active_count_one": "{{count}} filtre",
     "filter_active_count_other": "{{count}} filtres",
     "clear_filters": "Effacer les filtres"
+  },
+  "mapping_incomplete_note": "La répartition de l'escouade ne couvre plus tous les rôles ; la synchronisation et la restauration sont indisponibles.",
+  "standard_label": "Rôles du projet",
+  "standard_description": "Indiquez quel agent couvre chaque rôle standard lorsqu'un projet utilise cette escouade comme modèle de rôles. Un seul agent par rôle.",
+  "standard_none": "Non défini",
+  "division_label": "Répartition interne",
+  "division_description": "Libellés internes affichés dans l'escouade ; ils n'affectent pas le modèle de rôles du projet.",
+  "standard_saved": "Rôle du projet mis à jour",
+  "standard_save_failed": "Échec de la mise à jour du rôle du projet",
+  "standard_conflict": "Ce rôle est déjà couvert par un autre membre",
+  "role_labels": {
+    "developer": "Développement",
+    "reviewer": "Revue"
   }
 }

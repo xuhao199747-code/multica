@@ -144,5 +144,18 @@
     "filter_active_count_one": "{{count}} filter",
     "filter_active_count_other": "{{count}} filters",
     "clear_filters": "Clear filters"
+  },
+  "mapping_incomplete_note": "The squad mapping no longer covers every role; sync and restore are unavailable.",
+  "standard_label": "Project roles",
+  "standard_description": "Mark which agent covers each standard role when a project uses this squad as its role template. One agent per role.",
+  "standard_none": "Not set",
+  "division_label": "Squad duties",
+  "division_description": "Free-text duties shown inside the squad; they do not affect project role templates.",
+  "standard_saved": "Project role updated",
+  "standard_save_failed": "Failed to update the project role",
+  "standard_conflict": "Another member already covers this project role",
+  "role_labels": {
+    "developer": "Development",
+    "reviewer": "Review"
   }
 }
