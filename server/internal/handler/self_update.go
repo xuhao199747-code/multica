@@ -152,7 +152,11 @@ func (h *Handler) GetSelfUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		if err == nil && updateTag.MatchString(release.Tag) && updateSHA.MatchString(release.CommitSHA) {
 			// The source URL is informational. Only the official release URL is exposed.
 			status.LatestRelease = &selfUpdateReleaseResponse{release.Tag, release.CommitSHA, "https://github.com/multica-ai/multica/releases/tag/" + release.Tag}
-			status.UpdateAvailable = status.DeployedRelease != "" && release.Tag != status.DeployedRelease
+			// A custom self-host fork tracks its own history. Without an official
+			// release ancestor on the deployed branch there is nothing safe to
+			// auto-update to, so only flag an update when the deployment is a
+			// descendant of the latest official release.
+			status.UpdateAvailable = updateTag.MatchString(status.DeployedRelease) && status.DeployedRelease != "v0.0.0" && release.Tag != status.DeployedRelease
 		} else {
 			status.CheckFailed = true
 		}

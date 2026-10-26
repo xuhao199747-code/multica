@@ -317,6 +317,26 @@ func TestSelfUpdateSafeRead(t *testing.T) {
 	}
 }
 
+func TestSelfUpdateStatusCustomBaselineNotUpdateable(t *testing.T) {
+	h, _ := updateTestHandler(t)
+	// A custom self-host fork records a v0.0.0 placeholder release. It is not a
+	// descendant of any official release, so it must never present an update.
+	_, err := h.Queries.UpsertSelfUpdateInstallation(context.Background(), db.UpsertSelfUpdateInstallationParams{DeployedReleaseTag: "v0.0.0", DeployedCustomSha: updateTestSHA, BackendDigest: "sha256:" + strings.Repeat("a", 64), WebDigest: "sha256:" + strings.Repeat("b", 64), ProjectID: util.MustParseUUID(testWorkspaceID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.Queries.HeartbeatSelfUpdateWorker(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SelfUpdateReleases = updateReleaseSource{release: selfupdate.Release{Tag: "v0.7.0", CommitSHA: updateTestSHA}}
+	var status map[string]any
+	testutil.Call(t, h.GetSelfUpdateStatus, newRequest("GET", "/", nil)).Want(http.StatusOK).JSON(&status)
+	if status["update_available"] != false || status["can_update"] != false || status["capability"] != "ready" {
+		t.Fatalf("custom baseline should not auto-update: %v", status)
+	}
+}
+
 func TestSelfUpdateTerminalReplayNeedsNoWorkerOrReleaseCheck(t *testing.T) {
 	h, pool := updateTestHandler(t)
 	updateBaseline(t, h)
