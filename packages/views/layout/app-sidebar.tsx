@@ -88,7 +88,6 @@ import {
 } from "@multica/core/shortcuts";
 import { ShortcutKeycaps } from "../common/shortcut-keycaps";
 import { useAppForeground } from "../common/use-app-foreground";
-import { UpdateStatus } from "./update-status";
 
 // Top-level nav items stay active when the user is on a child route
 // (e.g. "Projects" stays lit on /:slug/projects/:id). Pinned items keep
@@ -960,7 +959,6 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                 </SidebarMenuItem>
               );
             })}
-            <UpdateStatus />
           </SidebarMenu>
           <div className="flex items-center gap-1">
             <JoinDiscordCard />
