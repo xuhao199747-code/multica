@@ -12,6 +12,7 @@ import {
   useDeleteProjectAgentBinding,
   useUpdateProjectWorkflowSettings,
 } from "@multica/core/projects/workflow-queries";
+import { ProjectSquadTemplateSection } from "./project-squad-template-section";
 import type { ProjectAgentRole, ProjectDeliveryMode } from "@multica/core/types";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@multica/ui/components/ui/select";
@@ -131,11 +132,15 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
+      {settings.enabled && (
+        <ProjectSquadTemplateSection projectId={projectId} />
+      )}
       {settings.enabled && bindings && (
-        <div className="space-y-2 border-t pt-2">
+        <div className="space-y-2">
           <span className="text-caption text-muted-foreground">{t(($) => $.workflow.roles_label)}</span>
           {roles.map((role) => {
             const binding = bindings.bindings.find((item) => item.role === role);
+            const source = binding?.source ?? "manual";
             return <div key={role} className="flex items-center gap-2">
               <span className="w-20 shrink-0 text-caption">{t(($) => $.workflow.roles[role])}</span>
               <Select
@@ -153,6 +158,18 @@ export function ProjectWorkflowSection({ projectId }: { projectId: string }) {
                 <SelectTrigger className="h-8 flex-1"><SelectValue placeholder={t(($) => $.workflow.choose_agent)} /></SelectTrigger>
                 <SelectContent>{agents.filter((agent) => !agent.archived_at).map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectContent>
               </Select>
+              {binding && (
+                <span
+                  title={t(($) => (source === "squad" ? $.workflow.squad.role_source_squad : $.workflow.squad.role_source_manual))}
+                  className={
+                    source === "squad"
+                      ? "shrink-0 rounded-xs bg-accent px-1.5 py-0.5 text-caption text-muted-foreground"
+                      : "shrink-0 rounded-xs bg-surface-raised px-1.5 py-0.5 text-caption text-muted-foreground"
+                  }
+                >
+                  {t(($) => (source === "squad" ? $.workflow.squad.role_source_squad : $.workflow.squad.role_source_manual))}
+                </span>
+              )}
             </div>;
           })}
         </div>
