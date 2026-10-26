@@ -1557,9 +1557,14 @@ export const EMPTY_PROJECT_ROLE_SOURCE: ProjectRoleSource = {
   diff: { changes: [], removals: [], adds: [], unchanged: [], diff_hash: "" },
 };
 
+const ProjectExecutionIssueSchema = z.object({
+  id: z.string(), title: z.string(), status: z.string(), role: z.string(),
+}).loose();
 const ProjectExecutionSchema = z.object({
   id: z.string(), project_id: z.string(), workspace_id: z.string(), source_chat_session_id: z.string(), source_agent_id: z.string(),
   snapshot: z.record(z.string(), z.unknown()).default({}), delivery_result: z.record(z.string(), z.unknown()).default({}), state: z.string(), review_round: z.number().default(0), created_at: z.string(),
+  main_issue: ProjectExecutionIssueSchema.nullable().catch(null).default(null),
+  historical_issues: z.array(ProjectExecutionIssueSchema).catch([]).default([]),
 }).loose();
 export const ListProjectExecutionsResponseSchema: z.ZodType<ListProjectExecutionsResponse> = z.object({
   executions: z.array(ProjectExecutionSchema).default([]), total: z.number().default(0),

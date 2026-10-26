@@ -179,6 +179,15 @@
     "evidence_commit": "Commit",
     "evidence_tests": "Tests",
     "evidence_review": "Review",
+    "historical_issues": "{{count}} historical issues",
+    "phase": {
+      "development": "Developing",
+      "review": "In review · round {{round}}",
+      "repair": "Changes requested",
+      "delivering": "Delivering",
+      "completed": "Completed",
+      "needs_member_decision": "Needs member decision"
+    },
     "roles_label": "Project agents",
     "choose_agent": "Choose an agent",
     "roles": {

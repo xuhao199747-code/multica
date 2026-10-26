@@ -178,6 +178,15 @@
     "evidence_commit": "커밋",
     "evidence_tests": "테스트",
     "evidence_review": "검토",
+    "historical_issues": "기록 작업 {{count}}개",
+    "phase": {
+      "development": "개발 중",
+      "review": "검토 중 · {{round}}차",
+      "repair": "수정 필요",
+      "delivering": "배포 중",
+      "completed": "완료됨",
+      "needs_member_decision": "구성원 결정 필요"
+    },
     "roles_label": "프로젝트 에이전트",
     "choose_agent": "에이전트 선택",
     "roles": {

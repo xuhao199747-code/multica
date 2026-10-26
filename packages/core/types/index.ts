@@ -210,6 +210,7 @@ export type {
   ProjectRoleSourceDiff,
   ProjectRoleSourceDiffEntry,
   ProjectExecution,
+  ProjectExecutionIssue,
   ListProjectExecutionsResponse,
   StartProjectWorkflowExecutionRequest,
   StartProjectWorkflowExecutionResponse,

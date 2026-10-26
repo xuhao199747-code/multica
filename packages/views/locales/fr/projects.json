@@ -179,6 +179,15 @@
     "evidence_commit": "Commit",
     "evidence_tests": "Tests",
     "evidence_review": "Revue",
+    "historical_issues": "{{count}} tâches historiques",
+    "phase": {
+      "development": "En développement",
+      "review": "En revue · cycle {{round}}",
+      "repair": "Modifications demandées",
+      "delivering": "Livraison en cours",
+      "completed": "Terminé",
+      "needs_member_decision": "Décision du membre requise"
+    },
     "roles_label": "Agents du projet",
     "choose_agent": "Choisir un agent",
     "roles": {

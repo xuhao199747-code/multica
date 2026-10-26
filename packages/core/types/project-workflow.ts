@@ -58,6 +58,15 @@ export interface ProjectExecution {
   state: string;
   review_round: number;
   created_at: string;
+  main_issue: ProjectExecutionIssue | null;
+  historical_issues: ProjectExecutionIssue[];
+}
+
+export interface ProjectExecutionIssue {
+  id: string;
+  title: string;
+  status: string;
+  role: string;
 }
 
 export interface ListProjectExecutionsResponse {

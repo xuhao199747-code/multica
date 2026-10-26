@@ -10,7 +10,7 @@ import (
 
 // TestStartProjectWorkflowExecutionFromChatAtomicBridge covers the P0
 // confirmation-to-dispatch bridge: one member action must create the
-// execution record, the development issue, the execution-issue link, and
+// execution record, the primary issue, the execution-issue link, and
 // the queued agent run together.
 func TestStartProjectWorkflowExecutionFromChatAtomicBridge(t *testing.T) {
 	w := httptest.NewRecorder()
@@ -69,7 +69,7 @@ func TestStartProjectWorkflowExecutionFromChatAtomicBridge(t *testing.T) {
 		t.Fatalf("source chat = %s, want %s", started.Execution.SourceChatSessionID, sessionID)
 	}
 	if started.Issue.ID == "" {
-		t.Fatal("expected a development issue")
+		t.Fatal("expected a primary workflow issue")
 	}
 	if started.TaskID == nil || *started.TaskID == "" {
 		t.Fatal("expected a queued agent task")
@@ -79,7 +79,7 @@ func TestStartProjectWorkflowExecutionFromChatAtomicBridge(t *testing.T) {
 	var linkCount int
 	if err := testPool.QueryRow(context.Background(), `
 		SELECT count(*) FROM project_execution_issue
-		WHERE execution_record_id = $1 AND issue_id = $2 AND role = 'development'
+		WHERE execution_record_id = $1 AND issue_id = $2 AND role = 'main'
 	`, started.Execution.ID, started.Issue.ID).Scan(&linkCount); err != nil || linkCount != 1 {
 		t.Fatalf("execution-issue link count = %d, err = %v, want 1", linkCount, err)
 	}

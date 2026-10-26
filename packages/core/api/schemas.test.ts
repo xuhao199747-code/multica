@@ -66,6 +66,7 @@ import {
   PluginPreviewSchema,
   EMPTY_PLUGIN_INSTALLATION_LIST,
   EMPTY_PLUGIN_PREVIEW,
+  ListProjectExecutionsResponseSchema,
 } from "./schemas";
 import { IssueViewSchema, IssueViewListSchema } from "./schemas";
 import {
@@ -99,6 +100,51 @@ const baseIssue = {
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
+
+describe("project workflow execution response compatibility", () => {
+  it("defaults absent or malformed task grouping without dropping a valid execution", () => {
+    const baseExecution = {
+      id: "execution-1",
+      project_id: "project-1",
+      workspace_id: "workspace-1",
+      source_chat_session_id: "chat-1",
+      source_agent_id: "agent-1",
+      snapshot: {},
+      delivery_result: {},
+      state: "review",
+      review_round: 1,
+      created_at: "2026-10-26T00:00:00Z",
+    };
+
+    expect(ListProjectExecutionsResponseSchema.parse({
+      executions: [baseExecution],
+      total: 1,
+    }).executions[0]).toMatchObject({
+      main_issue: null,
+      historical_issues: [],
+    });
+
+    expect(ListProjectExecutionsResponseSchema.parse({
+      executions: [{
+        ...baseExecution,
+        main_issue: { id: "issue-1", title: "Primary issue", status: "in_review", role: "main" },
+        historical_issues: [{ id: "issue-2", title: "Old review", status: "done", role: "review" }],
+      }],
+      total: 1,
+    }).executions[0]).toMatchObject({
+      main_issue: { id: "issue-1", role: "main" },
+      historical_issues: [{ id: "issue-2", role: "review" }],
+    });
+
+    expect(ListProjectExecutionsResponseSchema.parse({
+      executions: [{ ...baseExecution, main_issue: { id: 42 }, historical_issues: "invalid" }],
+      total: 1,
+    }).executions[0]).toMatchObject({
+      main_issue: null,
+      historical_issues: [],
+    });
+  });
+});
 
 describe("ChatSessionSchema", () => {
   const baseSession = {

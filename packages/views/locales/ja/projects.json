@@ -178,6 +178,15 @@
     "evidence_commit": "コミット",
     "evidence_tests": "テスト",
     "evidence_review": "レビュー",
+    "historical_issues": "履歴タスク {{count}} 件",
+    "phase": {
+      "development": "開発中",
+      "review": "レビュー中 · {{round}} 回目",
+      "repair": "修正が必要",
+      "delivering": "デリバリー中",
+      "completed": "完了",
+      "needs_member_decision": "メンバーの判断待ち"
+    },
     "roles_label": "プロジェクトエージェント",
     "choose_agent": "エージェントを選択",
     "roles": {

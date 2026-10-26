@@ -4243,6 +4243,8 @@ export class ApiClient {
         state: "development",
         review_round: 0,
         created_at: "",
+        main_issue: null,
+        historical_issues: [],
       },
       issue: null,
       execution_issue: null,

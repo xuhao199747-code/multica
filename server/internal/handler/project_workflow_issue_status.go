@@ -33,7 +33,7 @@ func requireWorkflowEvidenceForIssueStatus(ctx context.Context, q *db.Queries, w
 	if err != nil {
 		return fmt.Errorf("load workflow issue: %w", err)
 	}
-	if link.Role != "development" && link.Role != "repair" && link.Role != "review" {
+	if link.Role != "main" && link.Role != "development" && link.Role != "repair" && link.Role != "review" {
 		return nil
 	}
 	record, err := q.GetProjectExecutionRecord(ctx, db.GetProjectExecutionRecordParams{ID: link.ExecutionRecordID, ProjectID: link.ProjectID, WorkspaceID: link.WorkspaceID})
@@ -44,24 +44,41 @@ func requireWorkflowEvidenceForIssueStatus(ctx context.Context, q *db.Queries, w
 	if err := json.Unmarshal(record.DeliveryResult, &evidence); err != nil {
 		return fmt.Errorf("decode workflow evidence: %w", err)
 	}
-	if receipts, ok := evidence["submitted_issue_ids"].([]any); ok {
-		for _, receipt := range receipts {
-			if receipt == uuidToString(params.ID) {
-				return nil
+	if link.Role != "main" {
+		if receipts, ok := evidence["submitted_issue_ids"].([]any); ok {
+			for _, receipt := range receipts {
+				if receipt == uuidToString(params.ID) {
+					return nil
+				}
 			}
 		}
 	}
-	command := ""
-	if link.Role == "development" || link.Role == "repair" {
-		command = fmt.Sprintf("multica project workflow delivery %s --execution %s --issue %s --commit <commit-ref> --tests <test-evidence> --summary <summary>", uuidToString(link.ProjectID), uuidToString(record.ID), uuidToString(params.ID))
-	}
-	if link.Role == "review" {
-		command = fmt.Sprintf("multica project workflow review %s --execution %s --issue %s --outcome passed|needs_changes|needs_member_decision --findings <review-evidence>", uuidToString(link.ProjectID), uuidToString(record.ID), uuidToString(params.ID))
-	}
+	command := workflowEvidenceCommand(link, record, params.ID)
 	if command != "" {
 		return &workflowEvidenceRequiredError{command: command}
 	}
 	return nil
+}
+
+func workflowEvidenceCommand(link db.ProjectExecutionIssue, record db.ProjectExecutionRecord, issueID pgtype.UUID) string {
+	if link.Role == "main" {
+		switch record.State {
+		case "development", "repair":
+			return fmt.Sprintf("multica project workflow delivery %s --execution %s --issue %s --commit <commit-ref> --tests <test-evidence> --summary <summary>", uuidToString(link.ProjectID), uuidToString(record.ID), uuidToString(issueID))
+		case "review":
+			return fmt.Sprintf("multica project workflow review %s --execution %s --issue %s --outcome passed|needs_changes|needs_member_decision --findings <review-evidence>", uuidToString(link.ProjectID), uuidToString(record.ID), uuidToString(issueID))
+		case "delivering":
+			return fmt.Sprintf("multica project workflow complete %s --execution %s --evidence <file.json>", uuidToString(link.ProjectID), uuidToString(record.ID))
+		}
+		return ""
+	}
+	if link.Role == "development" || link.Role == "repair" {
+		return fmt.Sprintf("multica project workflow delivery %s --execution %s --issue %s --commit <commit-ref> --tests <test-evidence> --summary <summary>", uuidToString(link.ProjectID), uuidToString(record.ID), uuidToString(issueID))
+	}
+	if link.Role == "review" {
+		return fmt.Sprintf("multica project workflow review %s --execution %s --issue %s --outcome passed|needs_changes|needs_member_decision --findings <review-evidence>", uuidToString(link.ProjectID), uuidToString(record.ID), uuidToString(issueID))
+	}
+	return ""
 }
 
 // Keep a receipt for each linked issue, independent of the execution's latest
