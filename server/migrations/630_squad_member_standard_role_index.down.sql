@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_squad_member_standard_role_unique;
