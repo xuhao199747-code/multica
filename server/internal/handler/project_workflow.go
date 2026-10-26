@@ -825,6 +825,9 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
+	// The development or repair phase is complete; close its intermediate
+	// issues so they do not stack up as additional "in review" entries.
+	h.closeStaleWorkflowIssues(r.Context(), project.WorkspaceID, project.ID, executionID, []string{"development", "repair"})
 	coordination, err := h.enqueueProjectWorkflowReviewCoordination(r, project, updated, mika, parseUUID(userID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "delivery was recorded but failed to queue Mica review coordination")
@@ -954,6 +957,9 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to complete project delivery")
 		return
 	}
+	// Delivery is complete; close the delivery coordination issue so the
+	// finished execution leaves no open coordination tickets behind.
+	h.closeStaleWorkflowIssues(r.Context(), project.WorkspaceID, project.ID, executionID, []string{"delivery"})
 	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
 }
 
@@ -1038,6 +1044,10 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
+	// The review phase is complete regardless of outcome; close its
+	// intermediate issues (the reviewer issue and the review coordination
+	// issue) so they do not linger in todo/in_review.
+	h.closeStaleWorkflowIssues(r.Context(), project.WorkspaceID, project.ID, executionID, []string{"review"})
 	response := map[string]any{"execution": projectExecutionToResponse(updated)}
 	if next == service.ExecutionRepair || next == service.ExecutionDelivering {
 		mika, err := h.projectWorkflowMika(r, project)

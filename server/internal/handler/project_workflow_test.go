@@ -512,3 +512,150 @@ func TestProjectDeliveryQueuesMicaReviewCoordination(t *testing.T) {
 		t.Fatalf("review result did not queue delivery coordination: %+v", reviewResult)
 	}
 }
+
+// TestProjectWorkflowClosesStaleIntermediateIssues covers the regression where
+// multiple intermediate issues (development, review coordination, review,
+// delivery coordination) all stayed in todo/in_review after a successful
+// transition, making one execution look like several stuck tasks.
+func TestProjectWorkflowClosesStaleIntermediateIssues(t *testing.T) {
+	w := httptest.NewRecorder()
+	testHandler.CreateProject(w, newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{"title": "Workflow stale close project"}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.NewDecoder(w.Body).Decode(&project); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testHandler.DeleteProject(httptest.NewRecorder(), withURLParam(newRequest("DELETE", "/api/projects/"+project.ID, nil), "id", project.ID))
+	})
+	enableProjectWorkflowForTest(t, project.ID)
+
+	mikaID := createHandlerTestAgent(t, "stale-close-mika", nil)
+	developerID := createHandlerTestAgent(t, "stale-close-developer", nil)
+	prdID := createHandlerTestAgent(t, "stale-close-prd", nil)
+	reviewerID := createHandlerTestAgent(t, "stale-close-reviewer", nil)
+	bind := func(agentID, role string) {
+		w := httptest.NewRecorder()
+		testHandler.CreateProjectAgentBinding(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/agents", map[string]any{"agent_id": agentID, "role": role}), "id", project.ID))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("bind %s: %d %s", role, w.Code, w.Body.String())
+		}
+	}
+	bind(mikaID, "mika")
+	bind(developerID, "developer")
+	bind(prdID, "prd")
+	bind(reviewerID, "reviewer")
+
+	sessionID := createChatSessionWithProjectForTest(t, prdID, project.ID)
+	w = httptest.NewRecorder()
+	testHandler.ConfirmProjectExecution(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions", map[string]any{
+		"source_chat_session_id": sessionID,
+		"source_agent_id":        prdID,
+		"snapshot":               map[string]any{"goal": "Close stale issues", "scope": []string{"server"}, "acceptance_criteria": []string{"no ghosts"}, "risks": []string{}},
+	}), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("confirm execution: %d %s", w.Code, w.Body.String())
+	}
+	var execution ProjectExecutionResponse
+	if err := json.NewDecoder(w.Body).Decode(&execution); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dispatch and complete development.
+	w = httptest.NewRecorder()
+	testHandler.DispatchProjectExecution(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/dispatch", map[string]any{
+		"execution_id": execution.ID, "agent_id": developerID, "role": "development", "title": "Build the stale close feature",
+	}), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("dispatch developer: %d %s", w.Code, w.Body.String())
+	}
+	var devDispatch struct {
+		Issue IssueResponse `json:"issue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&devDispatch); err != nil {
+		t.Fatal(err)
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.SubmitProjectExecutionDelivery(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/delivery", map[string]any{
+		"execution_id": execution.ID, "issue_id": devDispatch.Issue.ID, "commit": "abc123", "tests": "go test ./...", "summary": "Implemented stale close",
+	}), "id", project.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("submit delivery: %d %s", w.Code, w.Body.String())
+	}
+	var deliveryResult struct {
+		CoordinationIssue IssueResponse `json:"coordination_issue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&deliveryResult); err != nil {
+		t.Fatal(err)
+	}
+
+	// The development issue should now be done, not still in_review.
+	assertIssueStatus(t, devDispatch.Issue.ID, "done")
+
+	// Dispatch and complete review.
+	w = httptest.NewRecorder()
+	testHandler.DispatchProjectExecution(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/dispatch", map[string]any{
+		"execution_id": execution.ID, "agent_id": reviewerID, "role": "review", "title": "Review the stale close feature",
+	}), "id", project.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("dispatch reviewer: %d %s", w.Code, w.Body.String())
+	}
+	var reviewDispatch struct {
+		Issue IssueResponse `json:"issue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&reviewDispatch); err != nil {
+		t.Fatal(err)
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.RecordProjectReview(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/review", map[string]any{
+		"execution_id": execution.ID, "issue_id": reviewDispatch.Issue.ID, "outcome": "passed", "findings": "Looks good.",
+	}), "id", project.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("record review: %d %s", w.Code, w.Body.String())
+	}
+	var reviewResult struct {
+		Execution         ProjectExecutionResponse `json:"execution"`
+		CoordinationIssue IssueResponse            `json:"coordination_issue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&reviewResult); err != nil {
+		t.Fatal(err)
+	}
+	if reviewResult.Execution.State != "delivering" {
+		t.Fatalf("execution state = %q, want delivering", reviewResult.Execution.State)
+	}
+
+	// The review issue and the review coordination issue should now be done.
+	assertIssueStatus(t, reviewDispatch.Issue.ID, "done")
+	assertIssueStatus(t, deliveryResult.CoordinationIssue.ID, "done")
+
+	// Complete delivery and confirm the delivery coordination issue closes too.
+	w = httptest.NewRecorder()
+	testHandler.CompleteProjectDelivery(w, withURLParam(newRequest("POST", "/api/projects/"+project.ID+"/workflow/executions/complete", map[string]any{
+		"execution_id": execution.ID, "evidence": map[string]any{"result": "notified"},
+	}), "id", project.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("complete delivery: %d %s", w.Code, w.Body.String())
+	}
+	assertIssueStatus(t, reviewResult.CoordinationIssue.ID, "done")
+}
+
+// assertIssueStatus fetches an issue and confirms its stored status key.
+func assertIssueStatus(t *testing.T, issueID string, want string) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	testHandler.GetIssue(w, withURLParam(newRequest("GET", "/api/issues/"+issueID, nil), "id", issueID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GetIssue(%s): %d %s", issueID, w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&issue); err != nil {
+		t.Fatal(err)
+	}
+	if issue.Status != want {
+		t.Fatalf("issue %s status = %q, want %q", issueID, issue.Status, want)
+	}
+}
