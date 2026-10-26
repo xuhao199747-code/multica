@@ -254,3 +254,26 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestCommandEnvironmentPreservesProxyVariables(t *testing.T) {
+	root := canonicalTempDir(t)
+	tool := filepath.Join(root, "env-dump")
+	script := "#!/bin/bash\nenv | sort\n"
+	if err := os.WriteFile(tool, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"}
+	for _, key := range keys {
+		t.Setenv(key, "proxy-value-for-"+key)
+	}
+	result, err := ExecRunner{}.Run(context.Background(), tool, nil, root, commandEnvironment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := result.Stdout
+	for _, key := range keys {
+		if !strings.Contains(stdout, key+"=proxy-value-for-"+key) {
+			t.Fatalf("missing %s in child env:\n%s", key, stdout)
+		}
+	}
+}

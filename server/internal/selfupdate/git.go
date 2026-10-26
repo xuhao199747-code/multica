@@ -243,7 +243,11 @@ func remoteEquals(output, sha, ref string) bool {
 }
 func commandEnvironment() []string {
 	env := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "MAKEFLAGS=", "MULTICA_SELF_UPDATE_NO_CONTAINER_START=1"}
-	for _, name := range []string{"PATH", "HOME", "TMPDIR", "SSH_AUTH_SOCK", "LANG"} {
+	// Preserve proxy variables so child git/docker invocations reach the
+	// network when the host requires an HTTP(S)/SOCKS proxy. Without these,
+	// git ls-remote/fetch to GitHub hang or fail on hosts whose direct
+	// egress is blocked but whose system proxy works.
+	for _, name := range []string{"PATH", "HOME", "TMPDIR", "SSH_AUTH_SOCK", "LANG", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"} {
 		if value, ok := os.LookupEnv(name); ok {
 			env = append(env, name+"="+value)
 		}
