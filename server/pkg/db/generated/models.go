@@ -1300,19 +1300,20 @@ type PluginStorage struct {
 }
 
 type Project struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	Title       string             `json:"title"`
-	Description pgtype.Text        `json:"description"`
-	Icon        pgtype.Text        `json:"icon"`
-	Status      string             `json:"status"`
-	LeadType    pgtype.Text        `json:"lead_type"`
-	LeadID      pgtype.UUID        `json:"lead_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Priority    string             `json:"priority"`
-	StartDate   pgtype.Date        `json:"start_date"`
-	DueDate     pgtype.Date        `json:"due_date"`
+	ID                   pgtype.UUID        `json:"id"`
+	WorkspaceID          pgtype.UUID        `json:"workspace_id"`
+	Title                string             `json:"title"`
+	Description          pgtype.Text        `json:"description"`
+	Icon                 pgtype.Text        `json:"icon"`
+	Status               string             `json:"status"`
+	LeadType             pgtype.Text        `json:"lead_type"`
+	LeadID               pgtype.UUID        `json:"lead_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	Priority             string             `json:"priority"`
+	StartDate            pgtype.Date        `json:"start_date"`
+	DueDate              pgtype.Date        `json:"due_date"`
+	CollaborationSquadID pgtype.UUID        `json:"collaboration_squad_id"`
 }
 
 type ProjectAgentBinding struct {
@@ -1322,6 +1323,7 @@ type ProjectAgentBinding struct {
 	AgentID     pgtype.UUID        `json:"agent_id"`
 	Role        string             `json:"role"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Source      string             `json:"source"`
 }
 
 type ProjectExecutionIssue struct {
@@ -1514,12 +1516,13 @@ type Squad struct {
 }
 
 type SquadMember struct {
-	ID         pgtype.UUID        `json:"id"`
-	SquadID    pgtype.UUID        `json:"squad_id"`
-	MemberType string             `json:"member_type"`
-	MemberID   pgtype.UUID        `json:"member_id"`
-	Role       string             `json:"role"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID           pgtype.UUID        `json:"id"`
+	SquadID      pgtype.UUID        `json:"squad_id"`
+	MemberType   string             `json:"member_type"`
+	MemberID     pgtype.UUID        `json:"member_id"`
+	Role         string             `json:"role"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	StandardRole pgtype.Text        `json:"standard_role"`
 }
 
 type SysCronExecution struct {

@@ -14,7 +14,7 @@ import (
 const addSquadMember = `-- name: AddSquadMember :one
 INSERT INTO squad_member (squad_id, member_type, member_id, role)
 VALUES ($1, $2, $3, $4)
-RETURNING id, squad_id, member_type, member_id, role, created_at
+RETURNING id, squad_id, member_type, member_id, role, created_at, standard_role
 `
 
 type AddSquadMemberParams struct {
@@ -39,6 +39,7 @@ func (q *Queries) AddSquadMember(ctx context.Context, arg AddSquadMemberParams) 
 		&i.MemberID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.StandardRole,
 	)
 	return i, err
 }
@@ -125,6 +126,26 @@ func (q *Queries) CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad
 		&i.Instructions,
 	)
 	return i, err
+}
+
+const dedupeSquadMemberStandardRoles = `-- name: DedupeSquadMemberStandardRoles :exec
+UPDATE squad_member sm
+SET standard_role = NULL
+WHERE sm.standard_role IS NOT NULL
+  AND sm.id NOT IN (
+      SELECT DISTINCT ON (squad_id, standard_role) id
+      FROM squad_member
+      WHERE standard_role IS NOT NULL
+      ORDER BY squad_id, standard_role, created_at ASC, id ASC
+  )
+`
+
+// Pre-index cleanup: keep only the oldest standard_role mapping per
+// (squad, role) so the partial unique index build never fails on legacy
+// dirty data.
+func (q *Queries) DedupeSquadMemberStandardRoles(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, dedupeSquadMemberStandardRoles)
+	return err
 }
 
 const getSquad = `-- name: GetSquad :one
@@ -451,7 +472,7 @@ func (q *Queries) ListSquadMemberStatusRows(ctx context.Context, squadID pgtype.
 }
 
 const listSquadMembers = `-- name: ListSquadMembers :many
-SELECT id, squad_id, member_type, member_id, role, created_at FROM squad_member WHERE squad_id = $1 ORDER BY created_at ASC
+SELECT id, squad_id, member_type, member_id, role, created_at, standard_role FROM squad_member WHERE squad_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) ListSquadMembers(ctx context.Context, squadID pgtype.UUID) ([]SquadMember, error) {
@@ -470,6 +491,44 @@ func (q *Queries) ListSquadMembers(ctx context.Context, squadID pgtype.UUID) ([]
 			&i.MemberID,
 			&i.Role,
 			&i.CreatedAt,
+			&i.StandardRole,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSquadStandardRoleMembers = `-- name: ListSquadStandardRoleMembers :many
+SELECT id, squad_id, member_type, member_id, role, created_at, standard_role FROM squad_member
+WHERE squad_id = $1 AND member_type = 'agent' AND standard_role IS NOT NULL
+ORDER BY created_at ASC
+`
+
+// The squad's standard role mapping used by projects that reference this
+// squad as a role configuration template. mika is intentionally absent:
+// the project coordinator binding is always project-local.
+func (q *Queries) ListSquadStandardRoleMembers(ctx context.Context, squadID pgtype.UUID) ([]SquadMember, error) {
+	rows, err := q.db.Query(ctx, listSquadStandardRoleMembers, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SquadMember{}
+	for rows.Next() {
+		var i SquadMember
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.MemberType,
+			&i.MemberID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.StandardRole,
 		); err != nil {
 			return nil, err
 		}
@@ -744,7 +803,7 @@ func (q *Queries) UpdateSquad(ctx context.Context, arg UpdateSquadParams) (Squad
 const updateSquadMemberRole = `-- name: UpdateSquadMemberRole :one
 UPDATE squad_member SET role = $4
 WHERE squad_id = $1 AND member_type = $2 AND member_id = $3
-RETURNING id, squad_id, member_type, member_id, role, created_at
+RETURNING id, squad_id, member_type, member_id, role, created_at, standard_role
 `
 
 type UpdateSquadMemberRoleParams struct {
@@ -769,6 +828,40 @@ func (q *Queries) UpdateSquadMemberRole(ctx context.Context, arg UpdateSquadMemb
 		&i.MemberID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.StandardRole,
+	)
+	return i, err
+}
+
+const updateSquadMemberStandardRole = `-- name: UpdateSquadMemberStandardRole :one
+UPDATE squad_member SET standard_role = $4
+WHERE squad_id = $1 AND member_type = $2 AND member_id = $3
+RETURNING id, squad_id, member_type, member_id, role, created_at, standard_role
+`
+
+type UpdateSquadMemberStandardRoleParams struct {
+	SquadID      pgtype.UUID `json:"squad_id"`
+	MemberType   string      `json:"member_type"`
+	MemberID     pgtype.UUID `json:"member_id"`
+	StandardRole pgtype.Text `json:"standard_role"`
+}
+
+func (q *Queries) UpdateSquadMemberStandardRole(ctx context.Context, arg UpdateSquadMemberStandardRoleParams) (SquadMember, error) {
+	row := q.db.QueryRow(ctx, updateSquadMemberStandardRole,
+		arg.SquadID,
+		arg.MemberType,
+		arg.MemberID,
+		arg.StandardRole,
+	)
+	var i SquadMember
+	err := row.Scan(
+		&i.ID,
+		&i.SquadID,
+		&i.MemberType,
+		&i.MemberID,
+		&i.Role,
+		&i.CreatedAt,
+		&i.StandardRole,
 	)
 	return i, err
 }

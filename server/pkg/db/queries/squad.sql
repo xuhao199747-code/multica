@@ -95,6 +95,33 @@ UPDATE squad_member SET role = $4
 WHERE squad_id = $1 AND member_type = $2 AND member_id = $3
 RETURNING *;
 
+-- name: UpdateSquadMemberStandardRole :one
+UPDATE squad_member SET standard_role = $4
+WHERE squad_id = $1 AND member_type = $2 AND member_id = $3
+RETURNING *;
+
+-- name: ListSquadStandardRoleMembers :many
+-- The squad's standard role mapping used by projects that reference this
+-- squad as a role configuration template. mika is intentionally absent:
+-- the project coordinator binding is always project-local.
+SELECT * FROM squad_member
+WHERE squad_id = $1 AND member_type = 'agent' AND standard_role IS NOT NULL
+ORDER BY created_at ASC;
+
+-- name: DedupeSquadMemberStandardRoles :exec
+-- Pre-index cleanup: keep only the oldest standard_role mapping per
+-- (squad, role) so the partial unique index build never fails on legacy
+-- dirty data.
+UPDATE squad_member sm
+SET standard_role = NULL
+WHERE sm.standard_role IS NOT NULL
+  AND sm.id NOT IN (
+      SELECT DISTINCT ON (squad_id, standard_role) id
+      FROM squad_member
+      WHERE standard_role IS NOT NULL
+      ORDER BY squad_id, standard_role, created_at ASC, id ASC
+  );
+
 -- name: IsSquadMember :one
 SELECT EXISTS(
     SELECT 1 FROM squad_member
