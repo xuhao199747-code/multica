@@ -29,8 +29,12 @@ export interface ProjectAgentBinding {
   workspace_id: string;
   agent_id: string;
   role: ProjectAgentRole;
+  /** 'squad' rows came from the squad template; 'manual' rows are project-local overrides. */
+  source: ProjectAgentBindingSource;
   created_at: string;
 }
+
+export type ProjectAgentBindingSource = "squad" | "manual";
 
 export interface CreateProjectAgentBindingRequest {
   agent_id: string;
@@ -73,4 +77,35 @@ export interface StartProjectWorkflowExecutionResponse {
   issue: Record<string, unknown> | null;
   execution_issue: Record<string, unknown> | null;
   task_id: string | null;
+}
+
+export interface SetProjectCollaborationSquadRequest {
+  squad_id: string | null;
+}
+
+export interface ProjectRoleSourceDiffEntry {
+  role: ProjectAgentRole;
+  from?: { id: string; agent_id: string; agent_name?: string; archived?: boolean };
+  to?: { id: string; agent_id: string; agent_name?: string; archived?: boolean };
+  removing?: { id: string; agent_id: string; agent_name?: string; archived?: boolean };
+}
+
+export interface ProjectRoleSourceDiff {
+  changes: ProjectRoleSourceDiffEntry[];
+  removals: ProjectRoleSourceDiffEntry[];
+  adds: ProjectRoleSourceDiffEntry[];
+  unchanged: string[];
+  diff_hash: string;
+}
+
+export interface ProjectRoleSource {
+  project_id: string;
+  squad_id: string | null;
+  squad_name: string | null;
+  squad_archived: boolean;
+  squad_missing: boolean;
+  mapping_incomplete?: boolean;
+  overrides_present: boolean;
+  bindings: ProjectAgentBinding[];
+  diff: ProjectRoleSourceDiff;
 }

@@ -120,6 +120,8 @@ import type {
   ProjectAgentBinding,
   CreateProjectAgentBindingRequest,
   ListProjectAgentBindingsResponse,
+  ProjectRoleSource,
+  UpdateSquadMemberRoleRequest,
   ListProjectExecutionsResponse,
   Label,
   IssueProperty,
@@ -256,6 +258,7 @@ import type {
 import { type Logger, noopLogger } from "../logger";
 import { createRequestId, createSafeId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
+import { z } from "zod";
 import { parseWithFallback } from "./schema";
 import {
   RuntimeProfileSchema,
@@ -443,6 +446,10 @@ import {
   ProjectWorkflowSettingsSchema,
   ListProjectAgentBindingsResponseSchema,
   EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE,
+  ProjectRoleSourceSchema,
+  EMPTY_PROJECT_ROLE_SOURCE,
+  SquadMemberSchema,
+  EMPTY_SQUAD_MEMBER,
   ListProjectExecutionsResponseSchema,
   EMPTY_PROJECT_EXECUTIONS_RESPONSE,
   StartProjectWorkflowExecutionResponseSchema,
@@ -4183,6 +4190,33 @@ export class ApiClient {
     });
   }
 
+  async setProjectCollaborationSquad(projectId: string, squadId: string | null): Promise<unknown> {
+    return this.fetch(`/api/projects/${projectId}/collaboration-squad`, {
+      method: "PUT",
+      body: JSON.stringify({ squad_id: squadId }),
+    });
+  }
+
+  async getProjectRoleSource(projectId: string): Promise<ProjectRoleSource> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/role-source`);
+    return parseWithFallback(raw, ProjectRoleSourceSchema, { ...EMPTY_PROJECT_ROLE_SOURCE, project_id: projectId }, { endpoint: "GET /api/projects/{id}/role-source" });
+  }
+
+  async syncProjectSquad(projectId: string, diffHash: string): Promise<ListProjectAgentBindingsResponse> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/sync-squad`, {
+      method: "POST",
+      body: JSON.stringify({ diff_hash: diffHash }),
+    });
+    return parseWithFallback(raw, ListProjectAgentBindingsResponseSchema, EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE, { endpoint: "POST /api/projects/{id}/sync-squad" });
+  }
+
+  async restoreProjectSquadConfig(projectId: string): Promise<ListProjectAgentBindingsResponse> {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/restore-squad-config`, {
+      method: "POST",
+    });
+    return parseWithFallback(raw, ListProjectAgentBindingsResponseSchema, EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE, { endpoint: "POST /api/projects/{id}/restore-squad-config" });
+  }
+
   async openProjectMikaSession(projectId: string): Promise<ChatSession> {
     return this.fetch(`/api/projects/${projectId}/workflow/mika-session`, {
       method: "POST",
@@ -4675,7 +4709,8 @@ export class ApiClient {
   }
 
   async listSquadMembers(squadId: string): Promise<SquadMember[]> {
-    return this.fetch(`/api/squads/${squadId}/members`);
+    const raw = await this.fetch<unknown>(`/api/squads/${squadId}/members`);
+    return parseWithFallback(raw, z.array(SquadMemberSchema).default([]), [], { endpoint: "GET /api/squads/:id/members" });
   }
 
   async addSquadMember(squadId: string, data: { member_type: string; member_id: string; role?: string }): Promise<SquadMember> {
@@ -4686,8 +4721,9 @@ export class ApiClient {
     await this.fetch(`/api/squads/${squadId}/members`, { method: "DELETE", body: JSON.stringify(data) });
   }
 
-  async updateSquadMemberRole(squadId: string, data: { member_type: string; member_id: string; role: string }): Promise<SquadMember> {
-    return this.fetch(`/api/squads/${squadId}/members/role`, { method: "PATCH", body: JSON.stringify(data) });
+  async updateSquadMemberRole(squadId: string, data: UpdateSquadMemberRoleRequest): Promise<SquadMember> {
+    const raw = await this.fetch<unknown>(`/api/squads/${squadId}/members/role`, { method: "PATCH", body: JSON.stringify(data) });
+    return parseWithFallback(raw, SquadMemberSchema, EMPTY_SQUAD_MEMBER, { endpoint: "PATCH /api/squads/:id/members/role" });
   }
 
   // Per-squad members status snapshot: one row per member with derived
