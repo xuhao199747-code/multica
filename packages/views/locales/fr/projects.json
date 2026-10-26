@@ -245,6 +245,9 @@
     },
     "start_button": "Confirmer et démarrer",
     "start_pending": "Démarrage…",
+    "start_retry": "Réessayer",
+    "execution_started": "Exécution démarrée",
+    "execution_active": "Développement en cours",
     "toast_started": "Exécution démarrée",
     "toast_start_failed": "Échec du démarrage de l’exécution"
   },

@@ -546,9 +546,9 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 // development stage atomically.
 type StartProjectWorkflowExecutionRequest struct {
 	SourceChatSessionID string          `json:"source_chat_session_id"`
+	SourceMessageID     string          `json:"source_message_id"`
 	SourceAgentID       string          `json:"source_agent_id"`
 	Snapshot            json.RawMessage `json:"snapshot"`
-	Title               string          `json:"title"`
 }
 
 // StartProjectWorkflowExecutionFromChat is the P0 bridge: one member
@@ -580,9 +580,23 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 		writeError(w, http.StatusBadRequest, "source_chat_session_id is required")
 		return
 	}
+	if strings.TrimSpace(asWorkflowString(req.SourceMessageID)) == "" {
+		writeError(w, http.StatusBadRequest, "source_message_id is required")
+		return
+	}
 
-	// Validate the source chat and snapshot exactly like ConfirmProjectExecution.
-	session, snapshot, payload, ok := h.validateProjectWorkflowStart(w, r, project, req.SourceChatSessionID, req.SourceAgentID, req.Snapshot)
+	// The client sends the visible message's exact snapshot, but the server
+	// independently reads it back from the immutable assistant message. This
+	// keeps a later "continue" user reply from changing the approved plan.
+	session, snapshot, payload, title, ok := h.validateProjectWorkflowStart(
+		w,
+		r,
+		project,
+		req.SourceChatSessionID,
+		req.SourceMessageID,
+		req.SourceAgentID,
+		req.Snapshot,
+	)
 	if !ok {
 		return
 	}
@@ -616,7 +630,6 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 		return
 	}
 
-	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		goal := strings.TrimSpace(asWorkflowString(snapshot["goal"]))
 		if goal == "" {
@@ -698,49 +711,65 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 	})
 }
 
-// validateProjectWorkflowStart checks the source chat belongs to this
-// project, the chat agent is bound as the project's Mica or PRD agent, and
-// the snapshot has the required structured fields. It returns the chat
-// session, the decoded snapshot, and its re-encoded canonical payload.
-func (h *Handler) validateProjectWorkflowStart(w http.ResponseWriter, r *http.Request, project db.Project, sourceChatSessionID, sourceAgentID string, rawSnapshot json.RawMessage) (db.ChatSession, map[string]any, json.RawMessage, bool) {
+// validateProjectWorkflowStart checks the source chat and assistant message
+// belong to this project, the chat agent is the project's Mica or PRD agent,
+// and the client-sent snapshot is byte-for-byte equivalent after canonical
+// JSON encoding to the plan marker persisted in that assistant message.
+func (h *Handler) validateProjectWorkflowStart(
+	w http.ResponseWriter,
+	r *http.Request,
+	project db.Project,
+	sourceChatSessionID,
+	sourceMessageID,
+	sourceAgentID string,
+	rawSnapshot json.RawMessage,
+) (db.ChatSession, map[string]any, json.RawMessage, string, bool) {
 	sessionID, ok := parseUUIDOrBadRequest(w, sourceChatSessionID, "source_chat_session_id")
 	if !ok {
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
 	}
-	var snapshot map[string]any
-	if err := json.Unmarshal(rawSnapshot, &snapshot); err != nil || snapshot == nil {
-		writeError(w, http.StatusBadRequest, "snapshot must be a JSON object")
-		return db.ChatSession{}, nil, nil, false
+	messageID, ok := parseUUIDOrBadRequest(w, sourceMessageID, "source_message_id")
+	if !ok {
+		return db.ChatSession{}, nil, nil, "", false
 	}
-	if strings.TrimSpace(asWorkflowString(snapshot["goal"])) == "" {
-		writeError(w, http.StatusBadRequest, "snapshot.goal is required")
-		return db.ChatSession{}, nil, nil, false
-	}
-	for _, key := range []string{"scope", "acceptance_criteria", "risks"} {
-		if _, exists := snapshot[key]; !exists {
-			writeError(w, http.StatusBadRequest, "snapshot."+key+" is required")
-			return db.ChatSession{}, nil, nil, false
-		}
+	_, clientPayload, ok := decodeProjectWorkflowPlanSnapshot(rawSnapshot)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "snapshot must contain a complete project workflow plan")
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	session, err := h.Queries.GetChatSession(r.Context(), sessionID)
 	if err != nil || session.WorkspaceID != project.WorkspaceID || session.ProjectID != project.ID {
 		writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	if sourceAgentID != "" {
 		requestedAgentID, ok := parseUUIDOrBadRequest(w, sourceAgentID, "source_agent_id")
 		if !ok {
-			return db.ChatSession{}, nil, nil, false
+			return db.ChatSession{}, nil, nil, "", false
 		}
 		if requestedAgentID != session.AgentID {
 			writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
-			return db.ChatSession{}, nil, nil, false
+			return db.ChatSession{}, nil, nil, "", false
 		}
+	}
+	message, err := h.Queries.GetChatMessage(r.Context(), messageID)
+	if err != nil || message.ChatSessionID != session.ID || message.Role != "assistant" {
+		writeError(w, http.StatusBadRequest, "source message must be an assistant plan in this chat")
+		return db.ChatSession{}, nil, nil, "", false
+	}
+	messageSnapshot, messagePayload, title, ok := extractProjectWorkflowPlanConfirmation(message.Content)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "source message has no complete project workflow plan confirmation")
+		return db.ChatSession{}, nil, nil, "", false
+	}
+	if string(clientPayload) != string(messagePayload) {
+		writeError(w, http.StatusBadRequest, "snapshot must match the confirmed plan message")
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	sourceAuthorized := false
 	for _, binding := range bindings {
@@ -754,14 +783,76 @@ func (h *Handler) validateProjectWorkflowStart(w http.ResponseWriter, r *http.Re
 	}
 	if !sourceAuthorized {
 		writeError(w, http.StatusBadRequest, "source chat agent must be bound as this project's PRD or Mica")
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
+	}
+	return session, messageSnapshot, messagePayload, title, true
+}
+
+const (
+	projectWorkflowPlanConfirmationStart = "<!-- multica-project-workflow-plan-confirmation"
+	projectWorkflowPlanConfirmationEnd   = "-->"
+)
+
+type projectWorkflowPlanConfirmationPayload struct {
+	Version  int             `json:"version"`
+	Title    string          `json:"title"`
+	Snapshot json.RawMessage `json:"snapshot"`
+}
+
+func extractProjectWorkflowPlanConfirmation(content string) (map[string]any, json.RawMessage, string, bool) {
+	start := strings.Index(content, projectWorkflowPlanConfirmationStart)
+	if start < 0 || strings.Index(content[start+len(projectWorkflowPlanConfirmationStart):], projectWorkflowPlanConfirmationStart) >= 0 {
+		return nil, nil, "", false
+	}
+	payloadStart := start + len(projectWorkflowPlanConfirmationStart)
+	endOffset := strings.Index(content[payloadStart:], projectWorkflowPlanConfirmationEnd)
+	if endOffset < 0 {
+		return nil, nil, "", false
+	}
+	rawPayload := strings.TrimSpace(content[payloadStart : payloadStart+endOffset])
+	var confirmation projectWorkflowPlanConfirmationPayload
+	if err := json.Unmarshal([]byte(rawPayload), &confirmation); err != nil || confirmation.Version != 1 {
+		return nil, nil, "", false
+	}
+	snapshot, payload, ok := decodeProjectWorkflowPlanSnapshot(confirmation.Snapshot)
+	if !ok {
+		return nil, nil, "", false
+	}
+	title := strings.TrimSpace(confirmation.Title)
+	return snapshot, payload, title, true
+}
+
+func decodeProjectWorkflowPlanSnapshot(raw json.RawMessage) (map[string]any, json.RawMessage, bool) {
+	var snapshot map[string]any
+	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot == nil {
+		return nil, nil, false
+	}
+	if strings.TrimSpace(asWorkflowString(snapshot["goal"])) == "" {
+		return nil, nil, false
+	}
+	for _, field := range []struct {
+		name         string
+		requireValue bool
+	}{
+		{name: "scope", requireValue: true},
+		{name: "acceptance_criteria", requireValue: true},
+		{name: "risks", requireValue: false},
+	} {
+		values, ok := snapshot[field.name].([]any)
+		if !ok || (field.requireValue && len(values) == 0) {
+			return nil, nil, false
+		}
+		for _, value := range values {
+			if strings.TrimSpace(asWorkflowString(value)) == "" {
+				return nil, nil, false
+			}
+		}
 	}
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid snapshot")
-		return db.ChatSession{}, nil, nil, false
+		return nil, nil, false
 	}
-	return session, snapshot, payload, true
+	return snapshot, payload, true
 }
 
 type LinkProjectExecutionIssueRequest struct {

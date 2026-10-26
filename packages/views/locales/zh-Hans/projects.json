@@ -244,6 +244,9 @@
     },
     "start_button": "确认并开始",
     "start_pending": "开始中…",
+    "start_retry": "重试",
+    "execution_started": "执行已启动",
+    "execution_active": "开发进行中",
     "toast_started": "已启动执行",
     "toast_start_failed": "启动执行失败"
   },

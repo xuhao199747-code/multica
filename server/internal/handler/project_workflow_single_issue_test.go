@@ -52,15 +52,23 @@ func TestProjectWorkflowAdvancesSingleMainIssue(t *testing.T) {
 	}
 
 	sessionID := createChatSessionWithProjectForTest(t, prdID, project.ID)
+	snapshot := map[string]any{
+		"goal":                "Keep one task through the workflow",
+		"scope":               []string{"server"},
+		"acceptance_criteria": []string{"one primary issue"},
+		"risks":               []string{},
+	}
+	messageID := createProjectWorkflowPlanMessageForTest(
+		t,
+		sessionID,
+		"assistant",
+		projectWorkflowPlanConfirmationForTest("Keep one task through the workflow", snapshot),
+	)
 	w = httptest.NewRecorder()
 	testHandler.StartProjectWorkflowExecutionFromChat(w, withURLParam(newRequest(http.MethodPost, "/api/projects/"+project.ID+"/workflow/executions/start", map[string]any{
 		"source_chat_session_id": sessionID,
-		"snapshot": map[string]any{
-			"goal":                "Keep one task through the workflow",
-			"scope":               []string{"server"},
-			"acceptance_criteria": []string{"one primary issue"},
-			"risks":               []string{},
-		},
+		"source_message_id":      messageID,
+		"snapshot":               snapshot,
 	}), "id", project.ID))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("start execution: %d %s", w.Code, w.Body.String())

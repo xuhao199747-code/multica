@@ -2,6 +2,11 @@ export { createChatStore, CHAT_MIN_W, CHAT_MIN_H, CHAT_DEFAULT_W, CHAT_DEFAULT_H
 export type { ChatStoreOptions, ChatState, ChatTimelineItem } from "./store";
 export { useRecentContextStore, selectRecentContexts } from "./recent-context-store";
 export type { RecentContextEntry, RecentContextType } from "./recent-context-store";
+export {
+  extractProjectWorkflowPlanConfirmation,
+  stripProjectWorkflowPlanConfirmationProtocol,
+} from "./project-workflow-plan-confirmation";
+export type { ProjectWorkflowPlanConfirmation } from "./project-workflow-plan-confirmation";
 
 import type { createChatStore as CreateChatStoreFn } from "./store";
 

@@ -245,6 +245,9 @@
     },
     "start_button": "Confirm and start",
     "start_pending": "Starting…",
+    "start_retry": "Try again",
+    "execution_started": "Execution started",
+    "execution_active": "Development in progress",
     "toast_started": "Execution started",
     "toast_start_failed": "Failed to start execution"
   },

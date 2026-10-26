@@ -244,6 +244,9 @@
     },
     "start_button": "확인 후 시작",
     "start_pending": "시작 중…",
+    "start_retry": "다시 시도",
+    "execution_started": "실행이 시작되었습니다",
+    "execution_active": "개발 진행 중",
     "toast_started": "실행이 시작되었습니다",
     "toast_start_failed": "실행을 시작하지 못했습니다"
   },

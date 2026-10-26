@@ -244,6 +244,9 @@
     },
     "start_button": "確認して開始",
     "start_pending": "開始中…",
+    "start_retry": "再試行",
+    "execution_started": "実行を開始しました",
+    "execution_active": "開発中",
     "toast_started": "実行を開始しました",
     "toast_start_failed": "実行を開始できませんでした"
   },

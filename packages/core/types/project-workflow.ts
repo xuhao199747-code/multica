@@ -76,9 +76,9 @@ export interface ListProjectExecutionsResponse {
 
 export interface StartProjectWorkflowExecutionRequest {
   source_chat_session_id: string;
+  source_message_id: string;
   source_agent_id?: string;
   snapshot: Record<string, unknown>;
-  title?: string;
 }
 
 export interface StartProjectWorkflowExecutionResponse {
