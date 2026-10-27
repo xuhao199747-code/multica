@@ -35,6 +35,15 @@ var (
 	httpCapacityCodeRe = regexp.MustCompile(`(^|[^0-9])(429|529)([^0-9]|$)`)
 )
 
+// httpStatusLineRe matches an HTTP status line the way agent CLIs surface it
+// in error text: `HTTP 403`, `status 403`, `unexpected status 403` — the
+// status word followed by the 3-digit code and then a non-digit boundary
+// (RE2 has no lookahead; the boundary is a character class instead, so
+// "4290" cannot match). Used to find the status code on a line, so JSON
+// bodies, headers or retry metadata on other lines cannot override what the
+// wire status actually was.
+var httpStatusLineRe = regexp.MustCompile(`(?i)(?:^|[\s":])(?:unexpected status|status|http)\s+(4[0-9]{2}|5[0-9]{2})(?:[^0-9]|$)`)
+
 // concurrentRequestLimitWitness is emitted by Anthropic-compatible providers
 // that use HTTP 403 for a transient concurrency rejection. Claude Code may
 // prefix it with an authentication or access-token failure, but credentials
@@ -49,6 +58,23 @@ var httpForbiddenCodeRe = regexp.MustCompile(`(^|[^0-9])403([^0-9]|$)`)
 // old daemons land on the same reason.
 func isUsageLimit403(lower string) bool {
 	return httpForbiddenCodeRe.MatchString(lower) && strings.Contains(lower, "usage limit")
+}
+
+// statusCodeOnStatusLine reports whether `code` appears as the status of an
+// HTTP status line in lower — `http 429`, `status 429`, `unexpected status
+// 429` — rather than anywhere in the text. Line-scoped on purpose: relayed
+// error bodies quote upstream codes ("403 Forbidden" inside a JSON payload)
+// and a substring match would let a quoted code outrank the actual wire
+// status. Caller pre-lowercases.
+func statusCodeOnStatusLine(lower, code string) bool {
+	for _, line := range strings.Split(lower, "\n") {
+		for _, m := range httpStatusLineRe.FindAllStringSubmatch(line, -1) {
+			if m[1] == code {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Classify maps a free-form error string from the agent runtime / CLI
@@ -92,6 +118,22 @@ func Classify(rawError string) Reason {
 	// rules below; this classification does not itself make the reason retryable.
 	case strings.Contains(lower, concurrentRequestLimitWitness):
 		return ReasonAgentProviderCapacityOrRateLimit
+
+	// A status code reported on an HTTP status line beats every code-shaped
+	// witness anywhere else in the blob. Gateways that relay another
+	// provider's response (e.g. a local model gateway forwarding a 429 with
+	// the upstream's 403-shaped error body) produce text where the literal
+	// status line says 429 but a quoted body further down carries
+	// "403 Forbidden". Line-scoped matching decides from the wire status,
+	// not from whichever code substring happens to appear; otherwise the
+	// failure lands in provider_auth_or_access — a non-retryable bucket —
+	// when the truth is a transient rate limit.
+	case statusCodeOnStatusLine(lower, "429"), statusCodeOnStatusLine(lower, "529"):
+		return ReasonAgentProviderCapacityOrRateLimit
+	case statusCodeOnStatusLine(lower, "402"):
+		return ReasonAgentProviderQuotaLimit
+	case statusCodeOnStatusLine(lower, "401"), statusCodeOnStatusLine(lower, "403"):
+		return ReasonAgentProviderAuthOrAccess
 
 	// Some providers (e.g. Kimi Code) report an exhausted usage window as HTTP
 	// 403, and Claude Code may prefix it with an access-token failure. It must

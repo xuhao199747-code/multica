@@ -303,6 +303,62 @@ func TestNormalizeDaemonReasonUpgradesUsageLimit403(t *testing.T) {
 	}
 }
 
+// TestClassifyStatusLineBeatsQuotedBody is the regression for the observed
+// production failure: a local model gateway relays an upstream 429, and the
+// relayed body ("403 Forbidden" JSON) is present in the same error blob.
+// The classifier must decide from the literal HTTP status line, not from
+// whichever code substring appears — otherwise a transient rate limit is
+// filed under provider_auth_or_access (non-retryable) and the task ends
+// instead of backing off.
+func TestClassifyStatusLineBeatsQuotedBody(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want Reason
+	}{
+		{
+			// Shape observed in production (magpie relaying an upstream 429).
+			name: "http 429 line with quoted 403 body",
+			in:   `request to http://127.0.0.1:3425/backend-api/codex/responses failed: HTTP 429: {"error":{"message":"403 Forbidden","type":"upstream_error"}}`,
+			want: ReasonAgentProviderCapacityOrRateLimit,
+		},
+		{
+			name: "status 429 line with quoted 403 body",
+			in:   "upstream returned error: unexpected status 429: 403 Forbidden: rate limit exceeded",
+			want: ReasonAgentProviderCapacityOrRateLimit,
+		},
+		{
+			// A literal 403 status line still lands in auth even with a 429
+			// quoted somewhere in the payload.
+			name: "http 403 line with quoted 429 body",
+			in:   `request failed: HTTP 403: {"error":{"message":"429 Too Many Requests previously"}}`,
+			want: ReasonAgentProviderAuthOrAccess,
+		},
+		{
+			// No status line at all — the digit-boundary witnesses still work
+			// on plain text.
+			name: "bare 429 without status line",
+			in:   "API Error: 429 Too Many Requests",
+			want: ReasonAgentProviderCapacityOrRateLimit,
+		},
+		{
+			name: "bare 403 without status line",
+			in:   "API Error: 403 Forbidden",
+			want: ReasonAgentProviderAuthOrAccess,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := Classify(tc.in); got != tc.want {
+				t.Errorf("Classify(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestClassify5xxRegex pins the boundary behavior of the 5xx HTTP
 // status detector. The SQL classifier uses an anchored regex
 // `(^|[^0-9])5[0-9][0-9]([^0-9]|$)`; this Go classifier mirrors it via
