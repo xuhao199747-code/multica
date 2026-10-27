@@ -6144,7 +6144,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 		if t.IssueID.Valid {
 			if issue, err := s.Queries.GetIssue(ctx, t.IssueID); err == nil {
 				workspaceID = util.UUIDToString(issue.WorkspaceID)
-				// Reset stuck in_progress issues only when no other active
+	// Reset stuck in_progress issues only when no other active
 				// task exists for the issue and no retry was just enqueued.
 				issueKey := util.UUIDToString(t.IssueID)
 				// Only "an agent is actively working" resets, and since
@@ -6156,7 +6156,20 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 				// projects a nonterminal custom key onto a built-in, so this is
 				// a key comparison on purpose. (MUL-6243, MUL-7240)
 				effectiveStatus := issuestatus.Effective(ctx, s.Queries, issue.WorkspaceID, issue.Status)
-				if effectiveStatus == "in_progress" && !processedIssues[issueKey] && !retriedIssues[issueKey] {
+				// "Terminal-with-no-success" also resets (DAWE ops): an issue
+				// parked in_review/done whose every task either failed or was
+				// cancelled — none completed, none still active — is a false
+				// "awaiting review" / "shipped" signal. Pull it back to todo
+				// so the board stops advertising work nobody actually
+				// delivered. Skipped when any task completed: the agent did
+				// produce an outcome, and a human may legitimately be
+				// reviewing (or has accepted) that result. The project's
+				// own workflow guard independently blocks a status change
+				// that lacks delivery/review evidence, so resetting here
+				// cannot disturb a real review in progress.
+				terminalNoSuccess := (effectiveStatus == "in_review" || effectiveStatus == "done") &&
+					!processedIssues[issueKey] && !retriedIssues[issueKey]
+				if (effectiveStatus == "in_progress" || terminalNoSuccess) {
 					processedIssues[issueKey] = true
 					hasActive, checkErr := s.Queries.HasActiveTaskForIssue(ctx, t.IssueID)
 					if checkErr != nil {
@@ -6164,7 +6177,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 							"issue_id", issueKey,
 							"error", checkErr,
 						)
-					} else if !hasActive {
+					} else if !hasActive && effectiveStatus == "in_progress" {
 						updatedIssue, updateErr := s.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 							SourceTaskID: t.ID,
 							ID:           t.IssueID,
@@ -6183,6 +6196,42 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 							// caches keep showing the issue as in_progress until
 							// the next write touches it (#4648 / MUL-3782).
 							s.broadcastIssueUpdated(ctx, updatedIssue, issue.Status)
+						}
+					} else if !hasActive && terminalNoSuccess {
+						// False completion: no active task, no completed task —
+						// every run for this issue failed or was cancelled.
+						// Verify that directly instead of inferring it from
+						// THIS task's status, so a batch containing both a
+						// failure and a cancellation still resets correctly.
+						hasCompleted, checkErr := s.Queries.HasCompletedTaskForIssue(ctx, t.IssueID)
+						if checkErr != nil {
+							slog.Warn("handle failed tasks: completed check failed",
+								"issue_id", issueKey,
+								"error", checkErr,
+							)
+						} else if !hasCompleted {
+							target := "todo"
+							if effectiveStatus == "done" {
+								// A done issue whose work never succeeded was
+								// mis-closed; route it to in_review so a human
+								// or the review agent re-examines it rather
+								// than silently reopening execution.
+								target = "in_review"
+							}
+							updatedIssue, updateErr := s.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+								SourceTaskID: t.ID,
+								ID:           t.IssueID,
+								Status:       target,
+								WorkspaceID:  issue.WorkspaceID,
+							})
+							if updateErr != nil {
+								slog.Warn("handle failed tasks: reset false-completion issue failed",
+									"issue_id", issueKey,
+									"error", updateErr,
+								)
+							} else {
+								s.broadcastIssueUpdated(ctx, updatedIssue, issue.Status)
+							}
 						}
 					}
 				}

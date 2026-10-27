@@ -1801,6 +1801,15 @@ SELECT EXISTS (SELECT 1 FROM agent_task_queue WHERE issue_id = $1);
 SELECT count(*) > 0 AS has_active FROM agent_task_queue
 WHERE issue_id = $1 AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory');
 
+-- name: HasCompletedTaskForIssue :one
+-- Returns true if any task for the issue completed successfully. Used by the
+-- false-completion reset: an in_review/done issue with NO completed task and
+-- NO active task is advertising a review/shipment that never had a successful
+-- run, so the failure handler pulls it back instead of leaving a green-looking
+-- facade over an all-failed task history.
+SELECT count(*) > 0 AS has_completed FROM agent_task_queue
+WHERE issue_id = $1 AND status = 'completed';
+
 -- name: HasPendingTaskForIssue :one
 -- Returns true if there is a queued or dispatched (but not yet running) task for the issue.
 -- Used by the coalescing queue: allow enqueue when a task is running (so

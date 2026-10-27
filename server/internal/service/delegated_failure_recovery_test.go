@@ -1003,6 +1003,86 @@ func TestHandleFailedTasksFinalDelegatedFailureWakesCoordinator(t *testing.T) {
 	}
 }
 
+// TestHandleFailedTasksResetsFalseInReview pins the false-completion reset:
+// an issue parked in_review whose every task failed or was cancelled (none
+// completed, none active) is advertising a review that has nothing real to
+// review. HandleFailedTasks must pull it back to todo. A completed task, by
+// contrast, means the agent did produce an outcome — the human may genuinely
+// be reviewing it — so the issue must be left alone.
+func TestHandleFailedTasksResetsFalseInReview(t *testing.T) {
+	f, svc := seedDelegatedFailureFixture(t)
+	ctx := context.Background()
+
+	// Case 1: all-failed history on an in_review issue → reset to todo.
+	failedID := f.insertWorkerTask(t, "failed", "comment", 2, 2)
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE agent_task_queue
+		SET failure_reason = 'agent_error.process_failure', error = 'worker process exited', completed_at = now()
+		WHERE id = $1`, failedID); err != nil {
+		t.Fatalf("stamp failed task: %v", err)
+	}
+	cancelledID := f.insertWorkerTask(t, "cancelled", "comment", 1, 2)
+	// Seed a sibling completed task from an earlier cycle on the SAME issue to
+	// make the reset conditional, not unconditional: delete it for case 1.
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE issue SET status = 'in_review' WHERE id = $1`, f.workerIssue); err != nil {
+		t.Fatalf("park issue in_review: %v", err)
+	}
+	// Ensure no completed task exists for the worker issue.
+	if _, err := f.pool.Exec(ctx, `
+		DELETE FROM agent_task_queue WHERE issue_id = $1 AND status = 'completed'`, f.workerIssue); err != nil {
+		t.Fatalf("clear completed tasks: %v", err)
+	}
+	failedTask, err := svc.Queries.GetAgentTask(ctx, failedID)
+	if err != nil {
+		t.Fatalf("load failed task: %v", err)
+	}
+	cancelledTask, err := svc.Queries.GetAgentTask(ctx, cancelledID)
+	if err != nil {
+		t.Fatalf("load cancelled task: %v", err)
+	}
+
+	svc.HandleFailedTasks(ctx, []db.AgentTaskQueue{failedTask, cancelledTask})
+
+	var status string
+	if err := f.pool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, f.workerIssue).Scan(&status); err != nil {
+		t.Fatalf("read issue status after all-failed reset: %v", err)
+	}
+	if status != "todo" {
+		t.Fatalf("all-failed in_review issue status = %q, want todo", status)
+	}
+
+	// Case 2: a completed task exists → the review is presumed real, leave it.
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE issue SET status = 'in_review' WHERE id = $1`, f.workerIssue); err != nil {
+		t.Fatalf("re-park issue in_review: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE agent_task_queue SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`, failedID); err != nil {
+		t.Fatalf("flip failed task to completed: %v", err)
+	}
+	failedAgainID := f.insertWorkerTask(t, "failed", "comment", 2, 2)
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE agent_task_queue
+		SET failure_reason = 'agent_error.process_failure', error = 'worker process exited', completed_at = now()
+		WHERE id = $1`, failedAgainID); err != nil {
+		t.Fatalf("stamp second failed task: %v", err)
+	}
+	failedAgain, err := svc.Queries.GetAgentTask(ctx, failedAgainID)
+	if err != nil {
+		t.Fatalf("load second failed task: %v", err)
+	}
+
+	svc.HandleFailedTasks(ctx, []db.AgentTaskQueue{failedAgain})
+
+	if err := f.pool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, f.workerIssue).Scan(&status); err != nil {
+		t.Fatalf("read issue status after completed-task guard: %v", err)
+	}
+	if status != "in_review" {
+		t.Fatalf("in_review issue with a completed task was reset to %q, want in_review untouched", status)
+	}
+}
+
 func TestFailTaskRetryPendingDoesNotWakeCoordinator(t *testing.T) {
 	f, svc := seedDelegatedFailureFixture(t)
 	ctx := context.Background()
