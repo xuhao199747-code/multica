@@ -6193,6 +6193,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 		}
 
 		s.publishTaskFailedEvent(workspaceID, t, t.Error.String, failureReason, retryPending)
+		s.notifyMikaOfFailedTask(ctx, workspaceID, t, failureReason)
 
 		affectedAgents[util.UUIDToString(t.AgentID)] = t.AgentID
 	}
@@ -6202,6 +6203,52 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 	}
 	s.notifyTasksFinished(tasks)
 	return retried
+}
+
+// notifyMikaOfFailedTask wakes the workspace's built-in Mika (the review
+// coordinator) when a task fails terminally, so a stalled run is broadcast for
+// triage instead of sitting silent under a green-looking issue. It runs
+// post-commit and best-effort: a failure here must not block the failure
+// handling that already settled the task.
+func (s *TaskService) notifyMikaOfFailedTask(ctx context.Context, workspaceID string, t db.AgentTaskQueue, failureReason string) {
+	if !t.IssueID.Valid || workspaceID == "" {
+		return
+	}
+	wsUUID, err := util.ParseUUID(workspaceID)
+	if err != nil {
+		return
+	}
+	mika, err := s.Queries.GetAgentBySystemKey(ctx, db.GetAgentBySystemKeyParams{
+		WorkspaceID: wsUUID,
+		SystemKey:   pgtype.Text{String: MikaSystemKey, Valid: true},
+	})
+	if err != nil {
+		// No Mika in this workspace: nothing to wake. Not an error.
+		return
+	}
+	// A Mika-owned task that failed is already Mika's own run to recover; do
+	// not enqueue a self-loop.
+	if t.AgentID.Valid && t.AgentID == mika.ID {
+		return
+	}
+	issue, err := s.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
+		ID:          t.IssueID,
+		WorkspaceID: wsUUID,
+	})
+	if err != nil {
+		return
+	}
+	handoff := fmt.Sprintf("A task for this issue just failed terminally (reason: %s). Own the recovery: diagnose the cause, restart or reroute the work, and report the concrete next step. Do not mark the issue done or in_review until real delivery evidence exists.", failureReason)
+	coordinationIssue := issue
+	coordinationIssue.AssigneeType = pgtype.Text{String: "agent", Valid: true}
+	coordinationIssue.AssigneeID = mika.ID
+	if _, err := s.EnqueueTaskForIssueWithHandoff(ctx, coordinationIssue, handoff, pgtype.UUID{}); err != nil && !errors.Is(err, ErrDuplicatePendingTask) {
+		slog.Warn("notify mika of failed task: enqueue failed",
+			"task_id", util.UUIDToString(t.ID),
+			"issue_id", util.UUIDToString(t.IssueID),
+			"error", err,
+		)
+	}
 }
 
 const (

@@ -4020,6 +4020,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var evidenceRequired *workflowEvidenceRequiredError
 		if errors.As(err, &evidenceRequired) {
+			// The evidence guard refused a bare status flip. The gap is real and
+			// now needs an owner: wake the review coordinator to collect delivery
+			// evidence instead of leaving the issue stranded behind the guard.
+			actorType, actorID := h.resolveActor(r, userID, workspaceID)
+			h.enqueueMikaEvidenceGapCoordination(r.Context(), prevIssue, actorType, actorID)
 			writeError(w, http.StatusConflict, evidenceRequired.Error())
 			return
 		}
