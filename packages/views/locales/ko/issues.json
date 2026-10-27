@@ -586,6 +586,8 @@
     "replying_to": "{{name}}에게 답글: {{preview}}",
     "leave_comment_placeholder": "댓글 남기기...",
     "send_tooltip": "보내기",
+    "send_as_trigger_aria": "{{name}}에게 보내기",
+    "send_as_default_badge": "기본",
     "trigger_source_issue_assignee": "담당자",
     "trigger_source_mention_agent": "@멘션",
     "trigger_source_mention_squad_leader": "Squad",

@@ -600,6 +600,8 @@
     "replying_to": "En réponse à {{name}} : {{preview}}",
     "leave_comment_placeholder": "Laisser un commentaire...",
     "send_tooltip": "Envoyer",
+    "send_as_trigger_aria": "Envoyer à {{name}}",
+    "send_as_default_badge": "Par défaut",
     "trigger_source_issue_assignee": "assigné",
     "trigger_source_mention_agent": "@mention",
     "trigger_source_mention_squad_leader": "squad",

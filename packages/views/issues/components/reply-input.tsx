@@ -17,6 +17,9 @@ import { useT } from "../../i18n";
 import { CommentTriggerChips } from "./comment-trigger-chips";
 import { useCommentTriggerPreview } from "../hooks/use-comment-trigger-preview";
 import { useRecipientActions } from "../hooks/use-recipient-actions";
+import { useSendAsAgent } from "../hooks/use-send-as-agent";
+import { SendAsSelector } from "./send-as-selector";
+import { recipientRouting } from "@multica/core/issues/run-steering";
 import { SteerAttachmentNotice } from "./steer-attachment-notice";
 import { useStopRunsBeforeSend } from "./use-stop-runs-before-send";
 import { useCommentUploads } from "./use-comment-uploads";
@@ -92,7 +95,15 @@ function ReplyInput({
   const annotations = useCommentDraftStore((s) => draftKey ? s.getAnnotations(draftKey) : EMPTY_REPLY_ANNOTATIONS);
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = !targetMissing && (annotations.length ? hasReplyIntent(content, annotations) : !isEmpty);
-  const triggerPreview = useCommentTriggerPreview({ issueId, parentId, content: canSend ? composedContent : "" });
+  // Target selector: choosing an agent prepends its mention link so the reply
+  // triggers that agent. The preview and recipient
+  // chips run against the composed payload — what actually posts.
+  const sendAs = useSendAsAgent();
+  const withImplicitMention = useMemo(
+    () => (sendAs.selectedMention ? `${sendAs.selectedMention}\n\n${composedContent}` : composedContent),
+    [composedContent, sendAs.selectedMention],
+  );
+  const triggerPreview = useCommentTriggerPreview({ issueId, parentId, content: canSend ? withImplicitMention : "" });
   // Uploads for this reply session (MUL-5181) — owned by the coordinator. With
   // a draftKey they persist in the draft store so scroll-out/close no longer
   // drops an in-flight upload; without one (no persistence context) they fall
@@ -178,7 +189,6 @@ function ReplyInput({
     afterAccepted: () => (editorScrubbedRef.current ? "refocus" : "none"),
     onSubmit: async (content) => {
       editorScrubbedRef.current = false;
-      const { suppressAgentIds, steerTaskIds } = routing;
       // A preview still catching up with an edited @mention can name a
       // recipient this comment no longer addresses: never stop a run on it.
       const restartTaskIds = triggerPreview.isCurrent ? routing.restartTaskIds : [];
@@ -195,11 +205,21 @@ function ReplyInput({
       const activeIds = pendingAttachments
         .filter((a) => contentReferencesAttachment(content, a))
         .map((a) => a.id);
+      // Recompute routing for the exact payload being
+      // posted — see CommentInput for the same rationale.
+      const activeRouting =
+        sendAs.selectedMention && triggerPreview.isCurrent
+          ? recipientRouting(
+              recipients.map((r) => ({ agentId: r.agent.id, action: r.action, state: r.state })),
+            )
+          : routing;
+      const activeSuppress = activeRouting.suppressAgentIds;
+      const activeSteer = activeRouting.steerTaskIds;
       return onSubmit(
-        content,
+        sendAs.selectedMention ? `${sendAs.selectedMention}\n\n${content}` : content,
         activeIds.length > 0 ? activeIds : undefined,
-        suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
-        steerTaskIds.length > 0 ? steerTaskIds : undefined,
+        activeSuppress.length > 0 ? activeSuppress : undefined,
+        activeSteer.length > 0 ? activeSteer : undefined,
       ).then((commentId) => {
         acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
         return !!commentId;
@@ -309,6 +329,17 @@ function ReplyInput({
           </div>
         )}
         <div className="absolute bottom-0 left-0 right-24 min-w-0">
+          {sendAs.hasChoice && (
+            <SendAsSelector
+              choices={sendAs.choices.map((agent) => ({
+                agent,
+                isDefault: agent.id === sendAs.defaultAgent?.id,
+              }))}
+              selectedId={sendAs.selectedId}
+              disabled={submitting}
+              onSelect={sendAs.setSelectedId}
+            />
+          )}
           <CommentTriggerChips
             recipients={recipients}
             blocked={triggerPreview.blocked}

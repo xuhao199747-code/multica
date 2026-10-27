@@ -11,19 +11,30 @@ import { defaultStorage } from "../../platform/storage";
 export type RunningAgentReply = "steer" | "after_run";
 
 /**
+ * Agent target for the member's next comment. `null` means the workspace
+ * default target; a workspace-scoped agent id records another target.
+ * Persisted per workspace so a member keeps their choice across reloads.
+ */
+export type CommentSendAs = string | null;
+
+/**
  * Personal preferences for the issue-detail comment composer.
  *
  * `sticky` pins the bottom comment bar to the scroll viewport so it stays
  * reachable while reading a long timeline. `runningAgentReply` picks the
  * default for a reply to a running agent. Both are personal habits (like
  * theme), so they persist globally via `defaultStorage` rather than
- * per-workspace storage.
+ * per-workspace storage. `sendAs` is workspace-scoped: the keyed map keeps
+ * each workspace's last chosen target separate.
  */
 interface CommentComposerStore {
   sticky: boolean;
   runningAgentReply: RunningAgentReply;
+  /** Workspace id → chosen agent target (absent = default behavior). */
+  sendAsByWorkspace: Record<string, CommentSendAs>;
   toggleSticky: () => void;
   setRunningAgentReply: (value: RunningAgentReply) => void;
+  setSendAs: (workspaceId: string, value: CommentSendAs) => void;
 }
 
 export const useCommentComposerStore = create<CommentComposerStore>()(
@@ -31,8 +42,13 @@ export const useCommentComposerStore = create<CommentComposerStore>()(
     (set) => ({
       sticky: true,
       runningAgentReply: "steer",
+      sendAsByWorkspace: {},
       toggleSticky: () => set((s) => ({ sticky: !s.sticky })),
       setRunningAgentReply: (runningAgentReply) => set({ runningAgentReply }),
+      setSendAs: (workspaceId, value) =>
+        set((s) => ({
+          sendAsByWorkspace: { ...s.sendAsByWorkspace, [workspaceId]: value },
+        })),
     }),
     {
       name: "multica_comment_composer",

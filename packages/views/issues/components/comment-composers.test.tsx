@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { UploadResult } from "@multica/core/hooks/use-file-upload";
 import type { Attachment } from "@multica/core/types";
 import { useCommentComposerStore, useCommentDraftStore } from "@multica/core/issues/stores";
@@ -27,6 +28,8 @@ const apiRenderQuickAction = vi.hoisted(() => vi.fn());
 const apiPreviewCommentTriggers = vi.hoisted(() => vi.fn());
 const apiListTasksByIssue = vi.hoisted(() => vi.fn());
 const apiCancelTask = vi.hoisted(() => vi.fn());
+const apiListAgents = vi.hoisted(() => vi.fn());
+const apiListMembers = vi.hoisted(() => vi.fn());
 const uploadWithToast = vi.hoisted(() => vi.fn());
 const editorDefaultValues = vi.hoisted(() => ({
   values: [] as Array<string | undefined>,
@@ -65,8 +68,23 @@ vi.mock("@multica/core/api", () => ({
     previewCommentTriggers: apiPreviewCommentTriggers,
     listTasksByIssue: apiListTasksByIssue,
     cancelTask: apiCancelTask,
+    listAgents: apiListAgents,
+    listMembers: apiListMembers,
   },
 }));
+
+// The send-as selector (DAWE-51) reads the current user from the auth store;
+// tests drive it by setting the user id directly.
+vi.mock("@multica/core/auth", async () => {
+  const actual = await vi.importActual<typeof import("@multica/core/auth")>(
+    "@multica/core/auth",
+  );
+  return {
+    ...actual,
+    useAuthStore: (selector: (s: { user: { id: string } | null }) => unknown) =>
+      selector({ user: { id: "user-1" } }),
+  };
+});
 
 vi.mock("@multica/core/hooks/use-file-upload", async () => ({
   ...(await vi.importActual<typeof import("@multica/core/hooks/use-file-upload")>(
@@ -291,11 +309,33 @@ beforeEach(() => {
   apiPreviewCommentTriggers.mockReset();
   apiListTasksByIssue.mockReset();
   apiCancelTask.mockReset();
+  apiListAgents.mockReset();
+  apiListMembers.mockReset();
+  // Single-agent workspaces hide the selector — the default for most tests.
+  apiListAgents.mockResolvedValue([
+    {
+      id: "agent-mika",
+      system_key: "mika",
+      name: "Mika",
+      archived_at: null,
+      runtime_id: "rt-1",
+      permission_mode: "public_to",
+      invocation_targets: [{ target_type: "workspace", target_id: null }],
+      owner_id: null,
+    },
+  ]);
+  apiListMembers.mockResolvedValue([
+    { user_id: "user-1", role: "owner" },
+  ]);
   insertMarkdownSpy.mockReset();
   insertPlaceholderSpy.mockReset();
   insertMarkdownBehavior.succeed = true;
   localStorage.clear();
-  useCommentComposerStore.setState({ sticky: true, runningAgentReply: "steer" });
+  useCommentComposerStore.setState({
+    sticky: true,
+    runningAgentReply: "steer",
+    sendAsByWorkspace: {},
+  });
   // The composer's pinning (and the height cap that follows it) is viewport
   // dependent, so a narrow-viewport test must not leak into the next one.
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
@@ -1332,5 +1372,133 @@ describe.each(["reply", "description"])("annotations in %s drafts", (source) => 
     act(() => { useCommentDraftStore.getState().addAnnotation(draftKey, { ...annotation, id: "b", quote: "Another point" }); });
     await act(async () => accept("reply-new"));
     expect(useCommentDraftStore.getState().getAnnotations(draftKey)).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Send-as agent selector (DAWE-51)
+// ---------------------------------------------------------------------------
+
+describe("send-as agent selector", () => {
+  const mika = {
+    id: "agent-mika",
+    system_key: "mika",
+    name: "Mika",
+    archived_at: null,
+    runtime_id: "rt-1",
+    permission_mode: "public_to",
+    invocation_targets: [{ target_type: "workspace", target_id: null }],
+    owner_id: null,
+    avatar_url: null,
+  };
+  const builder = {
+    id: "agent-builder",
+    system_key: undefined,
+    name: "Builder",
+    archived_at: null,
+    runtime_id: "rt-2",
+    permission_mode: "public_to",
+    invocation_targets: [{ target_type: "workspace", target_id: null }],
+    owner_id: null,
+    avatar_url: null,
+  };
+
+  function renderInWorkspace(ui: ReactNode) {
+    apiListWorkspaces.mockResolvedValue([{ id: "ws-1", slug: "acme", name: "Acme" }]);
+    apiListQuickActions.mockResolvedValue({ quick_actions: [] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return renderWithI18n(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceSlugProvider slug="acme">{ui}</WorkspaceSlugProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  function twoAgents() {
+    apiListAgents.mockResolvedValue([mika, builder]);
+  }
+
+  it("hides the selector when only the default agent is visible", async () => {
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    await waitFor(() => expect(apiListAgents).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /send to/i })).toBeNull();
+  });
+
+  it("shows the selector defaulting to Mika when a second agent is available", async () => {
+    twoAgents();
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    const trigger = await screen.findByRole("button", { name: /send to mika/i });
+    expect(trigger).toBeTruthy();
+  });
+
+  it("injects a mention link for the chosen agent and posts the composed payload", async () => {
+    const user = userEvent.setup();
+    twoAgents();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    const trigger = await screen.findByRole("button", { name: /send to mika/i });
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "ship it" } });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "[@Builder](mention://agent/agent-builder)\n\nship it",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("injects a Mika mention when Mika is selected", async () => {
+    const user = userEvent.setup();
+    twoAgents();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    const trigger = await screen.findByRole("button", { name: /send to mika/i });
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
+    await user.click(await screen.findByRole("button", { name: /send to builder/i }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /mika/i }));
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "plain" } });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "[@Mika](mention://agent/agent-mika)\n\nplain",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("hides agents the member cannot invoke (private, non-owned)", async () => {
+    apiListAgents.mockResolvedValue([
+      mika,
+      {
+        ...builder,
+        id: "agent-secret",
+        name: "Secret",
+        permission_mode: "private",
+        owner_id: "someone-else",
+      },
+    ]);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    await waitFor(() => expect(screen.queryByRole("button", { name: /reply as/i })).toBeNull());
+  });
+
+  it("hides archived and runtime-unbound agents from the selector", async () => {
+    apiListAgents.mockResolvedValue([
+      mika,
+      { ...builder, archived_at: new Date().toISOString() },
+      { ...builder, id: "agent-unbound", name: "Unbound", runtime_id: "" },
+    ]);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    await waitFor(() => expect(screen.queryByRole("button", { name: /reply as/i })).toBeNull());
   });
 });
