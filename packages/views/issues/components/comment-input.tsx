@@ -9,17 +9,25 @@ import { Button } from "@multica/ui/components/ui/button";
 import { contentReferencesAttachment, type AgentTask } from "@multica/core/types";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
 import { useCommentDraftStore } from "@multica/core/issues/stores";
+import { recipientRouting } from "@multica/core/issues/run-steering";
 import { composeAnnotatedReply, hasReplyIntent } from "@multica/core/drafts/reply-annotation";
 import { ReplyAnnotations } from "./reply-annotations";
 import { useT } from "../../i18n";
 import { CommentTriggerChips } from "./comment-trigger-chips";
 import { useCommentTriggerPreview } from "../hooks/use-comment-trigger-preview";
 import { useRecipientActions } from "../hooks/use-recipient-actions";
+import { useSendAsAgent } from "../hooks/use-send-as-agent";
+import { SendAsSelector } from "./send-as-selector";
 import { SteerAttachmentNotice } from "./steer-attachment-notice";
 import { useStopRunsBeforeSend } from "./use-stop-runs-before-send";
 import { useCommentUploads } from "./use-comment-uploads";
 import { useQuickActionMenu } from "../hooks/use-quick-action-menu";
 import { useStickyComposer } from "../hooks/use-sticky-composer";
+
+function isNoteComment(content: string): boolean {
+  const trimmed = content.replace(/^[ \t\r\n]+/, "");
+  return (trimmed.split(/\s/, 1)[0] ?? "").toLowerCase() === "/note";
+}
 
 interface CommentInputProps {
   issueId: string;
@@ -61,7 +69,20 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
   const annotations = useCommentDraftStore((s) => s.getAnnotations(draftKey));
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = annotations.length ? hasReplyIntent(content, annotations) : !isEmpty;
-  const triggerPreview = useCommentTriggerPreview({ issueId, content: canSend ? composedContent : "" });
+  // Target selector: choosing an agent prepends its mention link so the
+  // comment triggers that agent. The preview and
+  // recipient chips run against the composed payload — what actually posts —
+  // so the chips read "will trigger X" instead of contradicting the selector.
+  const sendAs = useSendAsAgent();
+  const selectedMention = useMemo(
+    () => (isNoteComment(composedContent) ? null : sendAs.selectedMention),
+    [composedContent, sendAs.selectedMention],
+  );
+  const withImplicitMention = useMemo(
+    () => (selectedMention ? `${selectedMention}\n\n${composedContent}` : composedContent),
+    [composedContent, selectedMention],
+  );
+  const triggerPreview = useCommentTriggerPreview({ issueId, content: canSend ? withImplicitMention : "" });
   // Uploads for this composer session (MUL-5181). Owned by the module-level
   // coordinator and persisted in the draft store, so closing/scrolling the
   // composer away no longer drops an in-flight upload — its result lands in the
@@ -169,7 +190,6 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
     afterAccepted: () => (editorScrubbedRef.current ? "blur" : "none"),
     onSubmit: async (content) => {
       editorScrubbedRef.current = false;
-      const { suppressAgentIds, steerTaskIds } = routing;
       // A preview still catching up with an edited @mention can name a
       // recipient this comment no longer addresses: never stop a run on it.
       const restartTaskIds = triggerPreview.isCurrent ? routing.restartTaskIds : [];
@@ -186,11 +206,23 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
       const activeIds = pendingAttachments
         .filter((a) => contentReferencesAttachment(content, a))
         .map((a) => a.id);
+      // The selector's target triggers off its mention link. `routing` was computed for
+      // the preview payload — recompute for the exact content being posted
+      // so suppress lists cannot name a recipient this comment doesn't
+      // address (same rationale as the debounce guard above).
+      const activeRouting =
+        selectedMention && triggerPreview.isCurrent
+          ? recipientRouting(
+              recipients.map((r) => ({ agentId: r.agent.id, action: r.action, state: r.state })),
+            )
+          : routing;
+      const activeSuppress = activeRouting.suppressAgentIds;
+      const activeSteer = activeRouting.steerTaskIds;
       return onSubmit(
-        content,
+        selectedMention ? `${selectedMention}\n\n${content}` : content,
         activeIds.length > 0 ? activeIds : undefined,
-        suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
-        steerTaskIds.length > 0 ? steerTaskIds : undefined,
+        activeSuppress.length > 0 ? activeSuppress : undefined,
+        activeSteer.length > 0 ? activeSteer : undefined,
       ).then((commentId) => {
         acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
         return !!commentId;
@@ -300,6 +332,20 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
         </div>
       )}
       <div className="absolute bottom-1 left-2 right-28 min-w-0">
+        {/* Identity selector sits with the trigger chips so its choice and
+            the resulting "will trigger" chips read as one unit. Hidden when
+            the workspace offers no real choice (only the default agent). */}
+        {sendAs.hasChoice && (
+          <SendAsSelector
+            choices={sendAs.choices.map((agent) => ({
+              agent,
+              isDefault: agent.id === sendAs.defaultAgent?.id,
+            }))}
+            selectedId={sendAs.selectedId}
+            disabled={submitting}
+            onSelect={sendAs.setSelectedId}
+          />
+        )}
         <CommentTriggerChips
           recipients={recipients}
           blocked={triggerPreview.blocked}

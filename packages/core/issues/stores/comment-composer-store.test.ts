@@ -46,4 +46,27 @@ describe("comment composer store", () => {
     await useCommentComposerStore.persist.rehydrate();
     expect(useCommentComposerStore.getState()).toMatchObject({ sticky: false, runningAgentReply: "steer" });
   });
+
+  it("remembers the explicit target per workspace and clears it for automatic routing", () => {
+    useCommentComposerStore.getState().setSendAs("ws-1", "agent-a");
+    useCommentComposerStore.getState().setSendAs("ws-2", "agent-b");
+    expect(useCommentComposerStore.getState().sendAsByWorkspace).toEqual({
+      "ws-1": "agent-a",
+      "ws-2": "agent-b",
+    });
+
+    // Restoring automatic routing stores null.
+    useCommentComposerStore.getState().setSendAs("ws-1", null);
+    expect(useCommentComposerStore.getState().sendAsByWorkspace).toEqual({
+      "ws-1": null,
+      "ws-2": "agent-b",
+    });
+  });
+
+  it("defaults to an empty send-as map for preferences saved before the selector existed", async () => {
+    useCommentComposerStore.setState({ sendAsByWorkspace: {} });
+    localStorage.setItem("multica_comment_composer", JSON.stringify({ state: { sticky: false }, version: 0 }));
+    await useCommentComposerStore.persist.rehydrate();
+    expect(useCommentComposerStore.getState().sendAsByWorkspace).toEqual({});
+  });
 });

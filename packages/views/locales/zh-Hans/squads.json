@@ -140,5 +140,18 @@
     "filter_label": "筛选",
     "filter_active_count_other": "{{count}} 项筛选",
     "clear_filters": "清除筛选"
+  },
+  "mapping_incomplete_note": "小队映射不再覆盖全部角色，同步与恢复不可用。",
+  "standard_label": "项目角色",
+  "standard_description": "标注各标准角色由哪个智能体承担，供项目把本小队用作角色模板时使用。每个角色只能标注一个智能体。",
+  "standard_none": "未设置",
+  "division_label": "队内分工",
+  "division_description": "小队内展示的任意文本分工，不影响项目角色模板。",
+  "standard_saved": "项目角色已更新",
+  "standard_save_failed": "项目角色更新失败",
+  "standard_conflict": "该角色已由其他成员承担",
+  "role_labels": {
+    "developer": "开发",
+    "reviewer": "审核"
   }
 }

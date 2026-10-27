@@ -12,7 +12,7 @@ import (
 
 var projectWorkflowCmd = &cobra.Command{Use: "workflow", Short: "Run project workflow actions"}
 var projectWorkflowConfirmCmd = &cobra.Command{Use: "confirm <project-id>", Short: "Freeze a confirmed PRD execution snapshot", Args: exactArgs(1), RunE: runProjectWorkflowConfirm}
-var projectWorkflowDispatchCmd = &cobra.Command{Use: "dispatch <project-id>", Short: "Dispatch a workflow issue to a project agent", Args: exactArgs(1), RunE: runProjectWorkflowDispatch}
+var projectWorkflowDispatchCmd = &cobra.Command{Use: "dispatch <project-id>", Short: "Start or continue a workflow agent run on its primary issue", Args: exactArgs(1), RunE: runProjectWorkflowDispatch}
 var projectWorkflowDeliveryCmd = &cobra.Command{Use: "delivery <project-id>", Short: "Submit code delivery evidence for review", Args: exactArgs(1), RunE: runProjectWorkflowDelivery}
 var projectWorkflowReviewCmd = &cobra.Command{Use: "review <project-id>", Short: "Record a workflow review result", Args: exactArgs(1), RunE: runProjectWorkflowReview}
 var projectWorkflowCompleteCmd = &cobra.Command{Use: "complete <project-id>", Short: "Record completed project delivery evidence", Args: exactArgs(1), RunE: runProjectWorkflowComplete}

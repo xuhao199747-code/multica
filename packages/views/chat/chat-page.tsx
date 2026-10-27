@@ -32,6 +32,7 @@ import {
 } from "@multica/ui/components/ui/resizable";
 import { useIsCompact } from "@multica/ui/hooks/use-mobile";
 import { useRequiredWorkspaceSlug, useWorkspacePaths } from "@multica/core/paths";
+import { useWorkspaceId } from "@multica/core/hooks";
 import { getCurrentSlug } from "@multica/core/platform";
 import { useChatStore } from "@multica/core/chat";
 import { useCreateProject, useDeleteProject, useUpdateProject } from "@multica/core/projects";
@@ -62,7 +63,6 @@ import { ChatInput } from "./components/chat-input";
 import { ChatQueue } from "./components/chat-queue";
 import { ChatThreadList } from "./components/chat-thread-list";
 import { ChatSessionHeader } from "./components/chat-session-header";
-import { ProjectWorkflowStartPanel } from "./components/project-workflow-start-panel";
 import { EmptyState } from "./components/chat-empty-state";
 import { useChatController } from "./components/use-chat-controller";
 import { OfflineBanner } from "./components/offline-banner";
@@ -101,6 +101,7 @@ function localPathBasename(path: string): string | null {
 
 export function ChatPage() {
   const { t } = useT("chat");
+  const workspaceId = useWorkspaceId();
   const { pathname, searchParams, replace } = useNavigation();
   const workspaceSlug = useRequiredWorkspaceSlug();
   const wsPaths = useWorkspacePaths();
@@ -706,17 +707,6 @@ export function ChatPage() {
           onArchive={handleArchive}
         />
       )}
-      {c.currentSession && c.activeProjectId && c.activeAgent && (
-        <ProjectWorkflowStartPanel
-          sessionId={c.currentSession.id}
-          projectId={c.activeProjectId}
-          agentId={c.activeAgent.id}
-          projectTitle={
-            c.projects.find((project) => project.id === c.activeProjectId)?.title ?? ""
-          }
-          messages={c.messages}
-        />
-      )}
       {c.showSkeleton ? (
         <ChatMessageSkeleton />
       ) : c.hasMessages ? (
@@ -747,6 +737,17 @@ export function ChatPage() {
               : undefined
           }
           quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+          projectWorkflow={
+            c.currentSession && c.activeProjectId && c.activeAgent
+              ? {
+                  workspaceId,
+                  projectId: c.activeProjectId,
+                  sessionId: c.currentSession.id,
+                  agentId: c.activeAgent.id,
+                  issueHref: wsPaths.issueDetail,
+                }
+              : undefined
+          }
         />
       ) : (
         <EmptyState

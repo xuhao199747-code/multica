@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,16 +194,25 @@ func (h *Handler) OpenProjectMikaSession(w http.ResponseWriter, r *http.Request)
 }
 
 type ProjectExecutionResponse struct {
-	ID                  string         `json:"id"`
-	ProjectID           string         `json:"project_id"`
-	WorkspaceID         string         `json:"workspace_id"`
-	SourceChatSessionID string         `json:"source_chat_session_id"`
-	SourceAgentID       string         `json:"source_agent_id"`
-	Snapshot            map[string]any `json:"snapshot"`
-	DeliveryResult      map[string]any `json:"delivery_result"`
-	State               string         `json:"state"`
-	ReviewRound         int32          `json:"review_round"`
-	CreatedAt           string         `json:"created_at"`
+	ID                  string                          `json:"id"`
+	ProjectID           string                          `json:"project_id"`
+	WorkspaceID         string                          `json:"workspace_id"`
+	SourceChatSessionID string                          `json:"source_chat_session_id"`
+	SourceAgentID       string                          `json:"source_agent_id"`
+	Snapshot            map[string]any                  `json:"snapshot"`
+	DeliveryResult      map[string]any                  `json:"delivery_result"`
+	State               string                          `json:"state"`
+	ReviewRound         int32                           `json:"review_round"`
+	CreatedAt           string                          `json:"created_at"`
+	MainIssue           *ProjectExecutionIssueResponse  `json:"main_issue"`
+	HistoricalIssues    []ProjectExecutionIssueResponse `json:"historical_issues"`
+}
+
+type ProjectExecutionIssueResponse struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Role   string `json:"role"`
 }
 
 func projectExecutionToResponse(record db.ProjectExecutionRecord) ProjectExecutionResponse {
@@ -210,7 +220,12 @@ func projectExecutionToResponse(record db.ProjectExecutionRecord) ProjectExecuti
 	_ = json.Unmarshal(record.Snapshot, &snapshot)
 	deliveryResult := map[string]any{}
 	_ = json.Unmarshal(record.DeliveryResult, &deliveryResult)
-	return ProjectExecutionResponse{ID: uuidToString(record.ID), ProjectID: uuidToString(record.ProjectID), WorkspaceID: uuidToString(record.WorkspaceID), SourceChatSessionID: uuidToString(record.SourceChatSessionID), SourceAgentID: uuidToString(record.SourceAgentID), Snapshot: snapshot, DeliveryResult: deliveryResult, State: record.State, ReviewRound: record.ReviewRound, CreatedAt: timestampToString(record.CreatedAt)}
+	return ProjectExecutionResponse{
+		ID: uuidToString(record.ID), ProjectID: uuidToString(record.ProjectID), WorkspaceID: uuidToString(record.WorkspaceID),
+		SourceChatSessionID: uuidToString(record.SourceChatSessionID), SourceAgentID: uuidToString(record.SourceAgentID), Snapshot: snapshot,
+		DeliveryResult: deliveryResult, State: record.State, ReviewRound: record.ReviewRound, CreatedAt: timestampToString(record.CreatedAt),
+		HistoricalIssues: []ProjectExecutionIssueResponse{},
+	}
 }
 
 func (h *Handler) ListProjectExecutionRecords(w http.ResponseWriter, r *http.Request) {
@@ -233,14 +248,82 @@ func (h *Handler) ListProjectExecutionRecords(w http.ResponseWriter, r *http.Req
 		return
 	}
 	issueResponse := make([]map[string]string, len(issues))
+	issuesByExecution := make(map[string][]ProjectExecutionIssueResponse)
 	for i, issue := range issues {
 		issueResponse[i] = map[string]string{
 			"execution_id": uuidToString(issue.ExecutionRecordID),
 			"issue_id":     uuidToString(issue.IssueID),
 			"role":         issue.Role,
 		}
+		linkedIssue, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
+			ID: issue.IssueID, WorkspaceID: project.WorkspaceID,
+		})
+		if err != nil {
+			continue
+		}
+		executionID := uuidToString(issue.ExecutionRecordID)
+		issuesByExecution[executionID] = append(issuesByExecution[executionID], ProjectExecutionIssueResponse{
+			ID: uuidToString(linkedIssue.ID), Title: linkedIssue.Title, Status: linkedIssue.Status, Role: issue.Role,
+		})
+	}
+	for i := range response {
+		mainIssue, historicalIssues := groupProjectExecutionIssues(issuesByExecution[response[i].ID])
+		response[i].MainIssue = mainIssue
+		response[i].HistoricalIssues = historicalIssues
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"executions": response, "execution_issues": issueResponse, "total": len(response)})
+}
+
+func groupProjectExecutionIssues(issues []ProjectExecutionIssueResponse) (*ProjectExecutionIssueResponse, []ProjectExecutionIssueResponse) {
+	if len(issues) == 0 {
+		return nil, []ProjectExecutionIssueResponse{}
+	}
+	mainIndex := -1
+	developmentIndex := -1
+	activeDevelopmentIndex := -1
+	activeIndex := -1
+	for i := range issues {
+		issue := issues[i]
+		if issue.Role == "main" {
+			mainIndex = i
+			break
+		}
+		if issue.Role == "development" {
+			if developmentIndex == -1 {
+				developmentIndex = i
+			}
+			if activeDevelopmentIndex == -1 && isActiveWorkflowIssueStatus(issue.Status) {
+				activeDevelopmentIndex = i
+			}
+		}
+		if activeIndex == -1 && isActiveWorkflowIssueStatus(issue.Status) {
+			activeIndex = i
+		}
+	}
+	if mainIndex == -1 {
+		switch {
+		case activeDevelopmentIndex != -1:
+			mainIndex = activeDevelopmentIndex
+		case developmentIndex != -1:
+			mainIndex = developmentIndex
+		case activeIndex != -1:
+			mainIndex = activeIndex
+		default:
+			mainIndex = 0
+		}
+	}
+	mainIssue := issues[mainIndex]
+	historical := make([]ProjectExecutionIssueResponse, 0, len(issues)-1)
+	for i, issue := range issues {
+		if i != mainIndex {
+			historical = append(historical, issue)
+		}
+	}
+	return &mainIssue, historical
+}
+
+func isActiveWorkflowIssueStatus(status string) bool {
+	return status != "done" && status != "cancelled"
 }
 
 type ConfirmProjectExecutionRequest struct {
@@ -349,9 +432,9 @@ type DispatchProjectExecutionRequest struct {
 	Title       string `json:"title"`
 }
 
-// DispatchProjectExecution creates a normal Multica issue assigned to the
-// project-bound agent. IssueService then performs the ordinary enqueue, so a
-// workflow assignment always has a real run record rather than a UI-only flag.
+// DispatchProjectExecution creates the primary issue only for the initial
+// development phase. Later workflow phases enqueue a role-bound sub-run on the
+// same issue so one business goal remains one task throughout its lifecycle.
 func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.loadProjectForResource(w, r, chi.URLParam(r, "id"))
 	if !ok {
@@ -418,37 +501,44 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "agent is not bound to this project role")
 		return
 	}
-	roleContract := "Implement only the confirmed snapshot. Change code, run relevant tests, commit work, and submit delivery evidence. Do not change scope, dispatch other agents, release, or approve your own work."
-	if req.Role == "review" {
-		roleContract = "Inspect the confirmed snapshot, code, tests, commit or PR, and delivery evidence. Record findings only; do not edit code, dispatch work, or release."
+	mainIssue, err := h.projectWorkflowMainIssue(r.Context(), project, record.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if req.Role != "development" {
+			writeError(w, http.StatusConflict, "start development before dispatching a workflow sub-run")
+			return
+		}
+		mainIssue, err = h.createProjectWorkflowMainIssue(r, project, record, agentID, userID, req.Title)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create project workflow main issue")
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"issue":   issueToResponse(mainIssue, uuidToString(project.WorkspaceID)),
+			"task_id": nil,
+		})
+		return
 	}
-	if req.Role == "repair" {
-		roleContract = "Fix the recorded review findings within the confirmed snapshot. Change code, run relevant tests, commit work, and submit updated delivery evidence. Do not change scope, dispatch work, release, or approve your own work."
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load project workflow main issue")
+		return
 	}
-	completionCommand := fmt.Sprintf("multica project workflow delivery %s --execution %s --issue <this-issue-id> --commit <commit-ref> --tests <test-evidence> --summary <summary>", uuidToString(project.ID), uuidToString(record.ID))
-	if req.Role == "review" {
-		completionCommand = fmt.Sprintf("multica project workflow review %s --execution %s --issue <this-issue-id> --outcome passed|needs_changes|needs_member_decision --findings <review-evidence>", uuidToString(project.ID), uuidToString(record.ID))
+	if req.Role == "development" {
+		writeJSON(w, http.StatusOK, map[string]any{"issue": issueToResponse(mainIssue, uuidToString(project.WorkspaceID)), "task_id": nil})
+		return
 	}
-	roleContract += " Before changing this issue to in_review or done, successfully run the required_completion_command with this issue's actual ID and real evidence. A status change or issue comment alone does not advance this workflow."
-	description, _ := json.Marshal(map[string]any{
-		"project_execution_id":        uuidToString(record.ID),
-		"prd_snapshot":                json.RawMessage(record.Snapshot),
-		"delivery_evidence":           json.RawMessage(record.DeliveryResult),
-		"workflow_role":               req.Role,
-		"role_contract":               roleContract,
-		"required_completion_command": completionCommand,
+	task, err := h.TaskService.EnqueueTaskForMention(r.Context(), mainIssue, agentID, pgtype.UUID{}, service.OriginDerived)
+	if err != nil && !errors.Is(err, service.ErrDuplicatePendingTask) {
+		writeError(w, http.StatusInternalServerError, "failed to queue project workflow sub-run")
+		return
+	}
+	var taskID *string
+	if err == nil {
+		taskID = uuidToPtr(task.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issue":   issueToResponse(mainIssue, uuidToString(project.WorkspaceID)),
+		"task_id": taskID,
 	})
-	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{WorkspaceID: project.WorkspaceID, Title: strings.TrimSpace(req.Title), Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none", AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: agentID, CreatorType: "member", CreatorID: parseUUID(userID), ProjectID: project.ID}, service.IssueCreateOpts{})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to dispatch project execution")
-		return
-	}
-	linked, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: req.Role})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to link dispatched issue")
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"issue": issueToResponse(result.Issue, uuidToString(project.WorkspaceID)), "execution_issue": linked, "task_id": uuidToPtr(result.AssignedTaskID)})
 }
 
 // StartProjectWorkflowExecutionRequest is the member confirmation payload a
@@ -456,9 +546,9 @@ func (h *Handler) DispatchProjectExecution(w http.ResponseWriter, r *http.Reques
 // development stage atomically.
 type StartProjectWorkflowExecutionRequest struct {
 	SourceChatSessionID string          `json:"source_chat_session_id"`
+	SourceMessageID     string          `json:"source_message_id"`
 	SourceAgentID       string          `json:"source_agent_id"`
 	Snapshot            json.RawMessage `json:"snapshot"`
-	Title               string          `json:"title"`
 }
 
 // StartProjectWorkflowExecutionFromChat is the P0 bridge: one member
@@ -490,9 +580,23 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 		writeError(w, http.StatusBadRequest, "source_chat_session_id is required")
 		return
 	}
+	if strings.TrimSpace(asWorkflowString(req.SourceMessageID)) == "" {
+		writeError(w, http.StatusBadRequest, "source_message_id is required")
+		return
+	}
 
-	// Validate the source chat and snapshot exactly like ConfirmProjectExecution.
-	session, snapshot, payload, ok := h.validateProjectWorkflowStart(w, r, project, req.SourceChatSessionID, req.SourceAgentID, req.Snapshot)
+	// The client sends the visible message's exact snapshot, but the server
+	// independently reads it back from the immutable assistant message. This
+	// keeps a later "continue" user reply from changing the approved plan.
+	session, snapshot, payload, title, ok := h.validateProjectWorkflowStart(
+		w,
+		r,
+		project,
+		req.SourceChatSessionID,
+		req.SourceMessageID,
+		req.SourceAgentID,
+		req.Snapshot,
+	)
 	if !ok {
 		return
 	}
@@ -526,7 +630,6 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 		return
 	}
 
-	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		goal := strings.TrimSpace(asWorkflowString(snapshot["goal"]))
 		if goal == "" {
@@ -540,7 +643,7 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 	roleContract += " Before changing this issue to in_review or done, successfully run the required_completion_command with this issue's actual ID and real evidence. A status change or issue comment alone does not advance this workflow."
 	description, _ := json.Marshal(map[string]any{
 		"prd_snapshot":                json.RawMessage(payload),
-		"workflow_role":               "development",
+		"workflow_role":               "main",
 		"role_contract":               roleContract,
 		"required_completion_command": completionCommand,
 	})
@@ -588,7 +691,7 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 		WorkspaceID:       project.WorkspaceID,
 		ProjectID:         project.ID,
 		IssueID:           created.Issue.ID,
-		Role:              "development",
+		Role:              "main",
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to link dispatched issue")
@@ -608,49 +711,65 @@ func (h *Handler) StartProjectWorkflowExecutionFromChat(w http.ResponseWriter, r
 	})
 }
 
-// validateProjectWorkflowStart checks the source chat belongs to this
-// project, the chat agent is bound as the project's Mica or PRD agent, and
-// the snapshot has the required structured fields. It returns the chat
-// session, the decoded snapshot, and its re-encoded canonical payload.
-func (h *Handler) validateProjectWorkflowStart(w http.ResponseWriter, r *http.Request, project db.Project, sourceChatSessionID, sourceAgentID string, rawSnapshot json.RawMessage) (db.ChatSession, map[string]any, json.RawMessage, bool) {
+// validateProjectWorkflowStart checks the source chat and assistant message
+// belong to this project, the chat agent is the project's Mica or PRD agent,
+// and the client-sent snapshot is byte-for-byte equivalent after canonical
+// JSON encoding to the plan marker persisted in that assistant message.
+func (h *Handler) validateProjectWorkflowStart(
+	w http.ResponseWriter,
+	r *http.Request,
+	project db.Project,
+	sourceChatSessionID,
+	sourceMessageID,
+	sourceAgentID string,
+	rawSnapshot json.RawMessage,
+) (db.ChatSession, map[string]any, json.RawMessage, string, bool) {
 	sessionID, ok := parseUUIDOrBadRequest(w, sourceChatSessionID, "source_chat_session_id")
 	if !ok {
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
 	}
-	var snapshot map[string]any
-	if err := json.Unmarshal(rawSnapshot, &snapshot); err != nil || snapshot == nil {
-		writeError(w, http.StatusBadRequest, "snapshot must be a JSON object")
-		return db.ChatSession{}, nil, nil, false
+	messageID, ok := parseUUIDOrBadRequest(w, sourceMessageID, "source_message_id")
+	if !ok {
+		return db.ChatSession{}, nil, nil, "", false
 	}
-	if strings.TrimSpace(asWorkflowString(snapshot["goal"])) == "" {
-		writeError(w, http.StatusBadRequest, "snapshot.goal is required")
-		return db.ChatSession{}, nil, nil, false
-	}
-	for _, key := range []string{"scope", "acceptance_criteria", "risks"} {
-		if _, exists := snapshot[key]; !exists {
-			writeError(w, http.StatusBadRequest, "snapshot."+key+" is required")
-			return db.ChatSession{}, nil, nil, false
-		}
+	_, clientPayload, ok := decodeProjectWorkflowPlanSnapshot(rawSnapshot)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "snapshot must contain a complete project workflow plan")
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	session, err := h.Queries.GetChatSession(r.Context(), sessionID)
 	if err != nil || session.WorkspaceID != project.WorkspaceID || session.ProjectID != project.ID {
 		writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	if sourceAgentID != "" {
 		requestedAgentID, ok := parseUUIDOrBadRequest(w, sourceAgentID, "source_agent_id")
 		if !ok {
-			return db.ChatSession{}, nil, nil, false
+			return db.ChatSession{}, nil, nil, "", false
 		}
 		if requestedAgentID != session.AgentID {
 			writeError(w, http.StatusBadRequest, "source chat must belong to this project and agent")
-			return db.ChatSession{}, nil, nil, false
+			return db.ChatSession{}, nil, nil, "", false
 		}
+	}
+	message, err := h.Queries.GetChatMessage(r.Context(), messageID)
+	if err != nil || message.ChatSessionID != session.ID || message.Role != "assistant" {
+		writeError(w, http.StatusBadRequest, "source message must be an assistant plan in this chat")
+		return db.ChatSession{}, nil, nil, "", false
+	}
+	messageSnapshot, messagePayload, title, ok := extractProjectWorkflowPlanConfirmation(message.Content)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "source message has no complete project workflow plan confirmation")
+		return db.ChatSession{}, nil, nil, "", false
+	}
+	if string(clientPayload) != string(messagePayload) {
+		writeError(w, http.StatusBadRequest, "snapshot must match the confirmed plan message")
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	bindings, err := h.Queries.ListProjectAgentBindings(r.Context(), db.ListProjectAgentBindingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load project agent bindings")
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
 	}
 	sourceAuthorized := false
 	for _, binding := range bindings {
@@ -664,14 +783,76 @@ func (h *Handler) validateProjectWorkflowStart(w http.ResponseWriter, r *http.Re
 	}
 	if !sourceAuthorized {
 		writeError(w, http.StatusBadRequest, "source chat agent must be bound as this project's PRD or Mica")
-		return db.ChatSession{}, nil, nil, false
+		return db.ChatSession{}, nil, nil, "", false
+	}
+	return session, messageSnapshot, messagePayload, title, true
+}
+
+const (
+	projectWorkflowPlanConfirmationStart = "<!-- multica-project-workflow-plan-confirmation"
+	projectWorkflowPlanConfirmationEnd   = "-->"
+)
+
+type projectWorkflowPlanConfirmationPayload struct {
+	Version  int             `json:"version"`
+	Title    string          `json:"title"`
+	Snapshot json.RawMessage `json:"snapshot"`
+}
+
+func extractProjectWorkflowPlanConfirmation(content string) (map[string]any, json.RawMessage, string, bool) {
+	start := strings.Index(content, projectWorkflowPlanConfirmationStart)
+	if start < 0 || strings.Index(content[start+len(projectWorkflowPlanConfirmationStart):], projectWorkflowPlanConfirmationStart) >= 0 {
+		return nil, nil, "", false
+	}
+	payloadStart := start + len(projectWorkflowPlanConfirmationStart)
+	endOffset := strings.Index(content[payloadStart:], projectWorkflowPlanConfirmationEnd)
+	if endOffset < 0 {
+		return nil, nil, "", false
+	}
+	rawPayload := strings.TrimSpace(content[payloadStart : payloadStart+endOffset])
+	var confirmation projectWorkflowPlanConfirmationPayload
+	if err := json.Unmarshal([]byte(rawPayload), &confirmation); err != nil || confirmation.Version != 1 {
+		return nil, nil, "", false
+	}
+	snapshot, payload, ok := decodeProjectWorkflowPlanSnapshot(confirmation.Snapshot)
+	if !ok {
+		return nil, nil, "", false
+	}
+	title := strings.TrimSpace(confirmation.Title)
+	return snapshot, payload, title, true
+}
+
+func decodeProjectWorkflowPlanSnapshot(raw json.RawMessage) (map[string]any, json.RawMessage, bool) {
+	var snapshot map[string]any
+	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot == nil {
+		return nil, nil, false
+	}
+	if strings.TrimSpace(asWorkflowString(snapshot["goal"])) == "" {
+		return nil, nil, false
+	}
+	for _, field := range []struct {
+		name         string
+		requireValue bool
+	}{
+		{name: "scope", requireValue: true},
+		{name: "acceptance_criteria", requireValue: true},
+		{name: "risks", requireValue: false},
+	} {
+		values, ok := snapshot[field.name].([]any)
+		if !ok || (field.requireValue && len(values) == 0) {
+			return nil, nil, false
+		}
+		for _, value := range values {
+			if strings.TrimSpace(asWorkflowString(value)) == "" {
+				return nil, nil, false
+			}
+		}
 	}
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid snapshot")
-		return db.ChatSession{}, nil, nil, false
+		return nil, nil, false
 	}
-	return session, snapshot, payload, true
+	return snapshot, payload, true
 }
 
 type LinkProjectExecutionIssueRequest struct {
@@ -704,7 +885,7 @@ func (h *Handler) LinkProjectExecutionIssue(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	if req.Role != "development" && req.Role != "review" && req.Role != "repair" && req.Role != "delivery" {
+	if req.Role != "main" && req.Role != "development" && req.Role != "review" && req.Role != "repair" && req.Role != "delivery" {
 		writeError(w, http.StatusBadRequest, "invalid execution issue role")
 		return
 	}
@@ -750,10 +931,6 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 	if !h.requireProjectWorkflowRole(w, r, project, "developer") {
 		return
 	}
-	userID, ok := requireUserID(w, r)
-	if !ok {
-		return
-	}
 	var req SubmitProjectExecutionDeliveryRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -796,8 +973,8 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 		return
 	}
 	link, err := h.Queries.GetProjectExecutionIssue(r.Context(), db.GetProjectExecutionIssueParams{ExecutionRecordID: executionID, IssueID: issueID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
-	if err != nil || (link.Role != "development" && link.Role != "repair") {
-		writeError(w, http.StatusBadRequest, "delivery must come from the linked development or repair issue")
+	if err != nil || (link.Role != "main" && link.Role != "development" && link.Role != "repair") {
+		writeError(w, http.StatusBadRequest, "delivery must come from the linked main issue")
 		return
 	}
 	next, rounds, err := service.AdvanceProjectExecution(service.ProjectExecutionState(record.State), int(record.ReviewRound), service.ExecutionEventDeliverySubmitted)
@@ -825,18 +1002,26 @@ func (h *Handler) SubmitProjectExecutionDelivery(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
-	// The development or repair phase is complete; close its intermediate
-	// issues so they do not stack up as additional "in review" entries.
-	h.closeStaleWorkflowIssues(r.Context(), project.WorkspaceID, project.ID, executionID, []string{"development", "repair"})
-	coordination, err := h.enqueueProjectWorkflowReviewCoordination(r, project, updated, mika, parseUUID(userID))
+	mainIssue, err := h.projectWorkflowMainIssue(r.Context(), project, updated.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "delivery was recorded but failed to queue Mica review coordination")
+		writeError(w, http.StatusInternalServerError, "delivery was recorded but failed to load the main issue")
 		return
+	}
+	task, err := h.TaskService.EnqueueTaskForMention(r.Context(), mainIssue, mika.ID, pgtype.UUID{}, service.OriginDerived)
+	if err != nil && !errors.Is(err, service.ErrDuplicatePendingTask) {
+		writeError(w, http.StatusInternalServerError, "delivery was recorded but failed to wake Mika")
+		return
+	}
+	var taskID *string
+	if err == nil {
+		taskID = uuidToPtr(task.ID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"execution":            projectExecutionToResponse(updated),
-		"coordination_issue":   issueToResponse(coordination.Issue, uuidToString(project.WorkspaceID)),
-		"coordination_task_id": uuidToPtr(coordination.AssignedTaskID),
+		"coordination_issue":   nil,
+		"coordination_task_id": nil,
+		"main_issue":           issueToResponse(mainIssue, uuidToString(project.WorkspaceID)),
+		"task_id":              taskID,
 	})
 }
 
@@ -857,45 +1042,70 @@ func (h *Handler) projectWorkflowMika(r *http.Request, project db.Project) (db.A
 	return db.Agent{}, pgx.ErrNoRows
 }
 
-// enqueueProjectWorkflowReviewCoordination gives the project Mica a normal
-// queued task as soon as delivery first enters review. That task is the actual
-// handoff record; it is not a UI-only "assigned" status.
-func (h *Handler) enqueueProjectWorkflowReviewCoordination(r *http.Request, project db.Project, record db.ProjectExecutionRecord, mika db.Agent, creatorID pgtype.UUID) (service.IssueCreateResult, error) {
-	snapshot := map[string]any{}
-	_ = json.Unmarshal(record.Snapshot, &snapshot)
-	goal := strings.TrimSpace(asWorkflowString(snapshot["goal"]))
-	if goal == "" {
-		goal = "project delivery"
-	}
-	description, err := json.Marshal(map[string]any{
-		"project_execution_id": uuidToString(record.ID),
-		"workflow_role":        "mika_review_coordination",
-		"prd_snapshot":         json.RawMessage(record.Snapshot),
-		"delivery_evidence":    json.RawMessage(record.DeliveryResult),
-		"required_action":      "Inspect the submitted evidence, then dispatch the project-bound reviewer. Do not review code yourself.",
+// projectWorkflowMainIssue returns the one primary issue for a new execution.
+// Legacy records did not have a main link, so their earliest development issue
+// remains the primary surface without changing historical rows.
+func (h *Handler) projectWorkflowMainIssue(ctx context.Context, project db.Project, executionID pgtype.UUID) (db.Issue, error) {
+	links, err := h.Queries.ListProjectExecutionIssuesForProject(ctx, db.ListProjectExecutionIssuesForProjectParams{
+		ProjectID: project.ID, WorkspaceID: project.WorkspaceID,
 	})
 	if err != nil {
-		return service.IssueCreateResult{}, err
+		return db.Issue{}, err
+	}
+	var legacy *db.ProjectExecutionIssue
+	for i := range links {
+		link := &links[i]
+		if link.ExecutionRecordID != executionID {
+			continue
+		}
+		if link.Role == "main" {
+			return h.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
+				ID: link.IssueID, WorkspaceID: project.WorkspaceID,
+			})
+		}
+		if legacy == nil && link.Role == "development" {
+			legacy = link
+		}
+	}
+	if legacy == nil {
+		return db.Issue{}, pgx.ErrNoRows
+	}
+	return h.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
+		ID: legacy.IssueID, WorkspaceID: project.WorkspaceID,
+	})
+}
+
+func (h *Handler) createProjectWorkflowMainIssue(r *http.Request, project db.Project, record db.ProjectExecutionRecord, developerID pgtype.UUID, userID, title string) (db.Issue, error) {
+	roleContract := "Implement only the confirmed snapshot. Change code, run relevant tests, commit work, and submit delivery evidence. Do not change scope, dispatch other agents, release, or approve your own work."
+	completionCommand := fmt.Sprintf("multica project workflow delivery %s --execution %s --issue <this-issue-id> --commit <commit-ref> --tests <test-evidence> --summary <summary>", uuidToString(project.ID), uuidToString(record.ID))
+	roleContract += " Before changing this issue to in_review or done, successfully run the required_completion_command with this issue's actual ID and real evidence. A status change or issue comment alone does not advance this workflow."
+	description, err := json.Marshal(map[string]any{
+		"project_execution_id":        uuidToString(record.ID),
+		"prd_snapshot":                json.RawMessage(record.Snapshot),
+		"delivery_evidence":           json.RawMessage(record.DeliveryResult),
+		"workflow_role":               "main",
+		"role_contract":               roleContract,
+		"required_completion_command": completionCommand,
+	})
+	if err != nil {
+		return db.Issue{}, err
 	}
 	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{
-		WorkspaceID:  project.WorkspaceID,
-		Title:        "Coordinate review: " + goal,
-		Description:  pgtype.Text{String: string(description), Valid: true},
-		Status:       "todo",
-		Priority:     "none",
-		AssigneeType: pgtype.Text{String: "agent", Valid: true},
-		AssigneeID:   mika.ID,
-		CreatorType:  "member",
-		CreatorID:    creatorID,
-		ProjectID:    project.ID,
+		WorkspaceID: project.WorkspaceID, Title: strings.TrimSpace(title),
+		Description: pgtype.Text{String: string(description), Valid: true},
+		Status:      "todo", Priority: "none", AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID: developerID, CreatorType: "member", CreatorID: parseUUID(userID), ProjectID: project.ID,
 	}, service.IssueCreateOpts{})
 	if err != nil {
-		return service.IssueCreateResult{}, err
+		return db.Issue{}, err
 	}
-	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: "review"}); err != nil {
-		return service.IssueCreateResult{}, err
+	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{
+		ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID,
+		IssueID: result.Issue.ID, Role: "main",
+	}); err != nil {
+		return db.Issue{}, err
 	}
-	return result, nil
+	return result.Issue, nil
 }
 
 type RecordProjectReviewRequest struct {
@@ -957,10 +1167,16 @@ func (h *Handler) CompleteProjectDelivery(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to complete project delivery")
 		return
 	}
-	// Delivery is complete; close the delivery coordination issue so the
-	// finished execution leaves no open coordination tickets behind.
-	h.closeStaleWorkflowIssues(r.Context(), project.WorkspaceID, project.ID, executionID, []string{"delivery"})
-	writeJSON(w, http.StatusOK, projectExecutionToResponse(updated))
+	mainIssue, err := h.projectWorkflowMainIssue(r.Context(), project, updated.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "delivery was completed but failed to load the main issue")
+		return
+	}
+	h.closeSingleWorkflowIssue(r.Context(), project.WorkspaceID, mainIssue.ID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"execution":  projectExecutionToResponse(updated),
+		"main_issue": issueToResponse(mainIssue, uuidToString(project.WorkspaceID)),
+	})
 }
 
 func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
@@ -972,10 +1188,6 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.requireProjectWorkflowRole(w, r, project, "reviewer") {
-		return
-	}
-	userID, ok := requireUserID(w, r)
-	if !ok {
 		return
 	}
 	var req RecordProjectReviewRequest
@@ -995,9 +1207,6 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.requireProjectWorkflowIssueActor(w, r, project, issueID) {
-		return
-	}
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to begin workflow transition")
@@ -1011,8 +1220,8 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	link, err := h.Queries.GetProjectExecutionIssue(r.Context(), db.GetProjectExecutionIssueParams{ExecutionRecordID: executionID, IssueID: issueID, ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
-	if err != nil || link.Role != "review" {
-		writeError(w, http.StatusBadRequest, "review result must come from the linked review issue")
+	if err != nil || (link.Role != "main" && link.Role != "review") {
+		writeError(w, http.StatusBadRequest, "review result must be recorded on the linked main issue")
 		return
 	}
 	events := map[string]service.ProjectExecutionEvent{"passed": service.ExecutionEventReviewPassed, "needs_changes": service.ExecutionEventReviewNeedsChanges, "needs_member_decision": service.ExecutionEventReviewNeedsMemberDecision}
@@ -1044,78 +1253,34 @@ func (h *Handler) RecordProjectReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to commit workflow transition")
 		return
 	}
-	// The review phase is complete regardless of outcome; close its
-	// intermediate issues (the reviewer issue and the review coordination
-	// issue) so they do not linger in todo/in_review.
-	h.closeStaleWorkflowIssues(r.Context(), project.WorkspaceID, project.ID, executionID, []string{"review"})
-	response := map[string]any{"execution": projectExecutionToResponse(updated)}
+	mainIssue, err := h.projectWorkflowMainIssue(r.Context(), project, updated.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "review was recorded but failed to load the main issue")
+		return
+	}
+	response := map[string]any{
+		"execution":            projectExecutionToResponse(updated),
+		"coordination_issue":   nil,
+		"coordination_task_id": nil,
+		"main_issue":           issueToResponse(mainIssue, uuidToString(project.WorkspaceID)),
+		"task_id":              nil,
+	}
 	if next == service.ExecutionRepair || next == service.ExecutionDelivering {
 		mika, err := h.projectWorkflowMika(r, project)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "review was recorded but failed to load project Mica")
 			return
 		}
-		phase := "repair"
-		if next == service.ExecutionDelivering {
-			phase = "delivery"
-		}
-		coordination, err := h.enqueueProjectWorkflowCoordination(r, project, updated, mika, parseUUID(userID), phase)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "review was recorded but failed to queue Mica coordination")
+		task, err := h.TaskService.EnqueueTaskForMention(r.Context(), mainIssue, mika.ID, pgtype.UUID{}, service.OriginDerived)
+		if err != nil && !errors.Is(err, service.ErrDuplicatePendingTask) {
+			writeError(w, http.StatusInternalServerError, "review was recorded but failed to wake Mika")
 			return
 		}
-		response["coordination_issue"] = issueToResponse(coordination.Issue, uuidToString(project.WorkspaceID))
-		response["coordination_task_id"] = uuidToPtr(coordination.AssignedTaskID)
+		if err == nil {
+			response["task_id"] = uuidToPtr(task.ID)
+		}
 	}
 	writeJSON(w, http.StatusOK, response)
-}
-
-// enqueueProjectWorkflowCoordination creates an auditable Mica task for the
-// next non-code phase. Mica then dispatches the bound developer or reviewer,
-// or performs only the delivery work configured for this project.
-func (h *Handler) enqueueProjectWorkflowCoordination(r *http.Request, project db.Project, record db.ProjectExecutionRecord, mika db.Agent, creatorID pgtype.UUID, phase string) (service.IssueCreateResult, error) {
-	snapshot := map[string]any{}
-	_ = json.Unmarshal(record.Snapshot, &snapshot)
-	goal := strings.TrimSpace(asWorkflowString(snapshot["goal"]))
-	if goal == "" {
-		goal = "project delivery"
-	}
-	action := "Inspect the submitted evidence, then dispatch the project-bound reviewer. Do not review code yourself."
-	if phase == "repair" {
-		action = "Return the recorded review findings to the project-bound developer as a repair task, then coordinate a re-review. Do not modify code yourself."
-	}
-	if phase == "delivery" {
-		action = "Perform only this project's configured delivery action and record its evidence. Do not assume Docker, containers, or health-check URLs."
-	}
-	settings, err := h.Queries.GetProjectWorkflowSettings(r.Context(), db.GetProjectWorkflowSettingsParams{ProjectID: project.ID, WorkspaceID: project.WorkspaceID})
-	if err != nil {
-		return service.IssueCreateResult{}, err
-	}
-	description, err := json.Marshal(map[string]any{
-		"project_execution_id": uuidToString(record.ID),
-		"workflow_role":        "mika_" + phase + "_coordination",
-		"prd_snapshot":         json.RawMessage(record.Snapshot),
-		"workflow_evidence":    json.RawMessage(record.DeliveryResult),
-		"delivery_mode":        settings.DeliveryMode,
-		"delivery_config":      json.RawMessage(settings.DeliveryConfig),
-		"required_action":      action,
-	})
-	if err != nil {
-		return service.IssueCreateResult{}, err
-	}
-	result, err := h.IssueService.Create(r.Context(), service.IssueCreateParams{
-		WorkspaceID: project.WorkspaceID, Title: "Coordinate " + phase + ": " + goal,
-		Description: pgtype.Text{String: string(description), Valid: true}, Status: "todo", Priority: "none",
-		AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: mika.ID,
-		CreatorType: "member", CreatorID: creatorID, ProjectID: project.ID,
-	}, service.IssueCreateOpts{})
-	if err != nil {
-		return service.IssueCreateResult{}, err
-	}
-	if _, err := h.Queries.LinkProjectExecutionIssue(r.Context(), db.LinkProjectExecutionIssueParams{ExecutionRecordID: record.ID, WorkspaceID: project.WorkspaceID, ProjectID: project.ID, IssueID: result.Issue.ID, Role: "delivery"}); err != nil {
-		return service.IssueCreateResult{}, err
-	}
-	return result, nil
 }
 
 // ProjectWorkflowSettingsResponse is deliberately separate from Project. The
@@ -1240,14 +1405,19 @@ type ProjectAgentBindingResponse struct {
 	WorkspaceID string `json:"workspace_id"`
 	AgentID     string `json:"agent_id"`
 	Role        string `json:"role"`
+	Source      string `json:"source"`
 	CreatedAt   string `json:"created_at"`
 }
 
 func projectAgentBindingToResponse(binding db.ProjectAgentBinding) ProjectAgentBindingResponse {
+	source := binding.Source
+	if source == "" {
+		source = "manual"
+	}
 	return ProjectAgentBindingResponse{
 		ID: uuidToString(binding.ID), ProjectID: uuidToString(binding.ProjectID),
 		WorkspaceID: uuidToString(binding.WorkspaceID), AgentID: uuidToString(binding.AgentID),
-		Role: binding.Role, CreatedAt: timestampToString(binding.CreatedAt),
+		Role: binding.Role, Source: source, CreatedAt: timestampToString(binding.CreatedAt),
 	}
 }
 
@@ -1310,7 +1480,7 @@ func (h *Handler) CreateProjectAgentBinding(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	binding, err := h.Queries.CreateProjectAgentBinding(r.Context(), db.CreateProjectAgentBindingParams{
-		WorkspaceID: project.WorkspaceID, ProjectID: project.ID, AgentID: agentID, Role: role,
+		WorkspaceID: project.WorkspaceID, ProjectID: project.ID, AgentID: agentID, Role: role, Source: "manual",
 	})
 	if isUniqueViolation(err) {
 		if role == "mika" {

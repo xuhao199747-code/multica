@@ -13,11 +13,11 @@ import (
 
 const createProjectAgentBinding = `-- name: CreateProjectAgentBinding :one
 INSERT INTO project_agent_binding (
-    workspace_id, project_id, agent_id, role
+    workspace_id, project_id, agent_id, role, source
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 )
-RETURNING id, workspace_id, project_id, agent_id, role, created_at
+RETURNING id, workspace_id, project_id, agent_id, role, created_at, source
 `
 
 type CreateProjectAgentBindingParams struct {
@@ -25,6 +25,7 @@ type CreateProjectAgentBindingParams struct {
 	ProjectID   pgtype.UUID `json:"project_id"`
 	AgentID     pgtype.UUID `json:"agent_id"`
 	Role        string      `json:"role"`
+	Source      string      `json:"source"`
 }
 
 func (q *Queries) CreateProjectAgentBinding(ctx context.Context, arg CreateProjectAgentBindingParams) (ProjectAgentBinding, error) {
@@ -33,6 +34,7 @@ func (q *Queries) CreateProjectAgentBinding(ctx context.Context, arg CreateProje
 		arg.ProjectID,
 		arg.AgentID,
 		arg.Role,
+		arg.Source,
 	)
 	var i ProjectAgentBinding
 	err := row.Scan(
@@ -42,6 +44,7 @@ func (q *Queries) CreateProjectAgentBinding(ctx context.Context, arg CreateProje
 		&i.AgentID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.Source,
 	)
 	return i, err
 }
@@ -120,6 +123,37 @@ type DeleteProjectAgentBindingsParams struct {
 
 func (q *Queries) DeleteProjectAgentBindings(ctx context.Context, arg DeleteProjectAgentBindingsParams) error {
 	_, err := q.db.Exec(ctx, deleteProjectAgentBindings, arg.ProjectID, arg.WorkspaceID)
+	return err
+}
+
+const deleteProjectAgentBindingsByRoles = `-- name: DeleteProjectAgentBindingsByRoles :exec
+DELETE FROM project_agent_binding
+WHERE project_id = $1 AND workspace_id = $2 AND role = ANY($3::text[])
+`
+
+type DeleteProjectAgentBindingsByRolesParams struct {
+	ProjectID   pgtype.UUID `json:"project_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Roles       []string    `json:"roles"`
+}
+
+func (q *Queries) DeleteProjectAgentBindingsByRoles(ctx context.Context, arg DeleteProjectAgentBindingsByRolesParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectAgentBindingsByRoles, arg.ProjectID, arg.WorkspaceID, arg.Roles)
+	return err
+}
+
+const deleteProjectAgentBindingsBySource = `-- name: DeleteProjectAgentBindingsBySource :exec
+DELETE FROM project_agent_binding
+WHERE project_id = $1 AND workspace_id = $2 AND role <> 'mika' AND source = 'squad'
+`
+
+type DeleteProjectAgentBindingsBySourceParams struct {
+	ProjectID   pgtype.UUID `json:"project_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) DeleteProjectAgentBindingsBySource(ctx context.Context, arg DeleteProjectAgentBindingsBySourceParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectAgentBindingsBySource, arg.ProjectID, arg.WorkspaceID)
 	return err
 }
 
@@ -393,7 +427,7 @@ func (q *Queries) LinkProjectExecutionIssue(ctx context.Context, arg LinkProject
 }
 
 const listProjectAgentBindings = `-- name: ListProjectAgentBindings :many
-SELECT id, workspace_id, project_id, agent_id, role, created_at FROM project_agent_binding
+SELECT id, workspace_id, project_id, agent_id, role, created_at, source FROM project_agent_binding
 WHERE project_id = $1 AND workspace_id = $2
 ORDER BY created_at ASC, id ASC
 `
@@ -419,6 +453,7 @@ func (q *Queries) ListProjectAgentBindings(ctx context.Context, arg ListProjectA
 			&i.AgentID,
 			&i.Role,
 			&i.CreatedAt,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -540,6 +575,41 @@ func (q *Queries) LockProjectExecutionRecord(ctx context.Context, arg LockProjec
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setProjectCollaborationSquad = `-- name: SetProjectCollaborationSquad :one
+UPDATE project
+SET collaboration_squad_id = $2, updated_at = now()
+WHERE id = $1 AND workspace_id = $3
+RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, start_date, due_date, collaboration_squad_id
+`
+
+type SetProjectCollaborationSquadParams struct {
+	ID                   pgtype.UUID `json:"id"`
+	CollaborationSquadID pgtype.UUID `json:"collaboration_squad_id"`
+	WorkspaceID          pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) SetProjectCollaborationSquad(ctx context.Context, arg SetProjectCollaborationSquadParams) (Project, error) {
+	row := q.db.QueryRow(ctx, setProjectCollaborationSquad, arg.ID, arg.CollaborationSquadID, arg.WorkspaceID)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Icon,
+		&i.Status,
+		&i.LeadType,
+		&i.LeadID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Priority,
+		&i.StartDate,
+		&i.DueDate,
+		&i.CollaborationSquadID,
 	)
 	return i, err
 }

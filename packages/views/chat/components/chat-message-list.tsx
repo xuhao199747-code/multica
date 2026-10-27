@@ -29,6 +29,9 @@ import {
 } from "lucide-react";
 import { useScrollFade } from "@multica/ui/hooks/use-scroll-fade";
 import { isTaskMessageTaskId, taskMessagesOptions } from "@multica/core/chat/queries";
+import {
+  stripProjectWorkflowPlanConfirmationProtocol,
+} from "@multica/core/chat";
 import { RichContent } from "../../rich-content";
 import { RichContentScrollRootProvider } from "../../rich-content/scroll-root";
 import { copyText } from "@multica/ui/lib/clipboard";
@@ -58,6 +61,7 @@ import {
 } from "../lib/copy-text";
 import { stripChatQuickActionsProtocol } from "../lib/quick-actions";
 import { useT } from "../../i18n";
+import { ProjectWorkflowPlanConfirmationCard } from "./project-workflow-plan-confirmation-card";
 
 // ─── Public component ────────────────────────────────────────────────────
 
@@ -92,6 +96,14 @@ interface ChatMessageListProps {
    * that reply until chat:quick_actions resolves it.
    */
   quickActionsPendingMessageId?: string | null;
+  /** Enables project-workflow confirmation cards only in a project Mica/PRD chat. */
+  projectWorkflow?: {
+    workspaceId: string;
+    projectId: string;
+    sessionId: string;
+    agentId: string;
+    issueHref: (issueId: string) => string;
+  };
 }
 
 // ─── Virtuoso chrome ─────────────────────────────────────────────────────
@@ -188,6 +200,7 @@ export function ChatMessageList({
   quickActionsDisabled = false,
   onRegenerateQuickActions,
   quickActionsPendingMessageId = null,
+  projectWorkflow,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
@@ -387,6 +400,7 @@ export function ChatMessageList({
               latestAssistantMessageId={latestAssistantMessageId}
               quickActionsPendingMessageId={quickActionsPendingMessageId}
               starterCardsMessageId={starterCardsMessageId}
+              projectWorkflow={projectWorkflow}
             />
           </div>
         )}
@@ -452,6 +466,7 @@ const MessageBubble = memo(function MessageBubble({
   latestAssistantMessageId,
   quickActionsPendingMessageId,
   starterCardsMessageId,
+  projectWorkflow,
 }: {
   item: ChatRenderItem;
   isPending: boolean;
@@ -462,6 +477,7 @@ const MessageBubble = memo(function MessageBubble({
   latestAssistantMessageId: string | null;
   quickActionsPendingMessageId: string | null;
   starterCardsMessageId: string | null;
+  projectWorkflow?: ChatMessageListProps["projectWorkflow"];
 }) {
   // The live row and the persisted assistant row both land here under one key,
   // and both render <AssistantMessage> — same component type, same position —
@@ -517,6 +533,7 @@ const MessageBubble = memo(function MessageBubble({
       canRegenerateQuickActions={message.id === latestAssistantMessageId}
       quickActionsPending={quickActionsPendingMessageId === message.id}
       showStarterCards={message.id === starterCardsMessageId}
+      projectWorkflow={projectWorkflow}
     />
   );
 });
@@ -549,6 +566,7 @@ function AssistantMessage({
   canRegenerateQuickActions = false,
   quickActionsPending = false,
   showStarterCards = false,
+  projectWorkflow,
 }: {
   taskId: string | null;
   message?: ChatMessage;
@@ -561,6 +579,7 @@ function AssistantMessage({
   quickActionsPending?: boolean;
   /** This turn is Mika's onboarding opening — render starter cards, not chips. */
   showStarterCards?: boolean;
+  projectWorkflow?: ChatMessageListProps["projectWorkflow"];
 }) {
   const canFetchTaskMessages = isTaskMessageTaskId(taskId);
 
@@ -575,9 +594,16 @@ function AssistantMessage({
   // Memoized on the cache array identity: mergeTaskMessagesBySeq preserves the
   // array reference when a duplicate event arrives, so this recomputes only
   // when a genuinely new message lands.
+  const visibleContentTransform = useCallback(
+    (content: string) => {
+      const withoutConfirmation = stripProjectWorkflowPlanConfirmationProtocol(content);
+      return transformContent ? transformContent(withoutConfirmation) : withoutConfirmation;
+    },
+    [transformContent],
+  );
   const timeline: ChatTimelineItem[] = useMemo(
-    () => transformTimeline(buildTimeline(taskMessages ?? []), transformContent),
-    [taskMessages, transformContent],
+    () => transformTimeline(buildTimeline(taskMessages ?? []), visibleContentTransform),
+    [taskMessages, visibleContentTransform],
   );
 
   // Content is settled once the persisted message exists; until then text is
@@ -604,7 +630,7 @@ function AssistantMessage({
   // show a localized "no text reply" notice instead of an empty markdown block.
   const isNoResponse = message?.message_kind === "no_response";
   const settledContent = message
-    ? canonicalAnswerText(message, transformContent)
+    ? canonicalAnswerText(message, visibleContentTransform)
     : undefined;
   // Empty persisted content is valid for attachment-only/no-response turns and
   // for legacy rows whose transcript is the only remaining text source. Only
@@ -644,8 +670,19 @@ function AssistantMessage({
             message={message}
             timeline={timeline}
             isPending={isPending}
-            transformContent={transformContent}
+            transformContent={visibleContentTransform}
           />
+          {projectWorkflow ? (
+            <ProjectWorkflowPlanConfirmationCard
+              workspaceId={projectWorkflow.workspaceId}
+              projectId={projectWorkflow.projectId}
+              sessionId={projectWorkflow.sessionId}
+              agentId={projectWorkflow.agentId}
+              messageId={message.id}
+              content={message.content}
+              issueHref={projectWorkflow.issueHref}
+            />
+          ) : null}
           {onQuickAction && showStarterCards ? (
             // The opening's starter cards own this turn's suggestion strip
             // (MUL-5765); the server skips chip generation for it.

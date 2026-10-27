@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_project_execution_issue_one_main;

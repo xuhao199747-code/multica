@@ -61,15 +61,29 @@ ORDER BY created_at ASC, id ASC;
 
 -- name: CreateProjectAgentBinding :one
 INSERT INTO project_agent_binding (
-    workspace_id, project_id, agent_id, role
+    workspace_id, project_id, agent_id, role, source
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 )
 RETURNING *;
 
 -- name: DeleteProjectAgentBinding :execrows
 DELETE FROM project_agent_binding
 WHERE id = $1 AND project_id = $2 AND workspace_id = $3;
+
+-- name: SetProjectCollaborationSquad :one
+UPDATE project
+SET collaboration_squad_id = $2, updated_at = now()
+WHERE id = $1 AND workspace_id = $3
+RETURNING *;
+
+-- name: DeleteProjectAgentBindingsBySource :exec
+DELETE FROM project_agent_binding
+WHERE project_id = $1 AND workspace_id = $2 AND role <> 'mika' AND source = 'squad';
+
+-- name: DeleteProjectAgentBindingsByRoles :exec
+DELETE FROM project_agent_binding
+WHERE project_id = $1 AND workspace_id = $2 AND role = ANY(sqlc.arg('roles')::text[]);
 
 -- name: DeleteProjectWorkflowExecutionIssues :exec
 DELETE FROM project_execution_issue

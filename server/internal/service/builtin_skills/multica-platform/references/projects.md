@@ -164,17 +164,19 @@ Use these commands only after the member has confirmed the proposed execution:
    The JSON must include `goal`, `scope`, `acceptance_criteria`, and `risks`.
    Confirmation freezes the snapshot; later chat edits require a new execution.
 3. Mica dispatch: `multica project workflow dispatch <project-id> --execution <id> --agent <id> --role development|review|repair --title <title>`.
-   The selected agent must be bound to that project role. A real issue and run
-   are created; do not report a dispatch before this command succeeds.
+   The initial `development` dispatch creates the one primary issue and its run.
+   Later `review` and `repair` dispatches enqueue a role-bound sub-run on that
+   same issue; they never create a phase or coordination issue.
 4. Developer delivery: `multica project workflow delivery <project-id> --execution <id> --issue <id> --commit <ref> --tests <evidence> --summary <summary>`.
    Commit/reference, tests, and a change summary are mandatory before review.
    Run the issue's `required_completion_command` before changing its status to `in_review`.
    A comment or status-only update does not submit workflow evidence; the server rejects review/done status writes while this handoff is missing.
    Per-issue submission receipts are required. If an older execution already advanced without a receipt for this issue, inspect its original evidence and obtain confirmation for a new execution; do not reconstruct receipts from issue statuses or comments.
-5. Reviewer result: `multica project workflow review <project-id> --execution <id> --issue <review-issue-id> --outcome passed|needs_changes|needs_member_decision --findings <evidence>`.
+5. Reviewer result: `multica project workflow review <project-id> --execution <id> --issue <primary-issue-id> --outcome passed|needs_changes|needs_member_decision --findings <evidence>`.
    Reviewers inspect the frozen snapshot and evidence; they do not edit code or
-   dispatch tasks. After two automatic repair rounds, a further
-   `needs_changes` becomes a member decision instead of looping.
+   dispatch tasks. Record findings on the primary issue. A `needs_changes`
+   result advances that same issue to repair; after two automatic repair rounds,
+   a further `needs_changes` becomes a member decision instead of looping.
 6. Delivery closeout: `multica project workflow complete <project-id> --execution <id> --evidence <file.json>`.
    Only Mica closes a passed execution after it records the evidence required by
    this project's delivery configuration.

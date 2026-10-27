@@ -1,7 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterAll, beforeAll, beforeEach } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { UploadResult } from "@multica/core/hooks/use-file-upload";
 import type { Attachment } from "@multica/core/types";
 import { useCommentComposerStore, useCommentDraftStore } from "@multica/core/issues/stores";
@@ -27,6 +28,8 @@ const apiRenderQuickAction = vi.hoisted(() => vi.fn());
 const apiPreviewCommentTriggers = vi.hoisted(() => vi.fn());
 const apiListTasksByIssue = vi.hoisted(() => vi.fn());
 const apiCancelTask = vi.hoisted(() => vi.fn());
+const apiListAgents = vi.hoisted(() => vi.fn());
+const apiListMembers = vi.hoisted(() => vi.fn());
 const uploadWithToast = vi.hoisted(() => vi.fn());
 const editorDefaultValues = vi.hoisted(() => ({
   values: [] as Array<string | undefined>,
@@ -51,6 +54,14 @@ const editorUploadSignal = vi.hoisted(
   () => ({ notify: undefined as ((uploading: boolean) => void) | undefined }),
 );
 
+const baseUiPointerEnvironment = vi.hoisted(() => ({
+  elementFromPoint: undefined as typeof document.elementFromPoint | undefined,
+  pointerEvent: undefined as typeof window.PointerEvent | undefined,
+  setPointerCapture: undefined as typeof Element.prototype.setPointerCapture | undefined,
+  releasePointerCapture: undefined as typeof Element.prototype.releasePointerCapture | undefined,
+  hasPointerCapture: undefined as typeof Element.prototype.hasPointerCapture | undefined,
+}));
+
 // The real handle mints an id when it inserts the placeholder and hands it to
 // the uploader, which adopts it as the draft `clientUploadId`. Mocks must do
 // the same or the two records drift apart only in tests.
@@ -65,8 +76,23 @@ vi.mock("@multica/core/api", () => ({
     previewCommentTriggers: apiPreviewCommentTriggers,
     listTasksByIssue: apiListTasksByIssue,
     cancelTask: apiCancelTask,
+    listAgents: apiListAgents,
+    listMembers: apiListMembers,
   },
 }));
+
+// The send-as selector (DAWE-51) reads the current user from the auth store;
+// tests drive it by setting the user id directly.
+vi.mock("@multica/core/auth", async () => {
+  const actual = await vi.importActual<typeof import("@multica/core/auth")>(
+    "@multica/core/auth",
+  );
+  return {
+    ...actual,
+    useAuthStore: (selector: (s: { user: { id: string } | null }) => unknown) =>
+      selector({ user: { id: "user-1" } }),
+  };
+});
 
 vi.mock("@multica/core/hooks/use-file-upload", async () => ({
   ...(await vi.importActual<typeof import("@multica/core/hooks/use-file-upload")>(
@@ -282,6 +308,60 @@ function getSubmitButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
+beforeAll(() => {
+  baseUiPointerEnvironment.elementFromPoint = document.elementFromPoint;
+  baseUiPointerEnvironment.pointerEvent = window.PointerEvent;
+  baseUiPointerEnvironment.setPointerCapture = Element.prototype.setPointerCapture;
+  baseUiPointerEnvironment.releasePointerCapture = Element.prototype.releasePointerCapture;
+  baseUiPointerEnvironment.hasPointerCapture = Element.prototype.hasPointerCapture;
+
+  document.elementFromPoint = () => {
+    const elements = document.querySelectorAll<HTMLElement>("body *");
+    return elements[elements.length - 1] ?? null;
+  };
+  class PointerEventPolyfill extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    isPrimary: boolean;
+    constructor(type: string, params: PointerEventInit = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 1;
+      this.pointerType = params.pointerType ?? "mouse";
+      this.isPrimary = params.isPrimary ?? true;
+    }
+  }
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: PointerEventPolyfill,
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: PointerEventPolyfill,
+  });
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.hasPointerCapture = () => false;
+});
+
+afterAll(() => {
+  document.elementFromPoint = baseUiPointerEnvironment.elementFromPoint!;
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: baseUiPointerEnvironment.pointerEvent,
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: baseUiPointerEnvironment.pointerEvent,
+  });
+  Element.prototype.setPointerCapture = baseUiPointerEnvironment.setPointerCapture!;
+  Element.prototype.releasePointerCapture = baseUiPointerEnvironment.releasePointerCapture!;
+  Element.prototype.hasPointerCapture = baseUiPointerEnvironment.hasPointerCapture!;
+});
+
 beforeEach(() => {
   uploadWithToast.mockReset();
   apiUploadFile.mockReset();
@@ -291,11 +371,33 @@ beforeEach(() => {
   apiPreviewCommentTriggers.mockReset();
   apiListTasksByIssue.mockReset();
   apiCancelTask.mockReset();
+  apiListAgents.mockReset();
+  apiListMembers.mockReset();
+  // Single-agent workspaces hide the selector — the default for most tests.
+  apiListAgents.mockResolvedValue([
+    {
+      id: "agent-mika",
+      system_key: "mika",
+      name: "Mika",
+      archived_at: null,
+      runtime_id: "rt-1",
+      permission_mode: "public_to",
+      invocation_targets: [{ target_type: "workspace", target_id: null }],
+      owner_id: null,
+    },
+  ]);
+  apiListMembers.mockResolvedValue([
+    { user_id: "user-1", role: "owner" },
+  ]);
   insertMarkdownSpy.mockReset();
   insertPlaceholderSpy.mockReset();
   insertMarkdownBehavior.succeed = true;
   localStorage.clear();
-  useCommentComposerStore.setState({ sticky: true, runningAgentReply: "steer" });
+  useCommentComposerStore.setState({
+    sticky: true,
+    runningAgentReply: "steer",
+    sendAsByWorkspace: {},
+  });
   // The composer's pinning (and the height cap that follows it) is viewport
   // dependent, so a narrow-viewport test must not leak into the next one.
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
@@ -1332,5 +1434,167 @@ describe.each(["reply", "description"])("annotations in %s drafts", (source) => 
     act(() => { useCommentDraftStore.getState().addAnnotation(draftKey, { ...annotation, id: "b", quote: "Another point" }); });
     await act(async () => accept("reply-new"));
     expect(useCommentDraftStore.getState().getAnnotations(draftKey)).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Send-as agent selector (DAWE-51)
+// ---------------------------------------------------------------------------
+
+describe("send-as agent selector", () => {
+  const mika = {
+    id: "agent-mika",
+    system_key: "mika",
+    name: "Mika",
+    archived_at: null,
+    runtime_id: "rt-1",
+    permission_mode: "public_to",
+    invocation_targets: [{ target_type: "workspace", target_id: null }],
+    owner_id: null,
+    avatar_url: null,
+  };
+  const builder = {
+    id: "agent-builder",
+    system_key: undefined,
+    name: "Builder",
+    archived_at: null,
+    runtime_id: "rt-2",
+    permission_mode: "public_to",
+    invocation_targets: [{ target_type: "workspace", target_id: null }],
+    owner_id: null,
+    avatar_url: null,
+  };
+
+  function renderInWorkspace(ui: ReactNode) {
+    apiListWorkspaces.mockResolvedValue([{ id: "ws-1", slug: "acme", name: "Acme" }]);
+    apiListQuickActions.mockResolvedValue({ quick_actions: [] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return renderWithI18n(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceSlugProvider slug="acme">{ui}</WorkspaceSlugProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  function twoAgents() {
+    apiListAgents.mockResolvedValue([mika, builder]);
+  }
+
+  it("hides the selector when only the default agent is visible", async () => {
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    await waitFor(() => expect(apiListAgents).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /send to/i })).toBeNull();
+  });
+
+  it("shows automatic routing until a target is selected", async () => {
+    twoAgents();
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    const trigger = await screen.findByRole("button", { name: /automatic routing/i });
+    expect(trigger).toBeTruthy();
+  });
+
+  it("keeps the existing trigger routing until an agent is explicitly selected", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    twoAgents();
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "plain" } });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith("plain", undefined, undefined, undefined);
+  });
+
+  it("injects a mention link for the chosen agent and posts the composed payload", async () => {
+    const user = userEvent.setup();
+    twoAgents();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    const trigger = await screen.findByRole("button", { name: /automatic routing/i });
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "ship it" } });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "[@Builder](mention://agent/agent-builder)\n\nship it",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("injects a Mika mention when Mika is selected", async () => {
+    const user = userEvent.setup();
+    twoAgents();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    const trigger = await screen.findByRole("button", { name: /automatic routing/i });
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
+    await user.click(await screen.findByRole("button", { name: /send to builder/i }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /mika/i }));
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "plain" } });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "[@Mika](mention://agent/agent-mika)\n\nplain",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("preserves a /note command even when an agent is selected", async () => {
+    const user = userEvent.setup();
+    twoAgents();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    await user.click(await screen.findByRole("button", { name: /automatic routing/i }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
+    fireEvent.change(screen.getByTestId("editor"), {
+      target: { value: "/note human-only update" },
+    });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "/note human-only update",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("hides agents the member cannot invoke (private, non-owned)", async () => {
+    apiListAgents.mockResolvedValue([
+      mika,
+      {
+        ...builder,
+        id: "agent-secret",
+        name: "Secret",
+        permission_mode: "private",
+        owner_id: "someone-else",
+      },
+    ]);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    await waitFor(() => expect(screen.queryByRole("button", { name: /reply as/i })).toBeNull());
+  });
+
+  it("hides archived and runtime-unbound agents from the selector", async () => {
+    apiListAgents.mockResolvedValue([
+      mika,
+      { ...builder, archived_at: new Date().toISOString() },
+      { ...builder, id: "agent-unbound", name: "Unbound", runtime_id: "" },
+    ]);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
+    activateComposer("comment-composer-shell");
+    await waitFor(() => expect(screen.queryByRole("button", { name: /reply as/i })).toBeNull());
   });
 });

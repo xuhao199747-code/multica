@@ -90,6 +90,8 @@ import type {
   WorkspaceMcpServer,
   ProjectWorkflowSettings,
   ListProjectAgentBindingsResponse,
+  ProjectRoleSource,
+  SquadMember,
   ListProjectExecutionsResponse,
   StartProjectWorkflowExecutionResponse,
 } from "../types";
@@ -1478,6 +1480,7 @@ const ProjectAgentBindingSchema = z.object({
   workspace_id: z.string(),
   agent_id: z.string(),
   role: z.enum(["mika", "prd", "developer", "reviewer"]),
+  source: z.enum(["squad", "manual"]).default("manual"),
   created_at: z.string(),
 }).loose();
 
@@ -1486,14 +1489,82 @@ export const ListProjectAgentBindingsResponseSchema: z.ZodType<ListProjectAgentB
   total: z.number().default(0),
 }).loose();
 
+export const SquadMemberSchema = z.object({
+  id: z.string(),
+  squad_id: z.string(),
+  member_type: z.enum(["agent", "member"]),
+  member_id: z.string(),
+  role: z.string().default(""),
+  standard_role: z.enum(["prd", "developer", "reviewer"]).nullable().optional(),
+  created_at: z.string(),
+}).loose();
+
+export const EMPTY_SQUAD_MEMBER: SquadMember = {
+  id: "",
+  squad_id: "",
+  member_type: "agent",
+  member_id: "",
+  role: "",
+  standard_role: null,
+  created_at: "",
+};
+
 export const EMPTY_PROJECT_AGENT_BINDINGS_RESPONSE: ListProjectAgentBindingsResponse = {
   bindings: [],
   total: 0,
 };
 
+const SquadBindingRefSchema = z.object({
+  id: z.string().default(""),
+  agent_id: z.string(),
+  agent_name: z.string().optional(),
+  archived: z.boolean().optional(),
+}).loose();
+
+const ProjectRoleSourceDiffEntrySchema = z.object({
+  role: z.enum(["mika", "prd", "developer", "reviewer"]),
+  from: SquadBindingRefSchema.optional(),
+  to: SquadBindingRefSchema.optional(),
+  removing: SquadBindingRefSchema.optional(),
+}).loose();
+
+export const ProjectRoleSourceSchema: z.ZodType<ProjectRoleSource> = z.object({
+  project_id: z.string(),
+  squad_id: z.string().nullable().default(null),
+  squad_name: z.string().nullable().default(null),
+  squad_archived: z.boolean().default(false),
+  squad_missing: z.boolean().default(false),
+  mapping_incomplete: z.boolean().optional(),
+  overrides_present: z.boolean().default(false),
+  bindings: z.array(ProjectAgentBindingSchema).default([]),
+  diff: z.object({
+    changes: z.array(ProjectRoleSourceDiffEntrySchema).default([]),
+    removals: z.array(ProjectRoleSourceDiffEntrySchema).default([]),
+    adds: z.array(ProjectRoleSourceDiffEntrySchema).default([]),
+    unchanged: z.array(z.string()).default([]),
+    diff_hash: z.string().default(""),
+  }).loose().default({ changes: [], removals: [], adds: [], unchanged: [], diff_hash: "" }),
+}).loose();
+
+export const EMPTY_PROJECT_ROLE_SOURCE: ProjectRoleSource = {
+  project_id: "",
+  squad_id: null,
+  squad_name: null,
+  squad_archived: false,
+  squad_missing: false,
+  overrides_present: false,
+  bindings: [],
+  diff: { changes: [], removals: [], adds: [], unchanged: [], diff_hash: "" },
+};
+
+const ProjectExecutionIssueSchema = z.object({
+  id: z.string(), title: z.string(), status: z.string(), role: z.string(),
+}).loose();
 const ProjectExecutionSchema = z.object({
   id: z.string(), project_id: z.string(), workspace_id: z.string(), source_chat_session_id: z.string(), source_agent_id: z.string(),
   snapshot: z.record(z.string(), z.unknown()).default({}), delivery_result: z.record(z.string(), z.unknown()).default({}), state: z.string(), review_round: z.number().default(0), created_at: z.string(),
+  main_issue: ProjectExecutionIssueSchema.nullable().catch(null).default(null),
+  historical_issues: z.array(ProjectExecutionIssueSchema).catch([]).default([]),
 }).loose();
 export const ListProjectExecutionsResponseSchema: z.ZodType<ListProjectExecutionsResponse> = z.object({
   executions: z.array(ProjectExecutionSchema).default([]), total: z.number().default(0),

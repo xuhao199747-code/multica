@@ -140,5 +140,18 @@
     "filter_label": "필터",
     "filter_active_count_other": "필터 {{count}}개",
     "clear_filters": "필터 지우기"
+  },
+  "mapping_incomplete_note": "스쿼드 매핑이 모든 역할을 더 이상 커버하지 않으므로 동기화와 복원은 사용할 수 없습니다.",
+  "standard_label": "프로젝트 역할",
+  "standard_description": "프로젝트가 이 스쿼드를 역할 템플릿으로 사용할 때 각 표준 역할을 담당할 에이전트를 지정합니다. 역할당 한 명만 지정할 수 있습니다.",
+  "standard_none": "미설정",
+  "division_label": "스쿼드 내 역할",
+  "division_description": "스쿼드 낶에 표시되는 자유 입력 역할로, 프로젝트 역할 템플릿에는 영향을 주지 않습니다.",
+  "standard_saved": "프로젝트 역할이 업데이트되었습니다",
+  "standard_save_failed": "프로젝트 역할 업데이트에 실패했습니다",
+  "standard_conflict": "이 역할은 이미 다른 멤버가 담당하고 있습니다",
+  "role_labels": {
+    "developer": "개발",
+    "reviewer": "리뷰"
   }
 }

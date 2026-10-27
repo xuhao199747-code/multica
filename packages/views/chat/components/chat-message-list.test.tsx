@@ -48,6 +48,12 @@ vi.mock("react-virtuoso", () => ({
   },
 }));
 
+vi.mock("./project-workflow-plan-confirmation-card", () => ({
+  ProjectWorkflowPlanConfirmationCard: ({ messageId }: { messageId: string }) => (
+    <div data-project-workflow-confirmation={messageId} />
+  ),
+}));
+
 import { ChatMessageList } from "./chat-message-list";
 
 const TEST_RESOURCES = { en: { chat: enChat } };
@@ -152,6 +158,63 @@ describe("ChatMessageList live follow (#6697)", () => {
       "data-follow-at-bottom",
       "false",
     );
+  });
+});
+
+describe("ChatMessageList project workflow confirmation", () => {
+  it("mounts the confirmation card only beneath the qualifying assistant message", () => {
+    const plan = [
+      "Plan ready.",
+      "<!-- multica-project-workflow-plan-confirmation",
+      JSON.stringify({
+        version: 1,
+        snapshot: {
+          goal: "Start from the plan message",
+          scope: ["chat"],
+          acceptance_criteria: ["bind source message"],
+          risks: [],
+        },
+      }),
+      "-->",
+    ].join("\n");
+    const { container } = render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <QueryClientProvider client={new QueryClient()}>
+          <ChatMessageList
+            messages={[
+              {
+                id: "user-continue",
+                chat_session_id: "session-1",
+                role: "user",
+                content: plan,
+                task_id: null,
+                created_at: "",
+              },
+              {
+                id: "assistant-plan",
+                chat_session_id: "session-1",
+                role: "assistant",
+                content: plan,
+                task_id: null,
+                created_at: "",
+              },
+            ] as never}
+            pendingTask={null}
+            availability="online"
+            projectWorkflow={{
+              workspaceId: "workspace-1",
+              projectId: "project-1",
+              sessionId: "session-1",
+              agentId: "prd-1",
+              issueHref: (issueId) => `/workspace-1/issues/${issueId}`,
+            }}
+          />
+        </QueryClientProvider>
+      </I18nProvider>,
+    );
+
+    expect(container.querySelector("[data-project-workflow-confirmation='assistant-plan']")).not.toBeNull();
+    expect(container.querySelector("[data-project-workflow-confirmation='user-continue']")).toBeNull();
   });
 });
 

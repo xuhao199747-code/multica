@@ -14,6 +14,7 @@ import {
 } from "@multica/ui/components/ui/popover";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import { useAuthStore } from "@multica/core/auth";
 import { agentListOptions, memberListOptions } from "@multica/core/workspace/queries";
 import { projectListOptions } from "@multica/core/projects/queries";
@@ -99,6 +100,7 @@ const CHAT_VIRTUOSO_INITIAL_FIRST_ITEM_INDEX = 1_000_000;
 export function ChatWindow() {
   const { t } = useT("chat");
   const wsId = useWorkspaceId();
+  const workspacePaths = useWorkspacePaths();
   const isOpen = useChatStore((s) => s.isOpen);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
   const { data: quickActionsPending = null } = useQuery(
@@ -953,6 +955,17 @@ export function ChatWindow() {
               : undefined
           }
           quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+          projectWorkflow={
+            currentSession && activeProjectId && activeAgent
+              ? {
+                  workspaceId: wsId,
+                  projectId: activeProjectId,
+                  sessionId: currentSession.id,
+                  agentId: activeAgent.id,
+                  issueHref: workspacePaths.issueDetail,
+                }
+              : undefined
+          }
         />
       ) : (
         <EmptyState

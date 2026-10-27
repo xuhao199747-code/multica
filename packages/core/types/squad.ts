@@ -25,12 +25,16 @@ export interface Squad {
   member_preview?: SquadMemberPreview[];
 }
 
+export type SquadStandardRole = "prd" | "developer" | "reviewer";
+
 export interface SquadMember {
   id: string;
   squad_id: string;
   member_type: SquadMemberType;
   member_id: string;
   role: string;
+  /** Standard project role this agent covers when the squad is used as a project role template. */
+  standard_role?: SquadStandardRole | null;
   created_at: string;
 }
 
@@ -75,6 +79,7 @@ export interface UpdateSquadMemberRoleRequest {
   member_type: SquadMemberType;
   member_id: string;
   role: string;
+  standard_role?: SquadStandardRole | "" | null;
 }
 
 export interface CreateSquadActivityLogRequest {

@@ -57,3 +57,42 @@ export function useUpdateProjectWorkflowSettings(wsId: string, projectId: string
     },
   });
 }
+
+export function projectRoleSourceOptions(wsId: string, projectId: string) {
+  return queryOptions({
+    queryKey: [...projectWorkflowKeys.settings(wsId, projectId), "role-source"] as const,
+    queryFn: () => api.getProjectRoleSource(projectId),
+  });
+}
+
+function useInvalidateProjectRoleData(wsId: string, projectId: string) {
+  const queryClient = useQueryClient();
+  return () => {
+    queryClient.invalidateQueries({ queryKey: projectWorkflowKeys.agents(wsId, projectId) });
+    queryClient.invalidateQueries({ queryKey: [...projectWorkflowKeys.settings(wsId, projectId), "role-source"] });
+  };
+}
+
+export function useSetProjectCollaborationSquad(wsId: string, projectId: string) {
+  const invalidate = useInvalidateProjectRoleData(wsId, projectId);
+  return useMutation({
+    mutationFn: (squadId: string | null) => api.setProjectCollaborationSquad(projectId, squadId),
+    onSettled: invalidate,
+  });
+}
+
+export function useSyncProjectSquad(wsId: string, projectId: string) {
+  const invalidate = useInvalidateProjectRoleData(wsId, projectId);
+  return useMutation({
+    mutationFn: (diffHash: string) => api.syncProjectSquad(projectId, diffHash),
+    onSettled: invalidate,
+  });
+}
+
+export function useRestoreProjectSquadConfig(wsId: string, projectId: string) {
+  const invalidate = useInvalidateProjectRoleData(wsId, projectId);
+  return useMutation({
+    mutationFn: () => api.restoreProjectSquadConfig(projectId),
+    onSettled: invalidate,
+  });
+}
