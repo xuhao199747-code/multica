@@ -587,6 +587,8 @@
     "leave_comment_placeholder": "留下评论...",
     "send_tooltip": "发送",
     "send_as_trigger_aria": "发送给 {{name}}",
+    "send_as_automatic": "自动",
+    "send_as_automatic_routing": "自动路由",
     "send_as_default_badge": "默认",
     "trigger_source_issue_assignee": "负责人",
     "trigger_source_mention_agent": "@提及",

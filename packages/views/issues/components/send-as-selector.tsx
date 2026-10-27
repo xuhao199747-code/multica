@@ -15,6 +15,8 @@ import {
 import { useT } from "../../i18n";
 import type { SendAsChoice } from "../hooks/use-send-as-agent";
 
+const AUTOMATIC_ROUTING_VALUE = "__multica_automatic_routing__";
+
 /**
  * Compact target selector for the comment composers: shows the chosen
  * agent's avatar plus a chevron, and opens a menu listing every agent the
@@ -30,35 +32,50 @@ export function SendAsSelector({
   choices: SendAsChoice[];
   selectedId: string;
   disabled?: boolean;
-  onSelect: (agentId: string) => void;
+  onSelect: (agentId: string | null) => void;
 }) {
   const { t } = useT("issues");
   const { getActorName } = useActorName();
   const selected = choices.find((c) => c.agent.id === selectedId);
+  const triggerLabel = selected
+    ? t(($) => $.comment.send_as_trigger_aria, {
+        name: getActorName("agent", selected.agent.id),
+      })
+    : t(($) => $.comment.send_as_automatic_routing);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={disabled}
-        aria-label={t(($) => $.comment.send_as_trigger_aria, {
-          name: selected ? getActorName("agent", selected.agent.id) : "",
-        })}
+        aria-label={triggerLabel}
         className="flex items-center gap-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <ActorAvatar
-          actorType="agent"
-          actorId={selected?.agent.id ?? ""}
-          name={selected ? getActorName("agent", selected.agent.id) : undefined}
-          avatarUrl={selected?.agent.avatar_url ?? null}
-          size="xs"
-        />
+        {selected ? (
+          <ActorAvatar
+            actorType="agent"
+            actorId={selected.agent.id}
+            name={getActorName("agent", selected.agent.id)}
+            avatarUrl={selected.agent.avatar_url ?? null}
+            size="xs"
+          />
+        ) : (
+          <span className="px-1 text-caption">{t(($) => $.comment.send_as_automatic)}</span>
+        )}
         <ChevronDownIcon className="size-3" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-44">
         {/* Radio items (not plain items) so the menu participates in the
             same selection model as the recipient chips; also the item type
             that activates reliably under jsdom in tests. */}
-        <DropdownMenuRadioGroup value={selectedId} onValueChange={onSelect}>
+        <DropdownMenuRadioGroup
+          value={selectedId || AUTOMATIC_ROUTING_VALUE}
+          onValueChange={(value) =>
+            onSelect(value === AUTOMATIC_ROUTING_VALUE ? null : value)
+          }
+        >
+          <DropdownMenuRadioItem value={AUTOMATIC_ROUTING_VALUE}>
+            {t(($) => $.comment.send_as_automatic_routing)}
+          </DropdownMenuRadioItem>
           {choices.map(({ agent, isDefault }) => (
             <SendAsMenuRow
               key={agent.id}

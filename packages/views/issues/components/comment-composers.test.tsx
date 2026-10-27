@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterAll, beforeAll, beforeEach } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UploadResult } from "@multica/core/hooks/use-file-upload";
@@ -53,6 +53,14 @@ const insertMarkdownBehavior = vi.hoisted(() => ({ succeed: true }));
 const editorUploadSignal = vi.hoisted(
   () => ({ notify: undefined as ((uploading: boolean) => void) | undefined }),
 );
+
+const baseUiPointerEnvironment = vi.hoisted(() => ({
+  elementFromPoint: undefined as typeof document.elementFromPoint | undefined,
+  pointerEvent: undefined as typeof window.PointerEvent | undefined,
+  setPointerCapture: undefined as typeof Element.prototype.setPointerCapture | undefined,
+  releasePointerCapture: undefined as typeof Element.prototype.releasePointerCapture | undefined,
+  hasPointerCapture: undefined as typeof Element.prototype.hasPointerCapture | undefined,
+}));
 
 // The real handle mints an id when it inserts the placeholder and hands it to
 // the uploader, which adopts it as the draft `clientUploadId`. Mocks must do
@@ -299,6 +307,60 @@ function getSubmitButton(container: HTMLElement): HTMLButtonElement {
   if (!button) throw new Error("Expected submit button to render");
   return button;
 }
+
+beforeAll(() => {
+  baseUiPointerEnvironment.elementFromPoint = document.elementFromPoint;
+  baseUiPointerEnvironment.pointerEvent = window.PointerEvent;
+  baseUiPointerEnvironment.setPointerCapture = Element.prototype.setPointerCapture;
+  baseUiPointerEnvironment.releasePointerCapture = Element.prototype.releasePointerCapture;
+  baseUiPointerEnvironment.hasPointerCapture = Element.prototype.hasPointerCapture;
+
+  document.elementFromPoint = () => {
+    const elements = document.querySelectorAll<HTMLElement>("body *");
+    return elements[elements.length - 1] ?? null;
+  };
+  class PointerEventPolyfill extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    isPrimary: boolean;
+    constructor(type: string, params: PointerEventInit = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 1;
+      this.pointerType = params.pointerType ?? "mouse";
+      this.isPrimary = params.isPrimary ?? true;
+    }
+  }
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: PointerEventPolyfill,
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: PointerEventPolyfill,
+  });
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.hasPointerCapture = () => false;
+});
+
+afterAll(() => {
+  document.elementFromPoint = baseUiPointerEnvironment.elementFromPoint!;
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: baseUiPointerEnvironment.pointerEvent,
+  });
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: baseUiPointerEnvironment.pointerEvent,
+  });
+  Element.prototype.setPointerCapture = baseUiPointerEnvironment.setPointerCapture!;
+  Element.prototype.releasePointerCapture = baseUiPointerEnvironment.releasePointerCapture!;
+  Element.prototype.hasPointerCapture = baseUiPointerEnvironment.hasPointerCapture!;
+});
 
 beforeEach(() => {
   uploadWithToast.mockReset();
@@ -1425,12 +1487,24 @@ describe("send-as agent selector", () => {
     expect(screen.queryByRole("button", { name: /send to/i })).toBeNull();
   });
 
-  it("shows the selector defaulting to Mika when a second agent is available", async () => {
+  it("shows automatic routing until a target is selected", async () => {
     twoAgents();
     renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={vi.fn()} />);
     activateComposer("comment-composer-shell");
-    const trigger = await screen.findByRole("button", { name: /send to mika/i });
+    const trigger = await screen.findByRole("button", { name: /automatic routing/i });
     expect(trigger).toBeTruthy();
+  });
+
+  it("keeps the existing trigger routing until an agent is explicitly selected", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    twoAgents();
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "plain" } });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith("plain", undefined, undefined, undefined);
   });
 
   it("injects a mention link for the chosen agent and posts the composed payload", async () => {
@@ -1439,7 +1513,7 @@ describe("send-as agent selector", () => {
     const onSubmit = vi.fn().mockResolvedValue(true);
     renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
     activateComposer("comment-composer-shell");
-    const trigger = await screen.findByRole("button", { name: /send to mika/i });
+    const trigger = await screen.findByRole("button", { name: /automatic routing/i });
     await user.click(trigger);
     await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
     fireEvent.change(screen.getByTestId("editor"), { target: { value: "ship it" } });
@@ -1459,7 +1533,7 @@ describe("send-as agent selector", () => {
     const onSubmit = vi.fn().mockResolvedValue(true);
     renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
     activateComposer("comment-composer-shell");
-    const trigger = await screen.findByRole("button", { name: /send to mika/i });
+    const trigger = await screen.findByRole("button", { name: /automatic routing/i });
     await user.click(trigger);
     await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
     await user.click(await screen.findByRole("button", { name: /send to builder/i }));
@@ -1469,6 +1543,28 @@ describe("send-as agent selector", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith(
       "[@Mika](mention://agent/agent-mika)\n\nplain",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("preserves a /note command even when an agent is selected", async () => {
+    const user = userEvent.setup();
+    twoAgents();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderInWorkspace(<CommentInput issueId="issue-1" onSubmit={onSubmit} />);
+    activateComposer("comment-composer-shell");
+    await user.click(await screen.findByRole("button", { name: /automatic routing/i }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /builder/i }));
+    fireEvent.change(screen.getByTestId("editor"), {
+      target: { value: "/note human-only update" },
+    });
+    fireEvent.keyDown(screen.getByTestId("editor"), { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      "/note human-only update",
       undefined,
       undefined,
       undefined,

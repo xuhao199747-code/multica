@@ -26,6 +26,11 @@ import { useCommentUploads } from "./use-comment-uploads";
 import { useQuickActionMenu } from "../hooks/use-quick-action-menu";
 
 // ---------------------------------------------------------------------------
+
+function isNoteComment(content: string): boolean {
+  const trimmed = content.replace(/^[ \t\r\n]+/, "");
+  return (trimmed.split(/\s/, 1)[0] ?? "").toLowerCase() === "/note";
+}
 // Types
 // ---------------------------------------------------------------------------
 
@@ -99,9 +104,13 @@ function ReplyInput({
   // triggers that agent. The preview and recipient
   // chips run against the composed payload — what actually posts.
   const sendAs = useSendAsAgent();
-  const withImplicitMention = useMemo(
-    () => (sendAs.selectedMention ? `${sendAs.selectedMention}\n\n${composedContent}` : composedContent),
+  const selectedMention = useMemo(
+    () => (isNoteComment(composedContent) ? null : sendAs.selectedMention),
     [composedContent, sendAs.selectedMention],
+  );
+  const withImplicitMention = useMemo(
+    () => (selectedMention ? `${selectedMention}\n\n${composedContent}` : composedContent),
+    [composedContent, selectedMention],
   );
   const triggerPreview = useCommentTriggerPreview({ issueId, parentId, content: canSend ? withImplicitMention : "" });
   // Uploads for this reply session (MUL-5181) — owned by the coordinator. With
@@ -208,7 +217,7 @@ function ReplyInput({
       // Recompute routing for the exact payload being
       // posted — see CommentInput for the same rationale.
       const activeRouting =
-        sendAs.selectedMention && triggerPreview.isCurrent
+        selectedMention && triggerPreview.isCurrent
           ? recipientRouting(
               recipients.map((r) => ({ agentId: r.agent.id, action: r.action, state: r.state })),
             )
@@ -216,7 +225,7 @@ function ReplyInput({
       const activeSuppress = activeRouting.suppressAgentIds;
       const activeSteer = activeRouting.steerTaskIds;
       return onSubmit(
-        sendAs.selectedMention ? `${sendAs.selectedMention}\n\n${content}` : content,
+        selectedMention ? `${selectedMention}\n\n${content}` : content,
         activeIds.length > 0 ? activeIds : undefined,
         activeSuppress.length > 0 ? activeSuppress : undefined,
         activeSteer.length > 0 ? activeSteer : undefined,

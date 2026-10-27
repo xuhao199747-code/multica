@@ -47,7 +47,7 @@ describe("comment composer store", () => {
     expect(useCommentComposerStore.getState()).toMatchObject({ sticky: false, runningAgentReply: "steer" });
   });
 
-  it("remembers the chosen send-as agent per workspace and clears it on default", () => {
+  it("remembers the explicit target per workspace and clears it for automatic routing", () => {
     useCommentComposerStore.getState().setSendAs("ws-1", "agent-a");
     useCommentComposerStore.getState().setSendAs("ws-2", "agent-b");
     expect(useCommentComposerStore.getState().sendAsByWorkspace).toEqual({
@@ -55,7 +55,7 @@ describe("comment composer store", () => {
       "ws-2": "agent-b",
     });
 
-    // Selecting the workspace default stores null.
+    // Restoring automatic routing stores null.
     useCommentComposerStore.getState().setSendAs("ws-1", null);
     expect(useCommentComposerStore.getState().sendAsByWorkspace).toEqual({
       "ws-1": null,

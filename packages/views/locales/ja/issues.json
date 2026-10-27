@@ -587,6 +587,8 @@
     "leave_comment_placeholder": "コメントを残す...",
     "send_tooltip": "送信",
     "send_as_trigger_aria": "{{name}} に送信",
+    "send_as_automatic": "自動",
+    "send_as_automatic_routing": "自動ルーティング",
     "send_as_default_badge": "デフォルト",
     "trigger_source_issue_assignee": "担当",
     "trigger_source_mention_agent": "@メンション",

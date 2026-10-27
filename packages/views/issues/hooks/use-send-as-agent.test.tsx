@@ -80,13 +80,11 @@ describe("useSendAsAgent", () => {
     apiListMembers.mockResolvedValue([{ user_id: "user-1", role: "owner" }]);
   });
 
-  it("explicitly mentions the selected default agent when a choice is available", async () => {
+  it("keeps the existing routing until the member explicitly chooses an agent", async () => {
     const { result } = renderHook(() => useSendAsAgent(), { wrapper });
     await waitFor(() => expect(result.current.defaultAgent?.id).toBe("agent-mika"));
-    expect(result.current.selectedId).toBe("agent-mika");
-    expect(result.current.selectedMention).toBe(
-      "[@Mika](mention://agent/agent-mika)",
-    );
+    expect(result.current.selectedId).toBe("");
+    expect(result.current.selectedMention).toBeNull();
     expect(result.current.hasChoice).toBe(true);
   });
 
@@ -100,7 +98,7 @@ describe("useSendAsAgent", () => {
     );
   });
 
-  it("persists the non-default pick per workspace and clears it on default", async () => {
+  it("persists an explicit pick per workspace and clears it for automatic routing", async () => {
     const { result } = renderHook(() => useSendAsAgent(), { wrapper });
     await waitFor(() => expect(result.current.choices).toHaveLength(2));
     act(() => result.current.setSelectedId("agent-builder"));
@@ -108,6 +106,10 @@ describe("useSendAsAgent", () => {
       "agent-builder",
     );
     act(() => result.current.setSelectedId("agent-mika"));
+    expect(useCommentComposerStore.getState().sendAsByWorkspace["ws-1"]).toBe(
+      "agent-mika",
+    );
+    act(() => result.current.setSelectedId(null));
     expect(useCommentComposerStore.getState().sendAsByWorkspace["ws-1"]).toBeNull();
   });
 
@@ -120,7 +122,7 @@ describe("useSendAsAgent", () => {
     currentWorkspace.value = { id: "ws-2", slug: "beta", name: "Beta" };
     rerender();
 
-    await waitFor(() => expect(result.current.selectedId).toBe("agent-mika"));
+    await waitFor(() => expect(result.current.selectedId).toBe(""));
   });
 
   it("hides agents the member cannot invoke", async () => {

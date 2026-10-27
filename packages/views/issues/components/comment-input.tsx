@@ -24,6 +24,11 @@ import { useCommentUploads } from "./use-comment-uploads";
 import { useQuickActionMenu } from "../hooks/use-quick-action-menu";
 import { useStickyComposer } from "../hooks/use-sticky-composer";
 
+function isNoteComment(content: string): boolean {
+  const trimmed = content.replace(/^[ \t\r\n]+/, "");
+  return (trimmed.split(/\s/, 1)[0] ?? "").toLowerCase() === "/note";
+}
+
 interface CommentInputProps {
   issueId: string;
   /** Resolves true on success, false on failure. The composer keeps the text
@@ -69,9 +74,13 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
   // recipient chips run against the composed payload — what actually posts —
   // so the chips read "will trigger X" instead of contradicting the selector.
   const sendAs = useSendAsAgent();
-  const withImplicitMention = useMemo(
-    () => (sendAs.selectedMention ? `${sendAs.selectedMention}\n\n${composedContent}` : composedContent),
+  const selectedMention = useMemo(
+    () => (isNoteComment(composedContent) ? null : sendAs.selectedMention),
     [composedContent, sendAs.selectedMention],
+  );
+  const withImplicitMention = useMemo(
+    () => (selectedMention ? `${selectedMention}\n\n${composedContent}` : composedContent),
+    [composedContent, selectedMention],
   );
   const triggerPreview = useCommentTriggerPreview({ issueId, content: canSend ? withImplicitMention : "" });
   // Uploads for this composer session (MUL-5181). Owned by the module-level
@@ -202,7 +211,7 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
       // so suppress lists cannot name a recipient this comment doesn't
       // address (same rationale as the debounce guard above).
       const activeRouting =
-        sendAs.selectedMention && triggerPreview.isCurrent
+        selectedMention && triggerPreview.isCurrent
           ? recipientRouting(
               recipients.map((r) => ({ agentId: r.agent.id, action: r.action, state: r.state })),
             )
@@ -210,7 +219,7 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
       const activeSuppress = activeRouting.suppressAgentIds;
       const activeSteer = activeRouting.steerTaskIds;
       return onSubmit(
-        sendAs.selectedMention ? `${sendAs.selectedMention}\n\n${content}` : content,
+        selectedMention ? `${selectedMention}\n\n${content}` : content,
         activeIds.length > 0 ? activeIds : undefined,
         activeSuppress.length > 0 ? activeSuppress : undefined,
         activeSteer.length > 0 ? activeSteer : undefined,

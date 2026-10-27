@@ -11,8 +11,9 @@ import { defaultStorage } from "../../platform/storage";
 export type RunningAgentReply = "steer" | "after_run";
 
 /**
- * Agent target for the member's next comment. `null` means the workspace
- * default target; a workspace-scoped agent id records another target.
+ * Explicit agent target for the member's next comment. `null` preserves the
+ * issue or conversation's existing routing; an agent id records an explicit
+ * target.
  * Persisted per workspace so a member keeps their choice across reloads.
  */
 export type CommentSendAs = string | null;
@@ -25,12 +26,12 @@ export type CommentSendAs = string | null;
  * default for a reply to a running agent. Both are personal habits (like
  * theme), so they persist globally via `defaultStorage` rather than
  * per-workspace storage. `sendAs` is workspace-scoped: the keyed map keeps
- * each workspace's last chosen target separate.
+ * each workspace's last explicit target separate.
  */
 interface CommentComposerStore {
   sticky: boolean;
   runningAgentReply: RunningAgentReply;
-  /** Workspace id → chosen agent target (absent = default behavior). */
+  /** Workspace id → explicit agent target (absent = existing routing). */
   sendAsByWorkspace: Record<string, CommentSendAs>;
   toggleSticky: () => void;
   setRunningAgentReply: (value: RunningAgentReply) => void;

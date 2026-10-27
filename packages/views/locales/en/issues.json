@@ -601,6 +601,8 @@
     "leave_comment_placeholder": "Leave a comment...",
     "send_tooltip": "Send",
     "send_as_trigger_aria": "Send to {{name}}",
+    "send_as_automatic": "Auto",
+    "send_as_automatic_routing": "Automatic routing",
     "send_as_default_badge": "Default",
     "trigger_source_issue_assignee": "assignee",
     "trigger_source_mention_agent": "@mention",
