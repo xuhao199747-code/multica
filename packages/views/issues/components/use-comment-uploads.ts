@@ -51,7 +51,8 @@ export function useCommentUploads(
       failUpload: (id, err) => useCommentDraftStore.getState().failUpload(draftKey, id, err),
       removeUpload: (id) => useCommentDraftStore.getState().removeUpload(draftKey, id),
       getBody: () => useCommentDraftStore.getState().getDraft(draftKey) ?? "",
-      appendToBody: (md) => useCommentDraftStore.getState().appendToDraftContent(draftKey, md),
+      appendToBody: (md, options) =>
+        useCommentDraftStore.getState().appendToDraftContent(draftKey, md, options),
     };
   }, [draftKey]);
 

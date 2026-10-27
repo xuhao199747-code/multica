@@ -27,8 +27,11 @@ import {
   type UploadDraftBinding,
 } from "../editor/use-coordinated-uploads";
 
-function appendMarkdown(existing: string, markdown: string): string {
-  return existing.trim() ? `${existing.replace(/\s+$/, "")}\n\n${markdown}` : markdown;
+function appendMarkdown(existing: string, markdown: string, cohesive?: boolean): string {
+  // Cohesive fragments (consecutive images) stay in the same markdown block
+  // so the readonly image-grid transform sees one run (DAWE-2).
+  const joiner = cohesive ? "\n" : "\n\n";
+  return existing.trim() ? `${existing.replace(/\s+$/, "")}${joiner}${markdown}` : markdown;
 }
 
 function sharedUploads(): DraftUpload[] {
@@ -94,12 +97,14 @@ export function useIssueCreateUploads(
         const { draft } = useIssueDraftStore.getState();
         return mode === "agent" ? draft.agent.prompt : draft.manual.description;
       },
-      appendToBody: (md) => {
+      appendToBody: (md, options) => {
         const state = useIssueDraftStore.getState();
         if (mode === "agent") {
-          state.setAgent({ prompt: appendMarkdown(state.draft.agent.prompt, md) });
+          state.setAgent({ prompt: appendMarkdown(state.draft.agent.prompt, md, options?.cohesive) });
         } else {
-          state.setManual({ description: appendMarkdown(state.draft.manual.description, md) });
+          state.setManual({
+            description: appendMarkdown(state.draft.manual.description, md, options?.cohesive),
+          });
         }
       },
     }),

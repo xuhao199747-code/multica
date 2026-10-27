@@ -288,6 +288,18 @@ describe("comment draft store — upload lifecycle", () => {
     );
   });
 
+  it("appendToDraftContent joins cohesive fragments with a single newline (DAWE-2)", () => {
+    const s = useCommentDraftStore.getState();
+    s.setDraft(KEY, "shots");
+    s.appendToDraftContent(KEY, "![a.png](https://cdn.example/a.png)");
+    s.appendToDraftContent(KEY, "![b.png](https://cdn.example/b.png)", { cohesive: true });
+    s.appendToDraftContent(KEY, "![c.png](https://cdn.example/c.png)", { cohesive: true });
+
+    expect(useCommentDraftStore.getState().getDraft(KEY)).toBe(
+      "shots\n\n![a.png](https://cdn.example/a.png)\n![b.png](https://cdn.example/b.png)\n![c.png](https://cdn.example/c.png)",
+    );
+  });
+
   it("settleUpload is a no-op once the placeholder is gone (generation guard)", () => {
     const s = useCommentDraftStore.getState();
     s.addUpload(KEY, { clientUploadId: "c1", status: "uploading", filename: "shot.png", size: 9 });

@@ -402,4 +402,30 @@ describe("chat store — draft upload ops", () => {
       "[doc.pdf](/api/attachments/att-2/download)",
     );
   });
+
+  it("appendToInputDraft joins cohesive fragments with a single newline (DAWE-2)", () => {
+    const { store } = freshStore();
+    const s = store.getState();
+    // First image starts its own block after prose.
+    s.setInputDraft("session-1", "look at these");
+    s.appendToInputDraft("session-1", "![a.png](/api/attachments/att-1/download)");
+    // Consecutive images must stay in ONE markdown block — a blank line
+    // would split the run and the readonly image-grid would not group them.
+    s.appendToInputDraft("session-1", "![b.png](/api/attachments/att-2/download)", {
+      cohesive: true,
+    });
+    s.appendToInputDraft("session-1", "![c.png](/api/attachments/att-3/download)", {
+      cohesive: true,
+    });
+    expect(store.getState().inputDrafts["session-1"]).toBe(
+      "look at these\n\n![a.png](/api/attachments/att-1/download)\n![b.png](/api/attachments/att-2/download)\n![c.png](/api/attachments/att-3/download)",
+    );
+
+    // Non-image fragments never join the block even when flagged cohesive —
+    // the binding derives the flag from content type, this is a guard.
+    s.appendToInputDraft("session-1", "![d.png](/api/attachments/att-4/download)");
+    expect(store.getState().inputDrafts["session-1"]).toBe(
+      "look at these\n\n![a.png](/api/attachments/att-1/download)\n![b.png](/api/attachments/att-2/download)\n![c.png](/api/attachments/att-3/download)\n\n![d.png](/api/attachments/att-4/download)",
+    );
+  });
 });

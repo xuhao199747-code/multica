@@ -83,8 +83,9 @@ export interface UploadDraftBinding {
   removeUpload: (clientUploadId: string) => void;
   /** The draft body reference-filtering binds against at submit time. */
   getBody: () => string;
-  /** Append a markdown fragment to the persisted body. */
-  appendToBody: (markdown: string) => void;
+  /** Append a markdown fragment to the persisted body. `cohesive` joins with
+   *  a single newline (same markdown block) instead of a paragraph break. */
+  appendToBody: (markdown: string, options?: { cohesive?: boolean }) => void;
 }
 
 // The editor currently showing each registry key. Lets a settle handler whose
@@ -106,6 +107,17 @@ export function attachmentMarkdown(att: Attachment): string {
   return (att.content_type ?? "").startsWith("image/")
     ? `![${att.filename}](${link})`
     : `[${att.filename}](${link})`;
+}
+
+/**
+ * Whether the body already ends with an image line — markdown the readonly
+ * renderer would treat as part of the same image run as a new image line.
+ * Uploads settle one-by-one, so each write-back must know whether it extends
+ * a run (DAWE-2) or starts fresh content.
+ */
+function bodyEndsWithImageLine(body: string): boolean {
+  const lastLine = body.replace(/\s+$/, "").split("\n").pop() ?? "";
+  return /^!\[[^\]]*\]\([^)]+\)\s*$/.test(lastLine);
 }
 
 const DELIVER_RETRY_MS = 50;
@@ -139,25 +151,29 @@ function deliverFinishedUpload(
   if (contentReferencesAttachment(binding.getBody(), attachment)) return;
 
   const md = attachmentMarkdown(attachment);
+  // Images appended right after another image stay in the same markdown
+  // block (single newline) so the readonly image-grid transform sees one
+  // consecutive run; anything else starts a new paragraph.
+  const cohesive = (attachment.content_type ?? "").startsWith("image/") && bodyEndsWithImageLine(binding.getBody());
   const live = liveEditors.get(binding.registryKey);
   // A composer showing this target rebuilt the placeholder on mount, so the
   // finished attachment REPLACES it where the user last saw it instead of
   // being appended a second time at the end.
   if (live?.current?.settleUploadPlaceholder(clientUploadId, toUploadResult(attachment)) === true) {
-    binding.appendToBody(md);
+    binding.appendToBody(md, { cohesive });
     return;
   }
   if (live?.current?.insertMarkdownAtEnd(md) === true) {
-    binding.appendToBody(md);
+    binding.appendToBody(md, { cohesive });
     return;
   }
   if (!live) {
-    binding.appendToBody(md);
+    binding.appendToBody(md, { cohesive });
     return;
   }
   if (tries >= DELIVER_MAX_TRIES) {
     // Editor never initialized — persist to the store as the least-bad option.
-    binding.appendToBody(md);
+    binding.appendToBody(md, { cohesive });
     return;
   }
   setTimeout(

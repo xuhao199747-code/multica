@@ -124,11 +124,24 @@ function makeRecordingBinding(key: string) {
       state.uploads = state.uploads.filter((u) => u.clientUploadId !== clientUploadId);
     },
     getBody: () => state.body,
-    appendToBody: (markdown) => {
-      state.body = state.body ? `${state.body}\n\n${markdown}` : markdown;
+    appendToBody: (markdown, options) => {
+      const joiner = options?.cohesive ? "\n" : "\n\n";
+      state.body = state.body ? `${state.body.replace(/\s+$/, "")}${joiner}${markdown}` : markdown;
     },
   };
   return { binding, state };
+}
+
+/** Drive one real upload to success and report what write-back landed. */
+async function uploadOne(
+  upload: (file: File) => Promise<UploadResult | null>,
+  file: File,
+  attachment: Attachment,
+): Promise<void> {
+  mockApiUploadFile.mockImplementationOnce(() => Promise.resolve(attachment));
+  await act(async () => {
+    await upload(file);
+  });
 }
 
 function UploadHost({
@@ -200,5 +213,113 @@ describe("useCoordinatedUploads paste-as-file recovery", () => {
     // user can never recover.
     expect(state.body).toContain(pastedText);
     expect(state.uploads).toHaveLength(0);
+  });
+});
+
+describe("useCoordinatedUploads consecutive-image write-back (DAWE-2)", () => {
+  const imageFile = (name: string) => new File(["x"], name, { type: "image/png" });
+  const imageAttachment = (id: string, name: string): Attachment =>
+    ({
+      id,
+      filename: name,
+      content_type: "image/png",
+      size: 1,
+      url: `/api/attachments/${id}/download`,
+      created_at: new Date().toISOString(),
+    }) as unknown as Attachment;
+
+  it("joins consecutive finished images with a single newline so they form one image run", async () => {
+    const { binding, state } = makeRecordingBinding("probe:images");
+    let upload!: (file: File) => Promise<UploadResult | null>;
+    let rejectUpload!: (err: Error) => void;
+
+    // The write-back path only runs for a mount that is GONE by settle time
+    // (a live mount does the inline editor swap instead), so start the
+    // upload, unmount, then resolve — same shape as the paste test above.
+    mockApiUploadFile.mockImplementationOnce(
+      () =>
+        new Promise<Attachment>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+    const view = render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <UploadHost
+          binding={binding}
+          expose={(fn) => {
+            upload = fn;
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    await act(async () => {
+      void upload(imageFile("a.png"));
+    });
+    view.unmount();
+    await act(async () => {
+      rejectUpload(new Error("stop"));
+      await Promise.resolve();
+    });
+    // Placeholder is gone; the next uploads append onto the persisted body.
+    expect(state.uploads).toHaveLength(0);
+    await uploadOne(upload, imageFile("a.png"), imageAttachment("att-a", "a.png"));
+    await uploadOne(upload, imageFile("b.png"), imageAttachment("att-b", "b.png"));
+    await uploadOne(upload, imageFile("c.png"), imageAttachment("att-c", "c.png"));
+
+    // No live editor is registered for the key, so every settle lands via
+    // appendToBody. Consecutive images must share ONE markdown block — a
+    // blank line between them would split the run and the readonly
+    // image-grid transform would render them stacked instead of grouped.
+    expect(state.body).toBe(
+      "![a.png](/api/attachments/att-a/download)\n" +
+        "![b.png](/api/attachments/att-b/download)\n" +
+        "![c.png](/api/attachments/att-c/download)",
+    );
+
+    view.unmount();
+  });
+
+  it("starts a new block when prose precedes the image run", async () => {
+    const { binding, state } = makeRecordingBinding("probe:images-prose");
+    state.body = "see these";
+    let upload!: (file: File) => Promise<UploadResult | null>;
+    let rejectUpload!: (err: Error) => void;
+
+    mockApiUploadFile.mockImplementationOnce(
+      () =>
+        new Promise<Attachment>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+    const view = render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <UploadHost
+          binding={binding}
+          expose={(fn) => {
+            upload = fn;
+          }}
+        />
+      </I18nProvider>,
+    );
+
+    await act(async () => {
+      void upload(imageFile("warm.png"));
+    });
+    view.unmount();
+    await act(async () => {
+      rejectUpload(new Error("stop"));
+      await Promise.resolve();
+    });
+    expect(state.uploads).toHaveLength(0);
+    await uploadOne(upload, imageFile("a.png"), imageAttachment("att-a", "a.png"));
+    await uploadOne(upload, imageFile("b.png"), imageAttachment("att-b", "b.png"));
+
+    // First image after prose opens a new paragraph; the second still joins.
+    expect(state.body).toBe(
+      "see these\n\n![a.png](/api/attachments/att-a/download)\n![b.png](/api/attachments/att-b/download)",
+    );
+
+    view.unmount();
   });
 });

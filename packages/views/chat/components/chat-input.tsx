@@ -296,7 +296,7 @@ export function ChatInput({
     failUpload: (id, err) => useChatStore.getState().failInputDraftUpload(key, id, err),
     removeUpload: (id) => useChatStore.getState().removeInputDraftUpload(key, id),
     getBody: () => useChatStore.getState().inputDrafts[key] ?? "",
-    appendToBody: (md) => useChatStore.getState().appendToInputDraft(key, md),
+    appendToBody: (md, options) => useChatStore.getState().appendToInputDraft(key, md, options),
   }), []);
   const uploadBinding = useMemo(
     () => makeUploadBinding(draftKey),

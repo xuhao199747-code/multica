@@ -330,8 +330,13 @@ export interface ChatState {
   setSelectedProjectId: (id: string | null) => void;
   /** sessionId accepts a real session UUID or DRAFT_NEW_SESSION. */
   setInputDraft: (sessionId: string, draft: string) => void;
-  /** Append a markdown fragment to a draft slot's text (upload write-back). */
-  appendToInputDraft: (sessionId: string, markdown: string) => void;
+  /**
+   * Append a markdown fragment to a draft slot's text (upload write-back).
+   * `cohesive` keeps the fragment in the same markdown block as the existing
+   * text (single newline) instead of starting a new paragraph — used for
+   * consecutive images so the readonly renderer can group them (DAWE-2).
+   */
+  appendToInputDraft: (sessionId: string, markdown: string, options?: { cohesive?: boolean }) => void;
   setInputDraftAttachments: (sessionId: string, uploads: DraftUpload[]) => void;
   /** Record a completed server row as an uploaded entry (restore paths). */
   addInputDraftAttachment: (sessionId: string, attachment: Attachment) => void;
@@ -500,10 +505,15 @@ export function createChatStore(options: ChatStoreOptions) {
       writeDrafts(storage, wsKey(DRAFTS_KEY), next);
       set({ inputDrafts: next });
     },
-    appendToInputDraft: (sessionId, markdown) => {
+    appendToInputDraft: (sessionId, markdown, options) => {
       const existing = get().inputDrafts[sessionId] ?? "";
+      // Cohesive fragments (e.g. one image of a multi-image drop) must stay in
+      // the same markdown block as what precedes them — a blank line would
+      // split the image run into separate paragraphs and the readonly
+      // image-grid transform would no longer see a consecutive run (DAWE-2).
+      const joiner = options?.cohesive ? "\n" : "\n\n";
       const draft = existing.trim()
-        ? `${existing.replace(/\s+$/, "")}\n\n${markdown}`
+        ? `${existing.replace(/\s+$/, "")}${joiner}${markdown}`
         : markdown;
       logger.debug("appendToInputDraft", { sessionId, length: draft.length });
       const next = { ...get().inputDrafts, [sessionId]: draft };

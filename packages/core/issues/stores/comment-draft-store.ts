@@ -62,7 +62,11 @@ interface CommentDraftStore {
    * live editor to insert its link, so the settle handler lands it here —
    * the draft body stays the single source of truth for what gets bound.
    */
-  appendToDraftContent: (key: CommentDraftKey, markdown: string) => void;
+  appendToDraftContent: (
+    key: CommentDraftKey,
+    markdown: string,
+    options?: { cohesive?: boolean },
+  ) => void;
   /** Replace the upload list with completed attachments (legacy/compat path). */
   setAttachments: (key: CommentDraftKey, attachments: Attachment[]) => void;
   /** Record a placeholder the moment a file is picked (coordinator-owned). */
@@ -176,10 +180,14 @@ export const useCommentDraftStore = create<CommentDraftStore>()(
         set((s) => ({
           drafts: writeDraft(s.drafts, key, content, uploadsOf(s.drafts, key)),
         })),
-      appendToDraftContent: (key, markdown) =>
+  appendToDraftContent: (key, markdown, options) =>
         set((s) => {
           const existing = s.drafts[key]?.content ?? "";
-          const next = existing.trim() ? `${existing.replace(/\s+$/, "")}\n\n${markdown}` : markdown;
+      // Cohesive fragments (one image of a multi-image drop) stay in the same
+      // markdown block — a blank line would break the consecutive-image run
+      // the readonly image-grid transform groups on (DAWE-2).
+      const joiner = options?.cohesive ? "\n" : "\n\n";
+      const next = existing.trim() ? `${existing.replace(/\s+$/, "")}${joiner}${markdown}` : markdown;
           return {
             drafts: writeDraft(s.drafts, key, next, uploadsOf(s.drafts, key)),
           };
