@@ -239,7 +239,7 @@ describe("PinRow", () => {
     expect(screen.queryByText("MUL-123 Keep this pin")).not.toBeInTheDocument();
   });
 
-  it("does not also highlight the parent workspace nav for an active pin", async () => {
+  it("highlights an active pinned issue", async () => {
     navigation.current.pathname = "/acme/issues/issue-1";
     detail.current = {
       isPending: false,
@@ -248,16 +248,15 @@ describe("PinRow", () => {
       error: null,
     };
 
-    const { container } = render(<AppSidebar />);
+    render(<AppSidebar />);
 
     expect((await screen.findByText("Keep this pin")).closest("button")).toHaveAttribute(
       "data-active",
       "true",
     );
-    expect(container.querySelector('button[data-href="/acme/issues"]')).not.toHaveAttribute("data-active");
   });
 
-  it("keeps the parent route active until a hidden pin is expanded", () => {
+  it("reveals a hidden active pin when expanded", () => {
     const originalPins = pins.current;
     pins.current = Array.from({ length: 6 }, (_, index) => ({
       ...originalPins[0]!,
@@ -275,19 +274,15 @@ describe("PinRow", () => {
 
     try {
       const { container } = renderWithI18n(<AppSidebar />);
-      const parent = () => container.querySelector('button[data-href="/acme/issues"]');
       const lastPin = () => container.querySelector('button[data-href="/acme/issues/issue-6"]');
 
       expect(lastPin()).not.toBeInTheDocument();
-      expect(parent()).toHaveAttribute("data-active", "true");
 
       fireEvent.click(screen.getByRole("button", { name: "Show 1 more…" }));
       expect(lastPin()).toHaveAttribute("data-active", "true");
-      expect(parent()).not.toHaveAttribute("data-active");
 
       fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
       expect(lastPin()).not.toBeInTheDocument();
-      expect(parent()).toHaveAttribute("data-active", "true");
     } finally {
       pins.current = originalPins;
     }
@@ -412,16 +407,16 @@ describe("workspace-switcher collapsed rail presentation", () => {
     expect(button?.querySelector("svg")?.getAttribute("class")).toContain("group-data-[collapsible=icon]:hidden");
   });
 
-  it("places the expand action between workspace and new issue", () => {
+  it("places the expand action before the remaining chat entry", () => {
     const { container } = renderWithI18n(<AppSidebar />);
     const expand = screen.getByRole("button", { name: /expand sidebar/i });
     const workspace = screen.getByText("Acme").closest("button")!;
-    const create = screen.getByRole("button", { name: /new issue/i });
+    const chat = container.querySelector('button[data-href="/acme/chat"]')!;
     expect(workspace.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(expand.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(expand.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(expand);
     expect(sidebarState.setOpenMobile).toHaveBeenCalledWith(true);
-    expect(container.querySelector('button[data-href="/acme/inbox"]')).toHaveAttribute("data-tooltip", "Inbox");
+    expect(container.querySelector('button[data-href="/acme/chat"]')).toHaveAttribute("data-tooltip", "Chat");
   });
 });
 
@@ -429,14 +424,14 @@ describe("navigation item presentation", () => {
   it("keeps Analytics and Settings styled like the other nav items", () => {
     const { container } = render(<AppSidebar />);
     const referenceClassName = container.querySelector(
-      'button[data-href="/acme/issues"]',
+      'button[data-href="/acme/chat"]',
     )?.className;
 
     expect(referenceClassName).toBeTruthy();
 
     for (const href of ["/acme/usage", "/acme/settings"]) {
-      expect(container.querySelector(`button[data-href="${href}"]`)?.className).toBe(
-        referenceClassName,
+      expect(container.querySelector(`button[data-href="${href}"]`)?.className).toContain(
+        "hover:not-data-active:bg-sidebar-accent/70",
       );
     }
   });
@@ -444,6 +439,23 @@ describe("navigation item presentation", () => {
   it("does not expose the custom self-host update checker", () => {
     render(<AppSidebar />);
     expect(screen.queryByTitle("Check for Multica updates")).not.toBeInTheDocument();
+  });
+
+  it("keeps task-management navigation and actions unavailable", () => {
+    render(<AppSidebar searchSlot={<button type="button">Search tasks</button>} />);
+
+    for (const label of [
+      "Inbox",
+      "My Issues",
+      "Issues",
+      "Projects",
+      "Autopilots",
+      "Squads",
+      "Search tasks",
+      "New issue",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
   });
 });
 
@@ -463,34 +475,25 @@ describe("personal nav — Chat", () => {
   const chatBadge = (container: HTMLElement) =>
     chatNav(container)?.querySelector("number-flow-react") ?? null;
 
-  it("positions the existing unread counters as compact icon badges", () => {
-    summary.current = [{ workspace_id: "ws-1", count: 4 }];
+  it("positions the Chat unread counter as a compact icon badge", () => {
     chatSessions.current = [{ id: "a", unread_count: 3 }];
     const { container, rerender } = render(<AppSidebar />);
-    for (const route of ["inbox", "chat"]) {
-      const nav = container.querySelector<HTMLElement>(`button[data-href="/acme/${route}"]`);
-      const badge = nav?.querySelector("number-flow-react");
-      expect(nav).toHaveClass("relative");
-      expect(badge).toHaveClass("group-data-[collapsible=icon]:absolute");
-      expect(badge).toHaveClass("group-data-[collapsible=icon]:rounded-full");
-    }
-    summary.current = [{ workspace_id: "ws-1", count: 0 }];
+    const nav = chatNav(container);
+    const badge = chatBadge(container);
+    expect(nav).toHaveClass("relative");
+    expect(badge).toHaveClass("group-data-[collapsible=icon]:absolute");
+    expect(badge).toHaveClass("group-data-[collapsible=icon]:rounded-full");
+
     chatSessions.current = [{ id: "a", unread_count: 0 }];
     rerender(<AppSidebar />);
-    expect(container.querySelector('button[data-href="/acme/inbox"] number-flow-react')).toBeNull();
     expect(chatBadge(container)).toBeNull();
   });
 
-  it("keeps persistent Inbox and Chat counters static", () => {
-    summary.current = [{ workspace_id: "ws-1", count: 1 }];
+  it("keeps the persistent Chat counter static", () => {
     chatSessions.current = [{ id: "chat-1", unread_count: 2 }];
     const { container } = render(<AppSidebar />);
-    const inboxBadge = container
-      .querySelector<HTMLElement>('button[data-href="/acme/inbox"]')
-      ?.querySelector("number-flow-react") as (HTMLElement & { animated?: boolean }) | null;
     const currentChatBadge = chatBadge(container) as (HTMLElement & { animated?: boolean }) | null;
 
-    expect(inboxBadge?.animated).toBe(false);
     expect(currentChatBadge?.animated).toBe(false);
   });
 
