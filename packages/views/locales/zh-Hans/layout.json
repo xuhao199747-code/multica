@@ -41,12 +41,6 @@
     "loading_named_prefix": "正在加载"
   },
   "sidebar": {
-    "update_checking": "正在检查更新",
-    "update_current": "已是最新版本",
-    "update_available": "有官方更新",
-    "update_unknown": "检查更新失败",
-    "update_check": "检查 Multica 更新",
-    "update_view": "查看官方更新",
     "unpin_tooltip": "取消固定",
     "workspaces_label": "工作区",
     "create_workspace": "创建工作区",

@@ -440,6 +440,11 @@ describe("navigation item presentation", () => {
       );
     }
   });
+
+  it("does not expose the custom self-host update checker", () => {
+    render(<AppSidebar />);
+    expect(screen.queryByTitle("Check for Multica updates")).not.toBeInTheDocument();
+  });
 });
 
 describe("personal nav — Chat", () => {
