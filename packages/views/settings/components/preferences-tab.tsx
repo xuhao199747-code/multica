@@ -11,7 +11,6 @@ import {
   SelectValue,
 } from "@multica/ui/components/ui/select";
 import { Switch } from "@multica/ui/components/ui/switch";
-import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import {
   Popover,
   PopoverContent,
@@ -33,21 +32,6 @@ import {
 import { useLocaleAdapter } from "@multica/core/i18n/react";
 import { useAuthStore } from "@multica/core/auth";
 import { useChatStore } from "@multica/core/chat";
-import {
-  useCommentComposerStore,
-  type RunningAgentReply,
-} from "@multica/core/issues/stores";
-import {
-  useIssueOpeningStore,
-  type IssueOpenMode,
-} from "@multica/core/issues/stores/issue-opening-store";
-import {
-  MANUAL_CREATE_FIELDS,
-  QUICK_CREATE_FIELDS,
-  useIssueCreateSettingsStore,
-  type ManualCreateField,
-  type QuickCreateField,
-} from "@multica/core/issues/stores/issue-create-settings-store";
 import { api } from "@multica/core/api";
 import { browserTimezone, timezoneOptions } from "../../common/timezone-select";
 import { SegmentedToggle } from "../../common/segmented-toggle";
@@ -61,8 +45,7 @@ import {
 
 /**
  * Preferences on one page. The settings here are stored in three different
- * places — the account (language, timezone), this device (theme, composer,
- * chat) and this device for the current workspace (create-dialog fields) —
+ * places — the account (language, timezone) and this device (theme, chat) —
  * so each section carries a scope badge instead of splitting them into tabs.
  * Changes apply immediately; only failures are announced.
  */
@@ -103,29 +86,8 @@ export function PreferencesTab({
         anchor="comments"
       >
         <SettingsCard>
-          <StickyCommentBarRow />
-          <RunningAgentReplyRow />
           <FloatingChatRow />
         </SettingsCard>
-      </SettingsSection>
-
-      <SettingsSection
-        title={t(($) => $.issue.opening.title)}
-        scope="device"
-        anchor="issue-opening"
-      >
-        <SettingsCard>
-          <IssueOpeningRow />
-        </SettingsCard>
-      </SettingsSection>
-
-      <SettingsSection
-        title={t(($) => $.preferences.issue_fields_title)}
-        description={t(($) => $.issue.description)}
-        scope="device-workspace"
-        anchor="issue"
-      >
-        <IssueFieldsMatrix />
       </SettingsSection>
     </SettingsTab>
   );
@@ -240,100 +202,6 @@ function LanguageRow() {
   );
 }
 
-function StickyCommentBarRow() {
-  const { t } = useT("settings");
-  const sticky = useCommentComposerStore((s) => s.sticky);
-  const toggleSticky = useCommentComposerStore((s) => s.toggleSticky);
-
-  return (
-    <SettingsRow
-      anchor="sticky-comment-bar"
-      label={t(($) => $.preferences.sticky_comment_bar.title)}
-    >
-      <Switch
-        checked={sticky}
-        onCheckedChange={() => toggleSticky()}
-        aria-label={t(($) => $.preferences.sticky_comment_bar.title)}
-      />
-    </SettingsRow>
-  );
-}
-
-function RunningAgentReplyRow() {
-  const { t } = useT("settings");
-  const value = useCommentComposerStore((s) => s.runningAgentReply);
-  const setValue = useCommentComposerStore((s) => s.setRunningAgentReply);
-  const options: { value: RunningAgentReply; label: string }[] = [
-    { value: "steer", label: t(($) => $.preferences.running_agent_reply.steer) },
-    { value: "after_run", label: t(($) => $.preferences.running_agent_reply.after_run) },
-  ];
-
-  return (
-    <SettingsRow
-      anchor="running-agent-reply"
-      label={t(($) => $.preferences.running_agent_reply.title)}
-      description={t(($) => $.preferences.running_agent_reply.hint)}
-      size="select"
-    >
-      <Select
-        items={options}
-        value={value}
-        onValueChange={(next) => {
-          if (next && next !== value) setValue(next as RunningAgentReply);
-        }}
-      >
-        <SelectTrigger
-          size="sm"
-          className="w-full"
-          aria-label={t(($) => $.preferences.running_agent_reply.title)}
-        >
-          <SelectValue>
-            {options.find((option) => option.value === value)?.label}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent align="end">
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </SettingsRow>
-  );
-}
-
-/**
- * What a plain click on an issue card or row opens across the issue views.
- * The hint carries the one non-obvious part: Shift+Click opens the other one,
- * so both stay one click away whichever is chosen.
- */
-function IssueOpeningRow() {
-  const { t } = useT("settings");
-  const value = useIssueOpeningStore((s) => s.openMode);
-  const setValue = useIssueOpeningStore((s) => s.setOpenMode);
-  const label = t(($) => $.issue.opening.click);
-  return (
-    <SettingsRow
-      anchor="issue-opening"
-      label={label}
-      description={t(($) => $.issue.opening.hint)}
-    >
-      <div role="group" aria-label={label}>
-        <SegmentedToggle<IssueOpenMode>
-          value={value}
-          onChange={setValue}
-          buttonClassName="px-3 py-1 text-label"
-          options={[
-            ["page", t(($) => $.issue.opening.page)],
-            ["peek", t(($) => $.issue.opening.peek)],
-          ]}
-        />
-      </div>
-    </SettingsRow>
-  );
-}
-
 /**
  * When off, the FAB / overlay never mount and Chat is reachable only from its
  * dedicated tab. A persisted client setting, so it applies immediately.
@@ -354,87 +222,6 @@ function FloatingChatRow() {
         aria-label={t(($) => $.chat.floating_label)}
       />
     </SettingsRow>
-  );
-}
-
-/**
- * Which fields each create-issue dialog keeps on its toolbar, as one field ×
- * dialog grid. A field toggled off stays reachable from the dialog's ⋯
- * overflow and re-surfaces while it holds a value, so hiding is never
- * destructive. Quick create supports fewer fields; those cells show a dash.
- */
-function IssueFieldsMatrix() {
-  const { t } = useT("settings");
-  const quickFields = useIssueCreateSettingsStore((s) => s.quickCreateFields);
-  const setQuickVisible = useIssueCreateSettingsStore(
-    (s) => s.setQuickCreateFieldVisible,
-  );
-  const manualFields = useIssueCreateSettingsStore((s) => s.manualCreateFields);
-  const setManualVisible = useIssueCreateSettingsStore(
-    (s) => s.setManualCreateFieldVisible,
-  );
-  const quickLabel = t(($) => $.preferences.issue_fields.quick);
-  const manualLabel = t(($) => $.preferences.issue_fields.manual);
-
-  return (
-    <SettingsCard>
-      <table className="w-full text-body">
-        <thead>
-          <tr className="border-b border-surface-border bg-muted/20 text-caption font-medium text-muted-foreground">
-            <th scope="col" className="px-4 py-2 text-left font-medium">
-              {t(($) => $.preferences.issue_fields.field)}
-            </th>
-            <th scope="col" className="w-32 px-4 py-2 text-center font-medium">
-              {quickLabel}
-            </th>
-            <th scope="col" className="w-32 px-4 py-2 text-center font-medium">
-              {manualLabel}
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-surface-border">
-          {MANUAL_CREATE_FIELDS.map((field: ManualCreateField) => {
-            const fieldLabel = t(($) => $.issue.fields[field]);
-            const quickSupported = (QUICK_CREATE_FIELDS as readonly string[]).includes(field);
-            return (
-              <tr key={field}>
-                <th scope="row" className="px-4 py-2.5 text-left font-normal">
-                  {fieldLabel}
-                </th>
-                <td className="px-4 py-2.5 text-center">
-                  {quickSupported ? (
-                    <Checkbox
-                      checked={quickFields.includes(field as QuickCreateField)}
-                      onCheckedChange={(checked) =>
-                        setQuickVisible(field as QuickCreateField, checked === true)
-                      }
-                      aria-label={`${fieldLabel} · ${quickLabel}`}
-                    />
-                  ) : (
-                    <span
-                      className="text-faint-foreground"
-                      aria-label={t(($) => $.preferences.issue_fields.unsupported)}
-                      title={t(($) => $.preferences.issue_fields.unsupported)}
-                    >
-                      —
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-center">
-                  <Checkbox
-                    checked={manualFields.includes(field)}
-                    onCheckedChange={(checked) =>
-                      setManualVisible(field, checked === true)
-                    }
-                    aria-label={`${fieldLabel} · ${manualLabel}`}
-                  />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </SettingsCard>
   );
 }
 
