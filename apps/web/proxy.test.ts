@@ -57,30 +57,46 @@ describe("proxy legacy workspace route redirects", () => {
   };
 
   it.each([
-    ["issues", "/acme/issues"],
-    ["projects", "/acme/projects"],
-    ["agents", "/acme/agents"],
-    ["squads", "/acme/squads"],
-    ["inbox", "/acme/inbox"],
-    ["my-issues", "/acme/my-issues"],
-    ["autopilots", "/acme/autopilots"],
-    ["runtimes", "/acme/runtimes"],
-    ["skills", "/acme/skills"],
-    ["settings", "/acme/settings"],
-    ["usage", "/acme/usage"],
+    ["issues", "/acme/chat", ""],
+    ["projects", "/acme/chat", ""],
+    ["agents", "/acme/agents", "?tab=all"],
+    ["squads", "/acme/chat", ""],
+    ["inbox", "/acme/chat", ""],
+    ["my-issues", "/acme/chat", ""],
+    ["autopilots", "/acme/chat", ""],
+    ["runtimes", "/acme/runtimes", "?tab=all"],
+    ["skills", "/acme/skills", "?tab=all"],
+    ["chat", "/acme/chat", "?tab=all"],
+    ["settings", "/acme/settings", "?tab=all"],
+    ["usage", "/acme/usage", "?tab=all"],
   ])(
     "redirects legacy /%s URLs through the last workspace slug",
-    (segment, expectedPath) => {
+    (segment, expectedPath, expectedSearch) => {
       expect(redirectLocation(`/${segment}?tab=all`, sessionCookies)).toBe(
-        `https://app.multica.test${expectedPath}?tab=all`,
+        `https://app.multica.test${expectedPath}${expectedSearch}`,
       );
     },
   );
 
-  it("preserves nested legacy paths and query strings", () => {
+  it("redirects nested hidden legacy paths to chat", () => {
     expect(
       redirectLocation("/squads/squad-123?view=members", sessionCookies),
-    ).toBe("https://app.multica.test/acme/squads/squad-123?view=members");
+    ).toBe("https://app.multica.test/acme/chat");
+  });
+
+  it.each(["inbox", "my-issues", "issues", "projects", "autopilots", "squads"])(
+    "redirects direct workspace %s routes to chat",
+    (segment) => {
+      expect(
+        redirectLocation(`/acme/${segment}/item-123?view=details`, sessionCookies),
+      ).toBe("https://app.multica.test/acme/chat");
+    },
+  );
+
+  it("preserves enabled legacy paths and query strings", () => {
+    expect(
+      redirectLocation("/runtimes/runtime-123?view=details", sessionCookies),
+    ).toBe("https://app.multica.test/acme/runtimes/runtime-123?view=details");
   });
 
   it("sends logged-out legacy URLs to login", () => {
@@ -109,13 +125,13 @@ describe("proxy legacy workspace route redirects", () => {
     },
   );
 
-  it("does not redirect workspace-scoped URLs whose first segment is already a slug", () => {
-    expect(redirectLocation("/acme/squads", sessionCookies)).toBeNull();
+  it("does not redirect enabled workspace-scoped routes", () => {
+    expect(redirectLocation("/acme/agents", sessionCookies)).toBeNull();
   });
 
   it("redirects app-host root URLs to the last workspace", () => {
     expect(redirectLocation("/", sessionCookies)).toBe(
-      "https://app.multica.test/acme/issues",
+      "https://app.multica.test/acme/chat",
     );
   });
 
@@ -128,7 +144,7 @@ describe("proxy legacy workspace route redirects", () => {
 
   it("still redirects explicit legacy app routes on the public marketing host", () => {
     expect(redirectLocation("/issues/ABC-123", sessionCookies, "multica.ai")).toBe(
-      "https://multica.ai/acme/issues/ABC-123",
+      "https://multica.ai/acme/chat",
     );
   });
 });
@@ -274,7 +290,7 @@ describe("proxy root and locale handling", () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe(
-      "https://app.multica.test/acme/issues",
+      "https://app.multica.test/acme/chat",
     );
   });
 

@@ -4,6 +4,7 @@ import {
   MULTICA_LOCALE_HEADER,
   resolveLocaleFromSignals,
 } from "./lib/locale-routing";
+import { isReservedSlug } from "@multica/core/paths";
 import { runtimeRewriteDestination } from "./config/runtime-urls";
 import { isOfficialMarketingHost } from "./lib/public-host";
 
@@ -21,9 +22,26 @@ const LEGACY_ROUTE_SEGMENTS = new Set([
   "autopilots",
   "runtimes",
   "skills",
+  "chat",
   "settings",
   "usage",
 ]);
+
+const HIDDEN_WORKSPACE_ROUTE_SEGMENTS = new Set([
+  "inbox",
+  "my-issues",
+  "issues",
+  "projects",
+  "autopilots",
+  "squads",
+]);
+
+function redirectToWorkspaceChat(req: NextRequest, workspaceSlug: string) {
+  const url = req.nextUrl.clone();
+  url.pathname = `/${workspaceSlug}/chat`;
+  url.search = "";
+  return NextResponse.redirect(url);
+}
 
 function resolveLocale(req: NextRequest): string {
   return resolveLocaleFromSignals({
@@ -57,11 +75,23 @@ export function proxy(req: NextRequest) {
 
   const hasSession = req.cookies.has("multica_logged_in");
   const lastSlug = req.cookies.get("last_workspace_slug")?.value;
+  const segments = pathname.split("/").filter(Boolean);
+  const firstSegment = segments[0] ?? "";
+
+  // Task-management surfaces are intentionally unavailable in this
+  // deployment. Redirect direct workspace URLs too, so stale bookmarks,
+  // notifications, and restored browser tabs cannot reopen them.
+  if (
+    segments.length >= 2 &&
+    !isReservedSlug(firstSegment) &&
+    HIDDEN_WORKSPACE_ROUTE_SEGMENTS.has(segments[1] ?? "")
+  ) {
+    return redirectToWorkspaceChat(req, firstSegment);
+  }
 
   // --- Legacy URL redirect: /issues/... → /{slug}/issues/... ---
   // Old bookmarks and clients that hit us before the slug migration would
   // otherwise 404 since the route moved under [workspaceSlug].
-  const firstSegment = pathname.split("/")[1] ?? "";
   if (LEGACY_ROUTE_SEGMENTS.has(firstSegment)) {
     const url = req.nextUrl.clone();
 
@@ -71,6 +101,9 @@ export function proxy(req: NextRequest) {
     }
 
     if (lastSlug) {
+      if (HIDDEN_WORKSPACE_ROUTE_SEGMENTS.has(firstSegment)) {
+        return redirectToWorkspaceChat(req, lastSlug);
+      }
       // Preserve deep-link path + query: /issues/abc → /{lastSlug}/issues/abc
       url.pathname = `/${lastSlug}${pathname}`;
       return NextResponse.redirect(url);
@@ -102,8 +135,7 @@ export function proxy(req: NextRequest) {
     !isOfficialMarketingHost(req.nextUrl.hostname)
   ) {
     const url = req.nextUrl.clone();
-    url.pathname = `/${lastSlug}/issues`;
-    return NextResponse.redirect(url);
+    return redirectToWorkspaceChat(req, lastSlug);
   }
 
   // --- Default: forward locale header to RSC, no redirect/rewrite ---

@@ -27,7 +27,7 @@ describe("web app manifest", () => {
   it("launches into the last workspace for a signed-in session", () => {
     expect(
       launch({ multica_logged_in: "1", last_workspace_slug: "acme" }),
-    ).toContain("/acme/inbox");
+    ).toContain("/acme/chat");
   });
 
   it("launches into login when there is no session", () => {
@@ -48,24 +48,7 @@ describe("web app manifest", () => {
     );
   });
 
-  it("points every shortcut at a path that resolves the same way", () => {
-    const shortcuts = manifest().shortcuts ?? [];
-
-    expect(shortcuts.length).toBeGreaterThan(0);
-    for (const shortcut of shortcuts) {
-      const resolve = (cookie: string) =>
-        proxy(
-          new NextRequest(`https://www.multica.ai${shortcut.url}`, {
-            headers: { cookie },
-          }),
-        ).headers.get("location");
-
-      expect(
-        resolve("multica_logged_in=1; last_workspace_slug=acme"),
-      ).toContain(`/acme${shortcut.url}`);
-      // Same three states as start_url — a shortcut is a launcher entry too.
-      expect(resolve("multica_logged_in=1")).toContain("/login");
-      expect(resolve("")).toContain("/login");
-    }
+  it("does not expose hidden task-management shortcuts", () => {
+    expect(manifest().shortcuts).toBeUndefined();
   });
 });
