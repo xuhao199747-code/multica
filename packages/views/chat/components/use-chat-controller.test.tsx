@@ -520,6 +520,87 @@ describe("useChatController.advanceSelectionAfterArchive", () => {
   });
 });
 
+describe("useChatController agent handoffs", () => {
+  beforeEach(() => {
+    h.createSessionMutate.mockReset();
+    h.createSessionMutate.mockResolvedValue({ id: "new-session" });
+    vi.mocked(api.sendChatMessage).mockReset();
+  });
+
+  it("sends the handoff instruction to A then records the accepted task", async () => {
+    h.store.activeSessionId = "source-session";
+    h.sessions = [makeSession({ id: "source-session", agent_id: agentA.id })];
+    h.agents = [agentA, agentB];
+    vi.mocked(api.sendChatMessage).mockResolvedValue({
+      message_id: "source-message",
+      task_id: "source-task",
+      created_at: new Date(0).toISOString(),
+    } as Awaited<ReturnType<typeof api.sendChatMessage>>);
+    const { result } = renderHook(() => useChatController());
+
+    await act(async () => {
+      await result.current.handleSend("[@Beta](mention://agent/agent-b) implement the PRD");
+    });
+
+    expect(api.sendChatMessage).toHaveBeenCalledWith(
+      "source-session",
+      expect.stringContaining("只输出以下字段"),
+      undefined,
+    );
+    expect(result.current.handoff.pendingSource).toMatchObject({
+      sessionId: "source-session",
+      taskId: "source-task",
+      target: { id: agentB.id },
+    });
+  });
+
+  it("rejects multiple handoff targets before creating or sending a source task", async () => {
+    h.store.activeSessionId = "source-session";
+    h.sessions = [makeSession({ id: "source-session", agent_id: agentA.id })];
+    h.agents = [agentA, agentB];
+    vi.mocked(api.sendChatMessage).mockResolvedValue({
+      message_id: "unexpected-message",
+      task_id: "unexpected-task",
+      created_at: new Date(0).toISOString(),
+    } as Awaited<ReturnType<typeof api.sendChatMessage>>);
+    const { result } = renderHook(() => useChatController());
+
+    let sent: boolean | undefined;
+    await act(async () => {
+      sent = await result.current.handleSend(
+        "[@Beta](mention://agent/agent-b) and [@Alpha](mention://agent/agent-a) implement the PRD",
+      );
+    });
+
+    expect(sent).toBe(false);
+    expect(api.sendChatMessage).not.toHaveBeenCalled();
+    expect(h.createSessionMutate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a ready handoff with attachments before sending the source task", async () => {
+    h.store.activeSessionId = "source-session";
+    h.sessions = [makeSession({ id: "source-session", agent_id: agentA.id })];
+    h.agents = [agentA, agentB];
+    vi.mocked(api.sendChatMessage).mockResolvedValue({
+      message_id: "unexpected-message",
+      task_id: "unexpected-task",
+      created_at: new Date(0).toISOString(),
+    } as Awaited<ReturnType<typeof api.sendChatMessage>>);
+    const { result } = renderHook(() => useChatController());
+
+    let sent: boolean | undefined;
+    await act(async () => {
+      sent = await result.current.handleSend(
+        "[@Beta](mention://agent/agent-b) implement the PRD",
+        ["attachment-1"],
+      );
+    });
+
+    expect(sent).toBe(false);
+    expect(api.sendChatMessage).not.toHaveBeenCalled();
+  });
+});
+
 describe("useChatController.archiveSession", () => {
   it("fires the archive mutation for the given session", () => {
     const result = setup("sA", [sA, sB, sC], [agentA, agentB]);

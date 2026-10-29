@@ -24,6 +24,7 @@ import {
   chatSessionsOptions,
   chatMessagesPageOptions,
   pendingChatTaskOptions,
+  pendingChatTasksOptions,
   chatKeys,
   isTaskMessageTaskId,
   sortChatSessions,
@@ -43,6 +44,11 @@ import {
 import { useChatDraftRestore } from "./use-chat-draft-restore";
 import { useChatTaskActions } from "./use-chat-task-actions";
 import { useChatProjectContextSupport } from "./use-chat-project-context-support";
+import { useAgentHandoff } from "./use-agent-handoff";
+import {
+  buildAgentHandoffRequest,
+  resolveAgentHandoff,
+} from "../lib/agent-handoff";
 import { createLogger } from "@multica/core/logger";
 import type {
   Agent,
@@ -240,6 +246,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
   const { data: pendingTask, isLoading: pendingTaskLoading } = useQuery(
     pendingChatTaskOptions(activeSessionId ?? ""),
   );
+  const { data: pendingTasks } = useQuery(pendingChatTasksOptions(wsId));
   const showSkeleton =
     !!activeSessionId && (messagesLoading || pendingTaskLoading);
   const messages = hideQueuedChatMessages(allMessages, pendingTask);
@@ -341,6 +348,14 @@ export function useChatController(opts?: { isActive?: boolean }) {
   // deep link) gate on this instead of sniffing list emptiness. Query errors
   // deliberately keep this false — a failed fetch is not a permission verdict.
   const agentsSettled = agentsLoaded && membersLoaded;
+  const handoff = useAgentHandoff({
+    wsId,
+    activeSessionId,
+    messages,
+    sessions,
+    pendingTasks,
+    eligibleAgents: availableAgents,
+  });
 
   // The agent bound to the OPEN session, resolved from the full agent list
   // (archived included, since agentListOptions passes include_archived). An
@@ -533,7 +548,29 @@ export function useChatController(opts?: { isActive?: boolean }) {
         return false;
       }
 
-      const finalContent = content;
+      const intent = resolveAgentHandoff(content, availableAgents, activeAgent.id);
+      if (intent.kind === "multiple") {
+        toast.error(t(($) => $.handoff.multiple_targets));
+        return false;
+      }
+      if (intent.kind === "self") {
+        toast.error(t(($) => $.handoff.self_target));
+        return false;
+      }
+      if (intent.kind === "unavailable") {
+        toast.error(t(($) => $.handoff.unavailable_target));
+        return false;
+      }
+      if (
+        intent.kind === "ready" &&
+        ((attachmentIds?.length ?? 0) > 0 || draftAttachments.length > 0)
+      ) {
+        toast.error(t(($) => $.handoff.attachment_not_supported));
+        return false;
+      }
+      const finalContent = intent.kind === "ready"
+        ? buildAgentHandoffRequest(content, intent.target.name)
+        : content;
       const isNewSession = !activeSessionId;
 
       apiLogger.info("sendChatMessage.start", {
@@ -600,6 +637,13 @@ export function useChatController(opts?: { isActive?: boolean }) {
         messageId: result.message_id,
         taskId: result.task_id,
       });
+      if (intent.kind === "ready") {
+        handoff.registerAcceptedSource({
+          sessionId,
+          taskId: result.task_id,
+          target: intent.target,
+        });
+      }
 
       // Render the accepted message from the server response. Prime the message
       // caches BEFORE publishing the session so the first useQuery read after
@@ -673,7 +717,9 @@ export function useChatController(opts?: { isActive?: boolean }) {
       pendingTask,
       pendingTaskId,
       isAgentRuntimeBound,
+      availableAgents,
       ensureSession,
+      handoff,
       cancelChatTask,
       qc,
       setActiveSession,
@@ -883,6 +929,14 @@ export function useChatController(opts?: { isActive?: boolean }) {
     // draft restore
     restoreDraftRequest,
     handleRestoreDraftApplied,
+    handoff,
+    handoffDialog: handoff.dialog,
+    handoffActions: {
+      closeDialog: handoff.closeDialog,
+      setDraft: handoff.setDraft,
+      setDestination: handoff.setDestination,
+      deliver: handoff.deliver,
+    },
     // compose-box focus nonce (bumped on new chat)
     focusInputRequest,
     conversationStarterRequest,

@@ -197,6 +197,7 @@ export function useAgentHandoff({
   return {
     prepareOutgoing,
     registerAcceptedSource,
+    pendingSource,
     dialog,
     closeDialog,
     setDraft,

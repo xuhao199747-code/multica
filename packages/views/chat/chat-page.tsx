@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
 import { ArrowLeft, FolderOpen, FolderPlus, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
@@ -69,6 +69,7 @@ import { NoAgentBanner } from "./components/no-agent-banner";
 import { ArchivedAgentBanner } from "./components/archived-agent-banner";
 import { AgentAccessRevokedBanner } from "./components/agent-access-revoked-banner";
 import { RuntimeRequiredBanner } from "./components/runtime-required-banner";
+import { AgentHandoffDialog } from "./components/agent-handoff-dialog";
 
 /**
  * Chat tab — the first-class two-pane surface (thread list on the left,
@@ -800,10 +801,22 @@ export function ChatPage() {
     </div>
   );
 
+  const handoffDialog = c.handoffDialog && (
+    <AgentHandoffDialog
+      dialog={c.handoffDialog}
+      onDraftChange={c.handoffActions.setDraft}
+      onDestinationChange={c.handoffActions.setDestination}
+      onCancel={c.handoffActions.closeDialog}
+      onSend={c.handoffActions.deliver}
+    />
+  );
+
+  let pageContent: ReactNode;
+
   // -- Compact: list / conversation toggle -----------------------------------
   if (isCompact) {
     if (c.activeSessionId || composingNew) {
-      return (
+      pageContent = (
         <div className="flex flex-1 flex-col min-h-0">
           <div className="flex h-12 shrink-0 items-center border-b px-2">
             <Button
@@ -822,52 +835,55 @@ export function ChatPage() {
           {conversation}
         </div>
       );
-    }
-    return (
-      <div className="flex flex-1 flex-col min-h-0">
-        {listHeader}
-        <div className="flex-1 min-h-0 overflow-y-auto">{listBody}</div>
-      </div>
-    );
-  }
-
-  // -- Desktop: resizable two-panel. The conversation pane appears only once
-  // there is a chat target — an open thread or a new chat whose agent was just
-  // picked via ⊕. With nothing selected there is no agent, so we show a neutral
-  // prompt instead of an orphaned compose box. -------------------------------
-  const hasTarget = !!c.activeSessionId || composingNew;
-  return (
-    <ResizablePanelGroup
-      orientation="horizontal"
-      className="flex-1 min-h-0"
-      defaultLayout={defaultLayout}
-      onLayoutChanged={onLayoutChanged}
-    >
-      <ResizablePanel
-        id="list"
-        defaultSize={260}
-        minSize={240}
-        maxSize={480}
-        groupResizeBehavior="preserve-pixel-size"
-      >
-        <div className="flex flex-col border-r h-full">
+    } else {
+      pageContent = (
+        <div className="flex flex-1 flex-col min-h-0">
           {listHeader}
           <div className="flex-1 min-h-0 overflow-y-auto">{listBody}</div>
         </div>
-      </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel id="detail" minSize="40%">
-        <div className="flex flex-col min-h-0 h-full">
-          {hasTarget ? (
-            conversation
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-              <MessageSquare className="h-10 w-10 text-faint-foreground" />
-              <p className="text-body">{t(($) => $.page.select_prompt)}</p>
-            </div>
-          )}
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
-  );
+      );
+    }
+  } else {
+    // -- Desktop: resizable two-panel. The conversation pane appears only once
+    // there is a chat target — an open thread or a new chat whose agent was just
+    // picked via ⊕. With nothing selected there is no agent, so we show a neutral
+    // prompt instead of an orphaned compose box. -------------------------------
+    const hasTarget = !!c.activeSessionId || composingNew;
+    pageContent = (
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="flex-1 min-h-0"
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+      >
+        <ResizablePanel
+          id="list"
+          defaultSize={260}
+          minSize={240}
+          maxSize={480}
+          groupResizeBehavior="preserve-pixel-size"
+        >
+          <div className="flex flex-col border-r h-full">
+            {listHeader}
+            <div className="flex-1 min-h-0 overflow-y-auto">{listBody}</div>
+          </div>
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel id="detail" minSize="40%">
+          <div className="flex flex-col min-h-0 h-full">
+            {hasTarget ? (
+              conversation
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+                <MessageSquare className="h-10 w-10 text-faint-foreground" />
+                <p className="text-body">{t(($) => $.page.select_prompt)}</p>
+              </div>
+            )}
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    );
+  }
+
+  return <>{pageContent}{handoffDialog}</>;
 }

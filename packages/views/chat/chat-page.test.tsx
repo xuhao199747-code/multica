@@ -27,6 +27,11 @@ vi.mock("./components/chat-message-list", () => ({
 vi.mock("./components/chat-input", () => ({
   ChatInput: () => <div>chat-input</div>,
 }));
+vi.mock("./components/agent-handoff-dialog", () => ({
+  AgentHandoffDialog: ({ dialog }: { dialog: { target: Agent } }) => (
+    <div>handoff-dialog-for-{dialog.target.name}</div>
+  ),
+}));
 vi.mock("./components/chat-thread-list", () => ({
   ChatThreadList: ({
     onSelectSession,
@@ -111,6 +116,7 @@ const storeRef = vi.hoisted(() => ({
 const storeListeners = vi.hoisted(() => new Set<() => void>());
 const availableAgentsRef = vi.hoisted(() => ({ current: [] as Agent[] }));
 const agentsSettledRef = vi.hoisted(() => ({ current: true }));
+const handoffDialogRef = vi.hoisted(() => ({ current: null as null | { target: Agent } }));
 const mockStartNewChat = vi.hoisted(() => vi.fn());
 const mockStartProjectChat = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
@@ -197,6 +203,13 @@ vi.mock("./components/use-chat-controller", async () => {
       fetchOlderMessages: vi.fn(),
       restoreDraftRequest: null,
       handleRestoreDraftConsumed: vi.fn(),
+      handoffDialog: handoffDialogRef.current,
+      handoffActions: {
+        closeDialog: vi.fn(),
+        setDraft: vi.fn(),
+        setDestination: vi.fn(),
+        deliver: vi.fn(),
+      },
       focusInputRequest: 0,
       handleSend: vi.fn(),
       handleStop: vi.fn(),
@@ -293,6 +306,7 @@ beforeEach(() => {
   storeListeners.clear();
   availableAgentsRef.current = [agent];
   agentsSettledRef.current = true;
+  handoffDialogRef.current = null;
   platformWorkspace.slug = "acme";
   layout.width = DESKTOP;
   mockRuntimeList.current = [];
@@ -553,6 +567,17 @@ describe("ChatPage responsive layout", () => {
       screen.getByRole("button", { name: "select-thread" }),
     ).toBeInTheDocument();
     expect(screen.getByText("chat-input")).toBeInTheDocument();
+  });
+});
+
+describe("ChatPage handoff dialog", () => {
+  it("mounts the matching source reply handoff dialog outside compact layout branches", () => {
+    layout.width = FOLD_INNER;
+    handoffDialogRef.current = { target: agent };
+
+    renderPage("session=session-1");
+
+    expect(screen.getByText("handoff-dialog-for-Lambda")).toBeInTheDocument();
   });
 });
 
