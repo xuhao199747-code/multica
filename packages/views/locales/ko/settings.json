@@ -158,6 +158,10 @@
       "dark": "다크",
       "system": "시스템"
     },
+    "orientation": {
+      "title": "가로 화면 허용",
+      "hint": "끄면 지원되는 브라우저와 설치된 웹 앱이 세로 화면으로 유지됩니다."
+    },
     "language": {
       "title": "언어",
       "english": "English",

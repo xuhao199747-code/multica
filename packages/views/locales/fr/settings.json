@@ -159,6 +159,10 @@
       "dark": "Sombre",
       "system": "Système"
     },
+    "orientation": {
+      "title": "Autoriser le mode paysage",
+      "hint": "Lorsque cette option est désactivée, les navigateurs compatibles et les applications Web installées restent en portrait."
+    },
     "language": {
       "title": "Langue",
       "english": "English",

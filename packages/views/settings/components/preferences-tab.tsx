@@ -66,7 +66,12 @@ import {
  * so each section carries a scope badge instead of splitting them into tabs.
  * Changes apply immediately; only failures are announced.
  */
-export function PreferencesTab() {
+export function PreferencesTab({
+  appearanceRows,
+}: {
+  /** Web and desktop can supply device-specific appearance controls. */
+  appearanceRows?: React.ReactNode;
+} = {}) {
   const { t } = useT("settings");
   return (
     <SettingsTab title={t(($) => $.page.tabs.preferences)}>
@@ -88,6 +93,7 @@ export function PreferencesTab() {
       >
         <SettingsCard>
           <ThemeRow />
+          {appearanceRows}
         </SettingsCard>
       </SettingsSection>
 

@@ -14,6 +14,7 @@ import {
 } from "@/features/auth/auth-cookie";
 import { detectWebOS } from "@/platform/client-os";
 import { useUserLocaleSyncEnabled } from "@/platform/user-locale-sync";
+import { MobileOrientationPreferenceSync } from "@/platform/mobile-orientation";
 
 // Legacy token in localStorage → keep this session in token mode so users who
 // logged in before the cookie-auth migration stay authed. They migrate to
@@ -89,9 +90,12 @@ export function WebProviders({
       localeAdapter={localeAdapter}
       syncUserLocale={syncUserLocale}
     >
-      <WebNavigationProvider>
-        <WebScrollRestorationProvider>{children}</WebScrollRestorationProvider>
-      </WebNavigationProvider>
+      <>
+        <MobileOrientationPreferenceSync />
+        <WebNavigationProvider>
+          <WebScrollRestorationProvider>{children}</WebScrollRestorationProvider>
+        </WebNavigationProvider>
+      </>
     </CoreProvider>
   );
 }

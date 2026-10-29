@@ -449,3 +449,16 @@ describe("PreferencesTab — Scope", () => {
     expect(preview).toHaveAttribute("aria-pressed", "true");
   });
 });
+
+describe("PreferencesTab — platform appearance setting", () => {
+  it("renders an appearance row supplied by the platform", () => {
+    render(
+      <PreferencesTab
+        appearanceRows={<div data-testid="landscape-preference">Allow landscape</div>}
+      />,
+      { wrapper: I18nWrapper },
+    );
+
+    expect(screen.getByTestId("landscape-preference")).toBeInTheDocument();
+  });
+});

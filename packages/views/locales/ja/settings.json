@@ -158,6 +158,10 @@
       "dark": "ダーク",
       "system": "システム"
     },
+    "orientation": {
+      "title": "横向き表示を許可",
+      "hint": "オフにすると、対応ブラウザーとインストール済み Web アプリは縦向きに固定されます。"
+    },
     "language": {
       "title": "言語",
       "english": "English",
