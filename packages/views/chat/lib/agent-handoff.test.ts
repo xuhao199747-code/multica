@@ -30,6 +30,12 @@ describe("resolveAgentHandoff", () => {
     )).toEqual({ kind: "multiple" });
   });
 
+  it("rejects repeated persisted Agent mentions as multiple", () => {
+    expect(resolveAgentHandoff(
+      "[@Code](mention://agent/code) [@Code](mention://agent/code)", agents, "prd",
+    )).toEqual({ kind: "multiple" });
+  });
+
   it("rejects a self mention", () => {
     expect(resolveAgentHandoff("[@PRD](mention://agent/prd)", agents, "prd"))
       .toEqual({ kind: "self" });
@@ -57,6 +63,11 @@ describe("buildAgentHandoffRequest", () => {
 
 没有依据时写“不确定”，不要编造。不要写普通回复或寒暄。`,
     );
+  });
+
+  it("inserts target names containing replacement tokens literally", () => {
+    expect(buildAgentHandoffRequest("Please hand this off.", "Code $& Agent"))
+      .toContain("可直接交给 Code $& Agent 的交接内容");
   });
 });
 

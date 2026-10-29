@@ -37,14 +37,12 @@ export function resolveAgentHandoff(
   eligibleAgents: readonly HandoffAgent[],
   sourceAgentId: string,
 ): AgentHandoff {
-  const targetIds = new Set(
-    [...content.matchAll(AGENT_MENTION_RE)].map((match) => match[1]),
-  );
+  const targetIds = [...content.matchAll(AGENT_MENTION_RE)].map((match) => match[1]);
 
-  if (targetIds.size === 0) return { kind: "none" };
-  if (targetIds.size > 1) return { kind: "multiple" };
+  if (targetIds.length === 0) return { kind: "none" };
+  if (targetIds.length > 1) return { kind: "multiple" };
 
-  const targetId = targetIds.values().next().value as string;
+  const targetId = targetIds[0];
   if (targetId === sourceAgentId) return { kind: "self" };
 
   const target = eligibleAgents.find((agent) => agent.id === targetId);
@@ -52,7 +50,7 @@ export function resolveAgentHandoff(
 }
 
 export function buildAgentHandoffRequest(content: string, targetName: string): string {
-  return `${content}\n\n${HANDOFF_INSTRUCTION.replace("${targetName}", targetName)}`;
+  return `${content}\n\n${HANDOFF_INSTRUCTION.replace("${targetName}", () => targetName)}`;
 }
 
 export function isStructuredHandoffDraft(content: string): boolean {
