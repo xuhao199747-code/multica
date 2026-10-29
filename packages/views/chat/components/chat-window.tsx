@@ -87,6 +87,12 @@ import {
   seedAcceptedPendingTask,
 } from "./use-chat-controller";
 import { useChatProjectContextSupport } from "./use-chat-project-context-support";
+import { AgentHandoffDialog } from "./agent-handoff-dialog";
+import { useAgentHandoff } from "./use-agent-handoff";
+import {
+  buildAgentHandoffRequest,
+  resolveAgentHandoff,
+} from "../lib/agent-handoff";
 import { createLogger } from "@multica/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
 import { useLocale, useT } from "../../i18n";
@@ -153,6 +159,7 @@ export function ChatWindow() {
   const { data: pendingTask, isLoading: pendingTaskLoading } = useQuery(
     pendingChatTaskOptions(activeSessionId ?? ""),
   );
+  const { data: pendingTasks } = useQuery(pendingChatTasksOptions(wsId));
   const showSkeleton =
     !!activeSessionId && (messagesLoading || pendingTaskLoading);
   const messages = hideQueuedChatMessages(allMessages, pendingTask);
@@ -242,6 +249,14 @@ export function ChatWindow() {
   const availableAgents = agents.filter(
     (a) => !a.archived_at && canAssignAgent(a, user?.id, memberRole),
   );
+  const handoff = useAgentHandoff({
+    wsId,
+    activeSessionId,
+    messages,
+    sessions,
+    pendingTasks,
+    eligibleAgents: availableAgents,
+  });
 
   // The agent bound to the OPEN session, resolved from the full agent list
   // (archived included). An archived agent is filtered out of availableAgents,
@@ -472,7 +487,29 @@ export function ChatWindow() {
         return false;
       }
 
-      const finalContent = content;
+      const intent = resolveAgentHandoff(content, availableAgents, activeAgent.id);
+      if (intent.kind === "multiple") {
+        toast.error(t(($) => $.handoff.multiple_targets));
+        return false;
+      }
+      if (intent.kind === "self") {
+        toast.error(t(($) => $.handoff.self_target));
+        return false;
+      }
+      if (intent.kind === "unavailable") {
+        toast.error(t(($) => $.handoff.unavailable_target));
+        return false;
+      }
+      if (
+        intent.kind === "ready" &&
+        ((attachmentIds?.length ?? 0) > 0 || draftAttachments.length > 0)
+      ) {
+        toast.error(t(($) => $.handoff.attachment_not_supported));
+        return false;
+      }
+      const finalContent = intent.kind === "ready"
+        ? buildAgentHandoffRequest(content, intent.target.name)
+        : content;
 
       const isNewSession = !activeSessionId;
 
@@ -534,6 +571,13 @@ export function ChatWindow() {
         messageId: result.message_id,
         taskId: result.task_id,
       });
+      if (intent.kind === "ready") {
+        handoff.registerAcceptedSource({
+          sessionId,
+          taskId: result.task_id,
+          target: intent.target,
+        });
+      }
 
       // Render the accepted message from the server response. Seed the message
       // caches BEFORE flipping activeSessionId: if we set the active session
@@ -617,6 +661,8 @@ export function ChatWindow() {
       pendingTask,
       pendingTaskId,
       ensureSession,
+      availableAgents,
+      handoff,
       cancelChatTask,
       qc,
       setActiveSession,
@@ -1035,6 +1081,15 @@ export function ChatWindow() {
         contextItems={contextItems}
         focusRequest={focusRequest}
       />
+      {handoff.dialog && (
+        <AgentHandoffDialog
+          dialog={handoff.dialog}
+          onDraftChange={handoff.setDraft}
+          onDestinationChange={handoff.setDestination}
+          onCancel={handoff.closeDialog}
+          onSend={handoff.deliver}
+        />
+      )}
     </motion.div>
   );
 }
