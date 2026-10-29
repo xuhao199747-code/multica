@@ -452,7 +452,7 @@ export function ChatInput({
   // surface routes the file through the editor's upload extension (same
   // handler as the in-editor paste path).
   const { isDragOver, dropZoneProps } = useFileDropZone({
-    onDrop: (files) => files.forEach((f) => editorRef.current?.uploadFile(f)),
+    onDrop: (files) => files.forEach((f) => editorRef.current?.uploadFile(f, "start")),
   });
 
   // The unified await-then-render send contract (MUL-5181). `useComposerSubmit`
@@ -712,7 +712,7 @@ export function ChatInput({
             {(uploadEnabled || projectSelectionEnabled) && (
               <ChatAddMenu
                 onSelectFile={uploadEnabled
-                  ? (file) => editorRef.current?.uploadFile(file)
+                  ? (file) => editorRef.current?.uploadFile(file, "start")
                   : undefined}
                 projects={projects}
                 projectId={projectId}

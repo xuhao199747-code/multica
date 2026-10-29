@@ -65,6 +65,7 @@ const editorState = vi.hoisted(() => ({
   cleared: 0,
   blurred: 0,
   focused: 0,
+  uploadPlacements: [] as Array<"start" | "end">,
   adopted: [] as string[],
 }));
 
@@ -123,7 +124,8 @@ vi.mock("../../editor", async () => ({
       focus: () => {
         editorState.focused += 1;
       },
-      uploadFile: async (file: File) => {
+      uploadFile: async (file: File, placement: "start" | "end" = "end") => {
+        editorState.uploadPlacements.push(placement);
         uploadingRef.current += 1;
         // Mirror the real editor: the pending node lands before the await, and
         // the host learns about it through onUploadingChange, not by polling.
@@ -254,6 +256,7 @@ beforeEach(() => {
   editorState.cleared = 0;
   editorState.blurred = 0;
   editorState.focused = 0;
+  editorState.uploadPlacements = [];
   editorState.adopted = [];
   const state = useChatStore.getState() as unknown as {
     activeSessionId: string | null;
@@ -710,6 +713,7 @@ describe("ChatInput attachment wiring", () => {
     });
     expect(mockApiUploadFile).toHaveBeenCalledTimes(1);
     expect(mockApiUploadFile.mock.calls[0]?.[0]).toBe(file);
+    expect(editorState.uploadPlacements).toEqual(["start"]);
   });
 
   it("passes attachment_ids to onSend for uploads still referenced in the content", async () => {

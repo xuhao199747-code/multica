@@ -277,7 +277,8 @@ interface ContentEditorRef {
    *  `afterAccepted: "blur"` on surfaces where a send ends the turn, so the
    *  composer stops reading as "still writing". */
   blur: () => void;
-  uploadFile: (file: File) => void;
+  /** Insert at the end by default; chat uses "start" to reserve its image strip. */
+  uploadFile: (file: File, placement?: "start" | "end") => void;
   /** True when file uploads are still in progress. */
   hasActiveUploads: () => boolean;
   /**
@@ -939,10 +940,10 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       blur: () => {
         editor?.commands.blur();
       },
-      uploadFile: (file: File) => {
+      uploadFile: (file: File, placement = "end") => {
         if (!editor || !onUploadFileRef.current) return;
-        const endPos = editor.state.doc.content.size;
-        uploadAndInsertFile(editor, file, onUploadFileRef.current, endPos);
+        const insertPos = placement === "start" ? 0 : editor.state.doc.content.size;
+        uploadAndInsertFile(editor, file, onUploadFileRef.current, insertPos);
       },
       hasActiveUploads: () => (editor ? hasUploadingNode(editor) : false),
       insertUploadPlaceholder: (upload) => {
