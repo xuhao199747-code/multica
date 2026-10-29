@@ -236,6 +236,7 @@ export function useAgentHandoff({
   }, [availableSessions, busySessionIds, createChatSession, dialogState, queryClient, targetAvailable, wsId]);
 
   const clearFeedback = useCallback(() => setFeedback(null), []);
+  const clearError = useCallback(() => setError(null), []);
 
   return {
     prepareOutgoing,
@@ -247,6 +248,7 @@ export function useAgentHandoff({
     setDestination,
     deliver,
     error,
+    clearError,
     feedback,
     clearFeedback,
     isDelivering,

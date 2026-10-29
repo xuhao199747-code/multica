@@ -323,4 +323,31 @@ describe("useAgentHandoff", () => {
 
     expect(result.current.feedback).toEqual({ kind: "delivered", targetName: "Code", conversationTitle: "Existing code work" });
   });
+
+  it("allows each source failure and delivery feedback to be consumed once", async () => {
+    const { result, rerender } = renderAgentHandoff();
+    act(() => result.current.registerAcceptedSource({ sessionId: "a-chat", taskId: "task-a", target: codeAgent }));
+    rerender({
+      wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant({ failure_reason: "agent_error" })],
+      sessions: [], pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent],
+    });
+    await waitFor(() => expect(result.current.error).toBe("source_failed"));
+
+    act(() => result.current.clearError());
+    expect(result.current.error).toBeNull();
+
+    h.createSession.mockResolvedValue({ id: "new-b-chat" });
+    vi.mocked(api.sendChatMessage).mockResolvedValue({} as Awaited<ReturnType<typeof api.sendChatMessage>>);
+    act(() => result.current.registerAcceptedSource({ sessionId: "a-chat", taskId: "task-b", target: codeAgent }));
+    rerender({
+      wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant({ task_id: "task-b" })],
+      sessions: [], pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent],
+    });
+    await waitFor(() => expect(result.current.dialog).not.toBeNull());
+    await act(async () => result.current.deliver());
+    expect(result.current.feedback).not.toBeNull();
+
+    act(() => result.current.clearFeedback());
+    expect(result.current.feedback).toBeNull();
+  });
 });

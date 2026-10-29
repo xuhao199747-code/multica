@@ -279,6 +279,25 @@ export function ChatWindow() {
   const activeAgentRuntimeBound =
     !!activeAgent && isAgentRuntimeBound(activeAgent);
 
+  useEffect(() => {
+    if (!handoff.error) return;
+    toast.error(
+      handoff.error === "source_failed"
+        ? t(($) => $.handoff.source_failed, { name: activeAgent?.name ?? "" })
+        : t(($) => $.handoff.source_no_response, { name: activeAgent?.name ?? "" }),
+    );
+    handoff.clearError();
+  }, [activeAgent?.name, handoff, t]);
+
+  useEffect(() => {
+    if (!handoff.feedback) return;
+    toast.success(t(($) => $.handoff.delivered, {
+      name: handoff.feedback.targetName,
+      conversation: handoff.feedback.conversationTitle,
+    }));
+    handoff.clearFeedback();
+  }, [handoff, t]);
+
   // A session outlives the permission that created it: the agent can be flipped
   // to personal, change owner, or drop this member from its allow-list, and the
   // server then refuses every send with `invocation_not_allowed` while still

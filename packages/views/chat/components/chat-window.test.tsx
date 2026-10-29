@@ -68,7 +68,7 @@ vi.mock("@multica/core/logger", () => ({
   noopLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock("../../common/use-app-foreground", () => ({ useAppForeground: () => true }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("motion/react", () => ({ motion: { div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div> } }));
 vi.mock("@multica/ui/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("./use-chat-draft-restore", () => ({ useChatDraftRestore: () => ({ restoreDraftRequest: null, enqueueLocalRestore: vi.fn(), handleRestoreDraftApplied: vi.fn() }) }));
