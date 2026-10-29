@@ -242,11 +242,11 @@ describe("useAgentHandoff", () => {
       result.current.setDraft("edited handoff");
     });
     await act(async () => {
-      await expect(result.current.deliver()).rejects.toThrow("network down");
+      await expect(result.current.deliver()).rejects.toThrow("delivery_ambiguous");
     });
     expect(result.current.dialog?.draft).toBe("edited handoff");
     expect(result.current.dialog?.destination).toEqual({ kind: "existing", sessionId: "b-chat" });
-    expect(result.current.dialog?.error).toBe("network down");
+    expect(result.current.dialog?.error).toBe("delivery_ambiguous");
   });
 
   it("rejects an unavailable or busy existing destination without sending", async () => {
@@ -271,5 +271,56 @@ describe("useAgentHandoff", () => {
     await act(async () => expect(result.current.deliver()).rejects.toThrow("busy"));
     expect(api.sendChatMessage).not.toHaveBeenCalled();
     expect(result.current.dialog?.error).toContain("busy");
+  });
+
+  it("disables delivery when B becomes unavailable after A accepts", async () => {
+    const { result, rerender } = renderAgentHandoff();
+    act(() => result.current.registerAcceptedSource({ sessionId: "a-chat", taskId: "task-a", target: codeAgent }));
+    rerender({
+      wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [],
+      pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent],
+    });
+    await waitFor(() => expect(result.current.dialog).not.toBeNull());
+
+    rerender({
+      wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [],
+      pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent],
+    });
+    await waitFor(() => expect(result.current.dialog?.targetAvailable).toBe(false));
+    await act(async () => expect(result.current.deliver()).rejects.toThrow("destination_unavailable"));
+
+    expect(h.createSession).not.toHaveBeenCalled();
+    expect(api.sendChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("retains a created B conversation and ambiguous-delivery guidance after send fails", async () => {
+    h.createSession.mockResolvedValue({ id: "new-b-chat" });
+    vi.mocked(api.sendChatMessage).mockRejectedValue(new Error("network down"));
+    const { result, rerender } = renderAgentHandoff();
+    act(() => result.current.registerAcceptedSource({ sessionId: "a-chat", taskId: "task-a", target: codeAgent }));
+    rerender({ wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [], pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent] });
+    await waitFor(() => expect(result.current.dialog).not.toBeNull());
+
+    await act(async () => expect(result.current.deliver()).rejects.toThrow("delivery_ambiguous"));
+
+    expect(result.current.dialog).toMatchObject({
+      draft: "目标：\n交给 Code 实现。",
+      destination: { kind: "new" },
+      error: "delivery_ambiguous",
+      deliverySession: { id: "new-b-chat", title: "目标：" },
+    });
+  });
+
+  it("reports a named B conversation after delivery succeeds", async () => {
+    vi.mocked(api.sendChatMessage).mockResolvedValue({} as Awaited<ReturnType<typeof api.sendChatMessage>>);
+    const { result, rerender } = renderAgentHandoff({ sessions: [session()] });
+    act(() => result.current.registerAcceptedSource({ sessionId: "a-chat", taskId: "task-a", target: codeAgent }));
+    rerender({ wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [session()], pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent] });
+    await waitFor(() => expect(result.current.dialog).not.toBeNull());
+    act(() => result.current.setDestination({ kind: "existing", sessionId: "b-chat" }));
+
+    await act(async () => result.current.deliver());
+
+    expect(result.current.feedback).toEqual({ kind: "delivered", targetName: "Code", conversationTitle: "Existing code work" });
   });
 });

@@ -36,8 +36,10 @@ function dialog(overrides: Partial<AgentHandoffDialogState> = {}): AgentHandoffD
     draft: "目标：\nShip the dialog\n已确认的需求：\nEditable\n需要实现：\nA dialog\n不要改：\nMobile\n验收条件：\nTests pass\n参考位置：\nchat\n不确定项：\nNone",
     destination: { kind: "new" },
     error: null,
+    deliverySession: null,
     availableSessions: [session()],
     busySessionIds: new Set(),
+    targetAvailable: true,
     ...overrides,
   };
 }
@@ -104,6 +106,27 @@ describe("AgentHandoffDialog", () => {
 
     expect(screen.getByRole("radio", { name: /code implementation/i })).toBeDisabled();
     expect(screen.getByText(/currently busy/i)).toBeVisible();
+  });
+
+  it("disables every destination and explains when B is no longer available", () => {
+    renderDialog({ dialog: dialog({ targetAvailable: false }) });
+
+    expect(screen.getByRole("radio", { name: /new handoff conversation/i })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /code implementation/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /send to code agent/i })).toBeDisabled();
+    expect(screen.getByText(/no longer available/i)).toBeVisible();
+  });
+
+  it("explains how to inspect a possibly delivered message", () => {
+    renderDialog({ dialog: dialog({
+      error: "delivery_ambiguous",
+      deliverySession: { id: "new-b-chat", title: "New B handoff" },
+    }) });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/may already have been delivered/i);
+    expect(screen.getByRole("alert")).toHaveTextContent("New B handoff");
+    expect(screen.getByRole("alert")).toHaveTextContent("new-b-chat");
+    expect(screen.getByRole("alert")).toHaveTextContent(/before retrying manually/i);
   });
 
   it("keeps the dialog and draft open after delivery fails", async () => {

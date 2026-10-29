@@ -43,6 +43,7 @@ export function AgentHandoffDialog({
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const error = submissionError ?? dialog.error;
   const isBlank = !dialog.draft.trim();
+  const isTargetUnavailable = !dialog.targetAvailable;
 
   const send = async () => {
     if (isBlank || isSubmitting) return;
@@ -51,7 +52,7 @@ export function AgentHandoffDialog({
     try {
       await onSend(dialog.draft, dialog.destination);
     } catch (cause) {
-      setSubmissionError(cause instanceof Error ? cause.message : t(($) => $.handoff.failed));
+      setSubmissionError(cause instanceof Error ? cause.message : "delivery_failed");
     } finally {
       setIsSubmitting(false);
     }
@@ -83,7 +84,7 @@ export function AgentHandoffDialog({
           )}
         </div>
 
-        <fieldset className="grid gap-2" disabled={isSubmitting}>
+        <fieldset className="grid gap-2" disabled={isSubmitting || isTargetUnavailable}>
           <legend className="text-label font-medium">
             {t(($) => $.handoff.receiving_conversation, { name: dialog.target.name })}
           </legend>
@@ -122,13 +123,35 @@ export function AgentHandoffDialog({
           })}
         </fieldset>
 
-        {error && <p role="alert" className="text-caption text-destructive">{error}</p>}
+        {isTargetUnavailable && (
+          <p className="text-caption text-destructive">
+            {t(($) => $.handoff.target_unavailable_explanation, { name: dialog.target.name })}
+          </p>
+        )}
+
+        {error && (
+          <p role="alert" className="text-caption text-destructive">
+            {error === "delivery_ambiguous"
+              ? t(($) => $.handoff.delivery_ambiguous, {
+                name: dialog.target.name,
+                conversation: dialog.deliverySession?.title ?? t(($) => $.handoff.selected_conversation),
+                id: dialog.deliverySession?.id ?? t(($) => $.handoff.unknown_conversation_id),
+              })
+              : error === "destination_unavailable"
+                ? t(($) => $.handoff.unavailable_target)
+                : error === "destination_busy"
+                  ? t(($) => $.handoff.busy_explanation)
+                  : error === "blank"
+                    ? t(($) => $.handoff.blank)
+                    : t(($) => $.handoff.failed)}
+          </p>
+        )}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
             {t(($) => $.handoff.cancel)}
           </Button>
-          <Button type="button" onClick={send} disabled={isBlank || isSubmitting} aria-busy={isSubmitting}>
+          <Button type="button" onClick={send} disabled={isBlank || isSubmitting || isTargetUnavailable} aria-busy={isSubmitting}>
             {isSubmitting
               ? t(($) => $.handoff.sending, { name: dialog.target.name })
               : t(($) => $.handoff.send, { name: dialog.target.name })}

@@ -30,15 +30,32 @@ type HandoffDialogState = {
   target: Agent;
   draft: string;
   destination: AgentHandoffDestination;
-  error: string | null;
+  error: AgentHandoffDeliveryError | null;
+  deliverySession: DeliverySession | null;
+};
+
+type DeliverySession = {
+  id: string;
+  title: string;
 };
 
 export type AgentHandoffDialog = HandoffDialogState & {
   availableSessions: ChatSession[];
   busySessionIds: Set<string>;
+  targetAvailable: boolean;
 };
 
 export type AgentHandoffError = "source_failed" | "source_no_response" | null;
+type AgentHandoffDeliveryError =
+  | "blank"
+  | "destination_unavailable"
+  | "destination_busy"
+  | "delivery_failed"
+  | "delivery_ambiguous";
+export type AgentHandoffFeedback =
+  | { kind: "source_failed" | "source_no_response" }
+  | { kind: "delivered"; targetName: string; conversationTitle: string }
+  | null;
 
 export function useAgentHandoff({
   wsId,
@@ -60,6 +77,7 @@ export function useAgentHandoff({
   const [pendingSource, setPendingSource] = useState<PendingSource | null>(null);
   const [dialogState, setDialogState] = useState<HandoffDialogState | null>(null);
   const [error, setError] = useState<AgentHandoffError>(null);
+  const [feedback, setFeedback] = useState<AgentHandoffFeedback>(null);
   const [isDelivering, setIsDelivering] = useState(false);
 
   const prepareOutgoing = useCallback(
@@ -76,6 +94,7 @@ export function useAgentHandoff({
 
   const registerAcceptedSource = useCallback((source: PendingSource) => {
     setError(null);
+    setFeedback(null);
     setDialogState(null);
     setPendingSource(source);
   }, []);
@@ -113,6 +132,7 @@ export function useAgentHandoff({
       draft: response.content,
       destination: { kind: "new" },
       error: null,
+      deliverySession: null,
     });
   }, [activeSessionId, messages, pendingSource]);
 
@@ -121,6 +141,9 @@ export function useAgentHandoff({
       (session) => session.status === "active" && session.agent_id === dialogState.target.id,
     ),
     [dialogState, sessions],
+  );
+  const targetAvailable = !!dialogState && eligibleAgents.some(
+    (agent) => agent.id === dialogState.target.id,
   );
   const busySessionIds = useMemo(
     () => new Set((pendingTasks?.tasks ?? []).map((task) => task.chat_session_id)),
@@ -132,8 +155,9 @@ export function useAgentHandoff({
       ...dialogState,
       availableSessions,
       busySessionIds,
+      targetAvailable,
     };
-  }, [availableSessions, busySessionIds, dialogState]);
+  }, [availableSessions, busySessionIds, dialogState, targetAvailable]);
 
   const closeDialog = useCallback(() => {
     setDialogState(null);
@@ -151,22 +175,24 @@ export function useAgentHandoff({
   const deliver = useCallback(async () => {
     if (!dialogState) throw new Error("No handoff is ready for delivery");
     const destination = dialogState.destination;
-    const failDelivery = (message: string): never => {
+    const failDelivery = (message: AgentHandoffDeliveryError): never => {
       setDialogState((current) => current ? { ...current, error: message } : current);
       throw new Error(message);
     };
-    if (!dialogState.draft.trim()) failDelivery("Handoff content cannot be blank");
+    if (!dialogState.draft.trim()) failDelivery("blank");
+    if (!targetAvailable) failDelivery("destination_unavailable");
     if (destination.kind === "existing") {
       const isAvailable = availableSessions.some(
         (session) => session.id === destination.sessionId,
       );
-      if (!isAvailable) failDelivery("Selected handoff destination is unavailable");
+      if (!isAvailable) failDelivery("destination_unavailable");
       if (busySessionIds.has(destination.sessionId)) {
-        failDelivery("Selected handoff destination is busy");
+        failDelivery("destination_busy");
       }
     }
 
     setIsDelivering(true);
+    let deliverySession: DeliverySession | null = null;
     try {
       const sessionId = destination.kind === "new"
         ? (await createChatSession.mutateAsync({
@@ -174,6 +200,13 @@ export function useAgentHandoff({
           title: deriveChatTitle(dialogState.draft),
         })).id
         : destination.sessionId;
+      deliverySession = destination.kind === "new"
+        ? { id: sessionId, title: deriveChatTitle(dialogState.draft) }
+        : (() => {
+          const session = availableSessions.find((candidate) => candidate.id === sessionId);
+          return { id: sessionId, title: session?.title ?? sessionId };
+        })();
+      setDialogState((current) => current ? { ...current, deliverySession } : current);
       await api.sendChatMessage(sessionId, dialogState.draft);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: chatKeys.sessions(wsId) }),
@@ -183,16 +216,26 @@ export function useAgentHandoff({
         queryClient.invalidateQueries({ queryKey: chatKeys.pendingTask(sessionId) }),
         queryClient.invalidateQueries({ queryKey: chatKeys.pendingTasks(wsId) }),
       ]);
+      setFeedback({
+        kind: "delivered",
+        targetName: dialogState.target.name,
+        conversationTitle: deliverySession.title,
+      });
       setDialogState(null);
     } catch (cause) {
+      const deliveryError: AgentHandoffDeliveryError = deliverySession
+        ? "delivery_ambiguous"
+        : "delivery_failed";
       setDialogState((current) => current
-        ? { ...current, error: cause instanceof Error ? cause.message : "Unable to deliver handoff" }
+        ? { ...current, error: deliveryError, deliverySession: deliverySession ?? current.deliverySession }
         : current);
-      throw cause;
+      throw new Error(deliveryError);
     } finally {
       setIsDelivering(false);
     }
-  }, [availableSessions, busySessionIds, createChatSession, dialogState, queryClient, wsId]);
+  }, [availableSessions, busySessionIds, createChatSession, dialogState, queryClient, targetAvailable, wsId]);
+
+  const clearFeedback = useCallback(() => setFeedback(null), []);
 
   return {
     prepareOutgoing,
@@ -204,6 +247,8 @@ export function useAgentHandoff({
     setDestination,
     deliver,
     error,
+    feedback,
+    clearFeedback,
     isDelivering,
   };
 }
