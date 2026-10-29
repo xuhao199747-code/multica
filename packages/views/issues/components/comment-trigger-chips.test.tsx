@@ -57,18 +57,6 @@ describe("CommentTriggerChips", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("describes @all semantics without promising any recipients", () => {
-    renderWithI18n(<CommentTriggerChips recipients={[]} hasAllMembersMention onActionChange={vi.fn()} />);
-    expect(screen.getByText("Member broadcast · @all does not start agents")).toBeInTheDocument();
-    expect(screen.queryByText(/notif/i)).not.toBeInTheDocument();
-  });
-
-  it("keeps explicit agent triggers visible alongside @all semantics", () => {
-    renderWithI18n(<CommentTriggerChips recipients={[entry(bob, idle)]} hasAllMembersMention onActionChange={vi.fn()} />);
-    expect(screen.getByText("Member broadcast · @all does not start agents")).toBeInTheDocument();
-    expect(screen.getByText("Will start when sent")).toBeInTheDocument();
-  });
-
   it("offers an idle recipient only to start or skip — never to add to a run", async () => {
     const onActionChange = vi.fn();
     renderWithI18n(<CommentTriggerChips recipients={[entry(walt, idle)]} onActionChange={onActionChange} />);

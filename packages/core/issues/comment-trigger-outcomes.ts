@@ -6,7 +6,7 @@ import type { CommentTriggerOutcome } from "../types/comment";
 // Kept as a string so every parse builds its OWN global RegExp — sharing one
 // global instance across `matchAll` calls leaks `lastIndex` and drops matches.
 const MENTION_MARKUP_SOURCE =
-  "\\[@?(.+?)\\]\\(mention:\\/\\/(member|agent|squad|issue|all)\\/([0-9a-fA-F-]+|all)\\)";
+  "\\[@?(.+?)\\]\\(mention:\\/\\/(member|agent|squad|issue)\\/([0-9a-fA-F-]+)\\)";
 
 export interface ParsedMention {
   label: string;

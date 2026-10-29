@@ -73,7 +73,7 @@ import { blockedReasonLabel } from "../../issues/blocked-trigger-copy";
 export interface MentionItem {
   id: string;
   label: string;
-  type: "member" | "agent" | "squad" | "issue" | "project" | "all";
+  type: "member" | "agent" | "squad" | "issue" | "project";
   /** Optional grouping hint for injected context items. */
   group?: "current" | "recent" | "search";
   /** Secondary text shown beside the label (e.g. issue title) */
@@ -640,14 +640,9 @@ function MentionRow({
       } ${disabledMessage ? "cursor-not-allowed opacity-50" : ""}`}
       onClick={onSelect}
     >
-      <ActorAvatar
-        actorType={item.type === "all" ? "member" : item.type}
-        actorId={item.id}
-        size="sm"
-        showStatusDot
-      />
+      <ActorAvatar actorType={item.type} actorId={item.id} size="sm" showStatusDot />
       <span className="truncate font-medium">
-        {item.type === "all" ? t(($) => $.mention.all_members) : item.label}
+        {item.label}
       </span>
       {item.type === "agent" && (
         <Badge variant="outline" className="ml-auto text-micro h-4 px-1.5">
@@ -769,11 +764,6 @@ export function createMentionSuggestion(
 
     const q = query.toLowerCase();
 
-    const allItem: MentionItem[] =
-      "all members".includes(q) || "all".includes(q)
-        ? [{ id: "all", label: "All members", type: "all" as const }]
-        : [];
-
     const memberItems: MentionItem[] = members
       .filter((m) => m.name.toLowerCase().includes(q) || matchesPinyin(m.name, q))
       .map((m) => ({
@@ -838,7 +828,7 @@ export function createMentionSuggestion(
       )
       .map(issueToMention);
 
-    return [...allItem, ...userItems, ...issueItems];
+    return [...userItems, ...issueItems];
   }
 
   return {

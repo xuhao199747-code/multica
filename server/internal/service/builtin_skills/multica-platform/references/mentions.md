@@ -8,7 +8,6 @@ that and do not re-derive it here.
 - [Step 1 — look up the UUID](#step-1--look-up-the-uuid)
 - [Step 2 — the four types and what each enqueues](#step-2--the-four-types-and-what-each-enqueues)
 - [Preview and per-comment suppression](#preview-and-per-comment-suppression)
-- [@all is the broadcast type](#all-is-the-broadcast-type)
 - [What does NOT happen](#what-does-not-happen)
 - [Who the invoke gate judges](#who-the-invoke-gate-judges)
 - [Incorrect to correct](#incorrect-to-correct)
@@ -19,15 +18,13 @@ The backend recognizes a mention only through this Markdown shape:
 
     [@Label](mention://<type>/<id>)
 
-The parser accepts exactly four `<type>` values plus the `all` sentinel, and the
-`<id>` group accepts only hex characters and dashes, OR the literal string
-`all`:
+The parser accepts exactly four `<type>` values, and the `<id>` group accepts
+only hex characters and dashes:
 
-    (member|agent|squad|issue|all)/([0-9a-fA-F-]+|all)
+    (member|agent|squad|issue)/([0-9a-fA-F-]+)
 
-So the link target is a real entity UUID (or `all`), never a display name. The
-label between the brackets is free text — that is where the human-readable name
-goes.
+So the link target is a real entity UUID, never a display name. The label
+between the brackets is free text — that is where the human-readable name goes.
 
 One `mention://` form deliberately sits OUTSIDE this parser:
 `[Label](mention://project/<uuid>)`. `project` is absent from the type group
@@ -35,8 +32,8 @@ above, so the backend never parses it and it can enqueue nothing — it is a
 render-only link every client makes navigable (a chip on web and desktop, an
 ordinary link that opens the project on tap on mobile). That is the whole point:
 a project reference should never be able to start a run. Use it freely to point
-at a project; everything else in this document is about the four types (plus
-`all`) the parser does recognize.
+at a project; everything else in this document is about the four types the
+parser does recognize.
 
 ## Step 1 — look up the UUID
 
@@ -90,26 +87,6 @@ When creating or editing a comment, clients may send an optional
 first, then removes those agent IDs as a post-filter. A missing or empty field
 preserves the old behavior. A valid UUID that is not in the computed trigger set
 is a no-op; a malformed UUID is rejected at the request boundary.
-
-## @all is the broadcast type
-
-`@all` uses the literal `all`, never a UUID:
-
-    [@all](mention://all/all)
-
-It addresses everyone on the issue. It does NOT make any specific agent run.
-And it is special at trigger time: a comment that carries an `@all` mention is
-treated as a broadcast that SUPPRESSES the issue assignee's automatic
-on-comment trigger (and the other implicit routing fallbacks — thread parent /
-conversation owner). Use `@all` to announce, not to request work from the
-assignee.
-
-`@all` only suppresses those IMPLICIT routes. An EXPLICIT `@agent` / `@squad`
-mention in the same comment still fires normally: a comment reading
-`[@all](mention://all/all) heads up — [@Preflight](mention://agent/<uuid>)
-please take this` enqueues Preflight and nobody else. The explicit-mention
-branch is evaluated BEFORE the `@all` short-circuit, so explicit mentions win
-over the broadcast.
 
 ## What does NOT happen
 
@@ -231,9 +208,6 @@ Correct:
   1. `multica workspace member list --output json`  → Alice's `user_id` = 7f3a…
   2. `[@Alice](mention://member/7f3a…) please review`
      → a real `user_id` parses; the link renders and resolves to Alice.
-
-@all broadcast: `[@all](mention://all/all) heads up` — addresses everyone,
-runs no specific agent, and suppresses the assignee auto-trigger.
 
 Using the wrong `type` for a real UUID still parses — it just resolves to the
 wrong entity, or to nothing. That is why the type must match the id source.

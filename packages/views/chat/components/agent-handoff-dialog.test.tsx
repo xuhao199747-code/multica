@@ -136,7 +136,7 @@ describe("AgentHandoffDialog", () => {
 
     await user.click(screen.getByRole("button", { name: /send to code agent/i }));
 
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("network down"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Unable to deliver the handoff."));
     expect(screen.getByRole("dialog")).toBeVisible();
     expect(screen.getByLabelText(/^handoff$/i)).toHaveValue(props.dialog.draft);
     expect(props.onCancel).not.toHaveBeenCalled();

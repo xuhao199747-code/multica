@@ -98,7 +98,6 @@
   "mention": {
     "group_users": "ユーザー",
     "group_issues": "タスク",
-    "all_members": "すべてのメンバー",
     "agent_badge": "エージェント",
     "squad_badge": "スクワッド",
     "searching": "検索中...",

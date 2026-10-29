@@ -80,7 +80,7 @@ var quickActionTemplateTokenRe = regexp.MustCompile(`\{\{[^}]*\}\}`)
 //
 // `mention://issue/...` is the sole exception: it renders as a link and
 // reaches nobody, so a prompt may legitimately point at related work.
-var quickActionSideEffectMentionRe = regexp.MustCompile(`mention://(agent|squad|member|all)/`)
+var quickActionSideEffectMentionRe = regexp.MustCompile(`mention://(agent|squad|member)/`)
 
 // ---------------------------------------------------------------------------
 // Types

@@ -140,7 +140,7 @@ func TestValidateQuickActionPromptRejectsSideEffectMentions(t *testing.T) {
 		{"member mention pings an inbox on every click", "ask [@Jia](mention://member/" + id + ")", true},
 		{"agent mention would enqueue a second target", "also [@Nova](mention://agent/" + id + ")", true},
 		{"squad mention would enqueue a second target", "also [@Core](mention://squad/" + id + ")", true},
-		{"@all would fan out", "[@all](mention://all/all)", true},
+		{"removed all-members markup has no side effect", "[@all](mention://all/all)", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := validateQuickActionPrompt(tc.prompt)

@@ -2719,18 +2719,8 @@ func (h *Handler) computeCommentAgentTriggers(ctx context.Context, issue db.Issu
 
 	mentions := util.ParseMentions(content)
 
-	// EXPLICIT @agent / @squad mentions are a direct request and win over the
-	// @all broadcast (MUL-5411). @all only suppresses the IMPLICIT routing
-	// fallbacks (assignee / thread parent / conversation) below — it must not
-	// swallow a target the author named by hand. Before this ordering, a
-	// comment carrying both `@all` and `@Preflight` enqueued nothing at all.
-	// `all` is neither "agent" nor "squad", so it is skipped inside
-	// resolveMentionedAgentCommentTriggers and never enqueues a run of its own.
 	if hasAgentOrSquadMention(mentions) {
 		return h.resolveMentionedAgentCommentTriggers(ctx, issue, mentions, actorType, actorID, opts)
-	}
-	if util.HasMentionAll(mentions) {
-		return nil, nil
 	}
 	if hasMemberMention(mentions) {
 		return nil, nil

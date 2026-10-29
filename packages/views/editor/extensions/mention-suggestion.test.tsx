@@ -252,6 +252,14 @@ describe("createMentionSuggestion", () => {
     expect(items.some((i) => i.type === "agent" && i.label === "Aegis")).toBe(true);
   });
 
+  it("does not offer an all-members broadcast for @all", () => {
+    const config = createMentionSuggestion(fakeQc({}));
+
+    const items = config.items!(itemArgs("all")) as MentionItem[];
+
+    expect(items).not.toContainEqual(expect.objectContaining({ type: "all", id: "all" }));
+  });
+
   it("keeps an unbound agent discoverable but marks it as unselectable", () => {
     const qc = fakeQc({
       members: [{ user_id: "u1", name: "Alice", role: "member" }],

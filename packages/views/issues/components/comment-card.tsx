@@ -875,7 +875,6 @@ function CommentRow({
               <CommentTriggerChips
                 recipients={edit.recipients}
                 blocked={edit.triggerPreview.blocked}
-                hasAllMembersMention={edit.triggerPreview.hasAllMembersMention}
                 draftContent={edit.content}
                 onActionChange={edit.setRecipientAction}
               />
@@ -1412,7 +1411,6 @@ function CommentCardImpl({
                     <CommentTriggerChips
                       recipients={edit.recipients}
                       blocked={edit.triggerPreview.blocked}
-                      hasAllMembersMention={edit.triggerPreview.hasAllMembersMention}
                       draftContent={edit.content}
                       onActionChange={edit.setRecipientAction}
                     />

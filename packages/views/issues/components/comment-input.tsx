@@ -303,7 +303,6 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
         <CommentTriggerChips
           recipients={recipients}
           blocked={triggerPreview.blocked}
-          hasAllMembersMention={triggerPreview.hasAllMembersMention}
           draftContent={composedContent}
           onActionChange={setAction}
         />

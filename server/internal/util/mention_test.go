@@ -44,9 +44,9 @@ func TestParseMentions(t *testing.T) {
 			want:    []Mention{{Type: "member", ID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}},
 		},
 		{
-			name:    "all mention",
+			name:    "removed all-members markup is not a mention",
 			content: "[@All](mention://all/all) heads up",
-			want:    []Mention{{Type: "all", ID: "all"}},
+			want:    nil,
 		},
 		{
 			name:    "deduplicate same mention",
@@ -75,26 +75,6 @@ func TestParseMentions(t *testing.T) {
 				if got[i].Type != tt.want[i].Type || got[i].ID != tt.want[i].ID {
 					t.Errorf("mention[%d] = %+v, want %+v", i, got[i], tt.want[i])
 				}
-			}
-		})
-	}
-}
-
-func TestHasMentionAll(t *testing.T) {
-	tests := []struct {
-		name     string
-		mentions []Mention
-		want     bool
-	}{
-		{"empty", nil, false},
-		{"no all", []Mention{{Type: "agent", ID: "x"}}, false},
-		{"has all", []Mention{{Type: "all", ID: "all"}}, true},
-		{"mixed", []Mention{{Type: "agent", ID: "x"}, {Type: "all", ID: "all"}}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := HasMentionAll(tt.mentions); got != tt.want {
-				t.Errorf("HasMentionAll() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -457,11 +457,10 @@ func TestPlatformSkillCoversPlatformContracts(t *testing.T) {
 		{
 			file: "references/mentions.md",
 			want: []string{
-				"(member|agent|squad|issue|all)/([0-9a-fA-F-]+|all)",
+				"(member|agent|squad|issue)/([0-9a-fA-F-]+)",
 				"multica workspace member list --output json",
 				"enqueues a run for that agent",
 				"enqueues NOTHING",
-				"[@all](mention://all/all)",
 				"invocation_not_allowed",
 				"target_unavailable",
 				"runtime_offline",
@@ -664,12 +663,6 @@ func TestPlatformSkillTeachesTheParserContract(t *testing.T) {
 			name:    "real uuid with matching type fires",
 			content: "[@Alice](mention://member/" + uuid + ") please review",
 			want:    []util.Mention{{Type: "member", ID: uuid}},
-		},
-		{
-			// Skill: @all uses the literal `all`, never a UUID.
-			name:    "all uses the literal all",
-			content: "[@all](mention://all/all) heads up",
-			want:    []util.Mention{{Type: "all", ID: "all"}},
 		},
 		{
 			// Skill: "Using the wrong type for a real UUID still parses — it

@@ -28,7 +28,7 @@ func TestCommentMentionsAnyone(t *testing.T) {
 		{name: "agent mention", content: "[@A](mention://agent/11111111-1111-1111-1111-111111111111) handle this", want: true},
 		{name: "member mention", content: "[@Bob](mention://member/22222222-2222-2222-2222-222222222222)", want: true},
 		{name: "squad mention", content: "[@Squad](mention://squad/44444444-4444-4444-4444-444444444444)", want: true},
-		{name: "mention all", content: "[@all](mention://all/all)", want: true},
+		{name: "removed all-members markup", content: "[@all](mention://all/all)", want: false},
 		{name: "issue mention only", content: "see [MUL-1](mention://issue/33333333-3333-3333-3333-333333333333)", want: false},
 		{name: "issue + plain text", content: "see [MUL-1](mention://issue/33333333-3333-3333-3333-333333333333) for context", want: false},
 		{name: "agent plus member", content: "[@A](mention://agent/11111111-1111-1111-1111-111111111111) cc [@B](mention://member/22222222-2222-2222-2222-222222222222)", want: true},
@@ -185,14 +185,6 @@ func TestShouldEnqueueSquadLeaderOnComment_SkipsWhenMemberMentionsAnyone(t *test
 			authorID:    testUserID,
 			want:        false,
 			description: "even @leader is dispatched via the mention path; comment path must not double-enqueue",
-		},
-		{
-			name:        "member mention all skips leader",
-			content:     "[@all](mention://all/all) heads up",
-			authorType:  "member",
-			authorID:    testUserID,
-			want:        false,
-			description: "@all is a broadcast — leader does not need to wake to evaluate routing",
 		},
 		{
 			name:        "member mentions a squad skips leader",
