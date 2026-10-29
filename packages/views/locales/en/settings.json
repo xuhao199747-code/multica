@@ -160,8 +160,8 @@
       "system": "System"
     },
     "orientation": {
-      "title": "Allow landscape",
-      "hint": "When turned off, supported browsers and installed web apps stay in portrait."
+      "title": "Block landscape",
+      "hint": "When enabled, supported browsers and installed web apps stay in portrait."
     },
     "language": {
       "title": "Language",

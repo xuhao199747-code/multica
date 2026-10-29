@@ -160,8 +160,8 @@
       "system": "Système"
     },
     "orientation": {
-      "title": "Autoriser le mode paysage",
-      "hint": "Lorsque cette option est désactivée, les navigateurs compatibles et les applications Web installées restent en portrait."
+      "title": "Bloquer le mode paysage",
+      "hint": "Lorsque cette option est activée, les navigateurs compatibles et les applications Web installées restent en portrait."
     },
     "language": {
       "title": "Langue",

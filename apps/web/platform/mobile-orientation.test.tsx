@@ -5,30 +5,42 @@ import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "@multica/views/locales/en/common.json";
 import enSettings from "@multica/views/locales/en/settings.json";
 import {
-  applyLandscapePreference,
+  applyPortraitLock,
   LandscapePreferenceRow,
 } from "./mobile-orientation";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, settings: enSettings },
+  en: {
+    common: enCommon,
+    settings: {
+      ...enSettings,
+      preferences: {
+        ...enSettings.preferences,
+        orientation: {
+          title: "Block landscape",
+          hint: "When enabled, supported browsers and installed web apps stay in portrait.",
+        },
+      },
+    },
+  },
 };
 
-describe("applyLandscapePreference", () => {
-  it("locks the viewport to portrait when landscape is disabled", async () => {
+describe("applyPortraitLock", () => {
+  it("locks the viewport to portrait when landscape is blocked", async () => {
     const lock = vi.fn().mockResolvedValue(undefined);
     const unlock = vi.fn();
 
-    await applyLandscapePreference({ lock, unlock }, false);
+    await applyPortraitLock({ lock, unlock }, true);
 
     expect(lock).toHaveBeenCalledWith("portrait");
     expect(unlock).not.toHaveBeenCalled();
   });
 
-  it("returns control to the operating system when landscape is enabled", async () => {
+  it("returns control to the operating system when landscape is not blocked", async () => {
     const lock = vi.fn();
     const unlock = vi.fn();
 
-    await applyLandscapePreference({ lock, unlock }, true);
+    await applyPortraitLock({ lock, unlock }, false);
 
     expect(unlock).toHaveBeenCalledOnce();
     expect(lock).not.toHaveBeenCalled();
@@ -38,7 +50,7 @@ describe("applyLandscapePreference", () => {
     const lock = vi.fn().mockRejectedValue(new Error("Not allowed"));
 
     await expect(
-      applyLandscapePreference({ lock, unlock: vi.fn() }, false),
+      applyPortraitLock({ lock, unlock: vi.fn() }, true),
     ).resolves.toBeUndefined();
   });
 });
@@ -48,7 +60,7 @@ describe("LandscapePreferenceRow", () => {
     localStorage.clear();
   });
 
-  it("persists the disabled preference and requests a portrait lock", async () => {
+  it("persists the enabled portrait lock and requests it", async () => {
     const lock = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.screen, "orientation", {
       configurable: true,
@@ -62,12 +74,12 @@ describe("LandscapePreferenceRow", () => {
       </I18nProvider>,
     );
 
-    const toggle = screen.getByRole("switch", { name: "Allow landscape" });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
+    const toggle = screen.getByRole("switch", { name: "Block landscape" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
 
     await user.click(toggle);
 
-    expect(localStorage.getItem("multica_allow_landscape")).toBe("false");
+    expect(localStorage.getItem("multica_lock_portrait")).toBe("true");
     expect(lock).toHaveBeenCalledWith("portrait");
   });
 });
