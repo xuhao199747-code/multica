@@ -692,6 +692,12 @@ describe("ChatInput project context", () => {
 });
 
 describe("ChatInput attachment wiring", () => {
+  it("marks the editor for the compact chat image strip", () => {
+    renderInput();
+
+    expect(editorProps.last?.className).toBe("chat-composer-editor");
+  });
+
   it("routes dropped files through the coordinator upload", async () => {
     renderInput();
     expect(dropHandlers.onDrop).not.toBeNull();

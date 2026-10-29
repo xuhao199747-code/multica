@@ -679,6 +679,7 @@ export function ChatInput({
             // intentionally tracks neither the session nor the agent.
             key={editorKey}
             ref={editorRef}
+            className="chat-composer-editor"
             value={inputDraft}
             placeholder={placeholder}
             onUpdate={(md) => {
