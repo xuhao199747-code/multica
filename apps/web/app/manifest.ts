@@ -7,12 +7,12 @@ import type { MetadataRoute } from "next";
  * `start_url` is deliberately NOT "/". The official marketing hosts keep the
  * root path on the public site even for a signed-in session (see
  * `isOfficialMarketingHost` in proxy.ts), so an installed app pointed at "/"
- * would open the landing page. "/inbox" is one of `LEGACY_ROUTE_SEGMENTS`,
- * which proxy.ts resolves per session: signed in with a known workspace it
- * lands on that workspace's inbox, signed in without one it lands on /login
- * (which resolves against the workspace list), and signed out it lands on
- * /login too. All three are pinned in manifest.test.ts, because a launcher
- * icon has no URL bar to recover from a wrong destination.
+ * would open the landing page. "/chat" is a legacy route segment that
+ * proxy.ts resolves per session: signed in with a known workspace it lands
+ * in that workspace's chat, signed in without one it lands on /login, and
+ * signed out it lands on /login too. All three are pinned in
+ * manifest.test.ts, because a launcher icon has no URL bar to recover from
+ * a wrong destination.
  *
  * The icons under /icons are generated, not hand-drawn. To regenerate after a
  * brand change, edit public/icons/icon.svg and run from public/icons:
@@ -28,7 +28,7 @@ import type { MetadataRoute } from "next";
  */
 
 /** Launch path. Exported so manifest.test.ts can run it through the proxy. */
-export const PWA_START_URL = "/inbox";
+export const PWA_START_URL = "/chat";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -65,13 +65,6 @@ export default function manifest(): MetadataRoute.Manifest {
         type: "image/png",
         purpose: "maskable",
       },
-    ],
-    // Long-press actions on the installed launcher icon. Both are legacy
-    // segments, so they resolve to the last workspace the same way start_url
-    // does instead of needing a slug the manifest cannot know.
-    shortcuts: [
-      { name: "Inbox", url: "/inbox" },
-      { name: "My Issues", url: "/my-issues" },
     ],
   };
 }
