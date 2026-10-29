@@ -249,5 +249,22 @@
     "archive": "Archive chat",
     "unarchive": "Unarchive chat",
     "delete": "Delete chat"
+  },
+  "handoff": {
+    "title": "Send handoff to {{name}}",
+    "description": "Review the handoff and choose where {{name}} should receive it.",
+    "draft_label": "Handoff",
+    "incomplete_warning": "This handoff does not include every requested section.",
+    "receiving_conversation": "Receiving conversation for {{name}}",
+    "new_conversation": "New handoff conversation",
+    "busy_explanation": "This conversation is currently busy.",
+    "cancel": "Cancel",
+    "send": "Send to {{name}}",
+    "sending": "Sending to {{name}}…",
+    "failed": "Unable to deliver the handoff.",
+    "multiple_targets": "Choose one agent to receive the handoff.",
+    "self_target": "Choose a different agent to receive the handoff.",
+    "unavailable_target": "This agent is unavailable for handoff.",
+    "attachment_not_supported": "Attachments are not supported in handoffs."
   }
 }

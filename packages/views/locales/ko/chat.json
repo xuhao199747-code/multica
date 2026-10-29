@@ -245,5 +245,22 @@
     "delete": "채팅 삭제",
     "archive": "채팅 보관",
     "unarchive": "채팅 보관 해제"
+  },
+  "handoff": {
+    "title": "{{name}}에게 인계 보내기",
+    "description": "인계 내용을 검토하고 {{name}}이 받을 대화를 선택하세요.",
+    "draft_label": "인계 내용",
+    "incomplete_warning": "이 인계에는 요청된 섹션이 모두 포함되어 있지 않습니다.",
+    "receiving_conversation": "{{name}}의 수신 대화",
+    "new_conversation": "새 인계 대화",
+    "busy_explanation": "이 대화는 현재 사용 중입니다.",
+    "cancel": "취소",
+    "send": "{{name}}에게 보내기",
+    "sending": "{{name}}에게 보내는 중…",
+    "failed": "인계를 전달할 수 없습니다.",
+    "multiple_targets": "인계를 받을 에이전트 한 명을 선택하세요.",
+    "self_target": "인계를 받을 다른 에이전트를 선택하세요.",
+    "unavailable_target": "이 에이전트는 인계를 받을 수 없습니다.",
+    "attachment_not_supported": "인계에서는 첨부 파일이 지원되지 않습니다."
   }
 }

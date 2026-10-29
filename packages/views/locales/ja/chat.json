@@ -245,5 +245,22 @@
     "delete": "チャットを削除",
     "archive": "チャットをアーカイブ",
     "unarchive": "アーカイブを解除"
+  },
+  "handoff": {
+    "title": "{{name}} に引き継ぎを送信",
+    "description": "引き継ぎ内容を確認し、{{name}} が受け取る会話を選択します。",
+    "draft_label": "引き継ぎ内容",
+    "incomplete_warning": "この引き継ぎには必要なセクションがすべて含まれていません。",
+    "receiving_conversation": "{{name}} の受信会話",
+    "new_conversation": "新しい引き継ぎ会話",
+    "busy_explanation": "この会話は現在処理中です。",
+    "cancel": "キャンセル",
+    "send": "{{name}} に送信",
+    "sending": "{{name}} に送信中…",
+    "failed": "引き継ぎを送信できませんでした。",
+    "multiple_targets": "引き継ぎ先のエージェントを 1 人選択してください。",
+    "self_target": "別のエージェントを引き継ぎ先に選択してください。",
+    "unavailable_target": "このエージェントは引き継ぎに利用できません。",
+    "attachment_not_supported": "引き継ぎでは添付ファイルはサポートされていません。"
   }
 }

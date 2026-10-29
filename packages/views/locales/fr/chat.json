@@ -249,5 +249,22 @@
     "archive": "Archiver la discussion",
     "unarchive": "Désarchiver la discussion",
     "delete": "Supprimer la discussion"
+  },
+  "handoff": {
+    "title": "Envoyer la transmission à {{name}}",
+    "description": "Vérifiez la transmission et choisissez où {{name}} doit la recevoir.",
+    "draft_label": "Transmission",
+    "incomplete_warning": "Cette transmission ne contient pas toutes les sections demandées.",
+    "receiving_conversation": "Conversation de réception pour {{name}}",
+    "new_conversation": "Nouvelle conversation de transmission",
+    "busy_explanation": "Cette conversation est actuellement occupée.",
+    "cancel": "Annuler",
+    "send": "Envoyer à {{name}}",
+    "sending": "Envoi à {{name}}…",
+    "failed": "Impossible de transmettre le relais.",
+    "multiple_targets": "Choisissez un agent pour recevoir la transmission.",
+    "self_target": "Choisissez un autre agent pour recevoir la transmission.",
+    "unavailable_target": "Cet agent n’est pas disponible pour la transmission.",
+    "attachment_not_supported": "Les pièces jointes ne sont pas prises en charge dans les transmissions."
   }
 }

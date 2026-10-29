@@ -245,5 +245,22 @@
     "delete": "删除会话",
     "archive": "归档会话",
     "unarchive": "取消归档"
+  },
+  "handoff": {
+    "title": "发送交接给 {{name}}",
+    "description": "检查交接内容，并选择 {{name}} 接收它的会话。",
+    "draft_label": "交接内容",
+    "incomplete_warning": "此交接内容未包含所有要求的章节。",
+    "receiving_conversation": "{{name}} 的接收会话",
+    "new_conversation": "新建交接会话",
+    "busy_explanation": "此会话当前正忙。",
+    "cancel": "取消",
+    "send": "发送给 {{name}}",
+    "sending": "正在发送给 {{name}}…",
+    "failed": "无法发送交接内容。",
+    "multiple_targets": "请选择一位接收交接的智能体。",
+    "self_target": "请选择另一位智能体接收交接。",
+    "unavailable_target": "此智能体无法接收交接。",
+    "attachment_not_supported": "交接不支持附件。"
   }
 }
