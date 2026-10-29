@@ -200,7 +200,28 @@ describe("SettingsPage workspace subscription feature flag", () => {
 });
 
 describe("SettingsPage information architecture", () => {
-  it("groups pages by who they affect, then by topic", () => {
+  it("keeps task-management and member pages out of navigation and search", () => {
+    renderWithI18n(<SettingsPage />);
+
+    for (const name of [
+      "Members",
+      "Issue Statuses",
+      "Wakeups",
+      "Labels",
+      "Properties",
+      "Quick actions",
+    ]) {
+      expect(screen.queryByRole("link", { name })).toBeNull();
+    }
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
+      target: { value: "side preview" },
+    });
+
+    expect(screen.getByText("No matching settings")).toBeInTheDocument();
+  });
+
+  it("groups retained workspace pages by connection topic", () => {
     renderWithI18n(<SettingsPage />);
     const personal = within(nav()).getByRole("region", { name: /Personal/ });
     expect(within(personal).getByRole("link", { name: "Preferences" })).toBeInTheDocument();
@@ -208,10 +229,7 @@ describe("SettingsPage information architecture", () => {
 
     // The workspace group is named after the workspace it configures.
     const workspace = within(nav()).getByRole("region", { name: /Acme/ });
-    const issues = within(workspace).getByRole("group", { name: "Issues & workflow" });
-    expect(
-      within(issues).getByRole("link", { name: "Issue Statuses" }),
-    ).toBeInTheDocument();
+    expect(within(workspace).queryByRole("group", { name: "Issues & workflow" })).toBeNull();
     const connections = within(workspace).getByRole("group", {
       name: "Connections & extensions",
     });
@@ -271,9 +289,6 @@ describe("SettingsPage information architecture", () => {
     expect(
       within(general).getByLabelText("Only owners and admins can change this"),
     ).toBeInTheDocument();
-    // Labels stay editable for every member, so they carry no lock.
-    const labels = screen.getByRole("link", { name: "Labels" });
-    expect(within(labels).queryByLabelText(/Only owners/)).toBeNull();
   });
 
   it("places platform settings in a device group", () => {
@@ -336,20 +351,6 @@ describe("SettingsPage search", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(input).toHaveValue("");
     expect(screen.queryByRole("listbox")).toBeNull();
-  });
-
-  it("finds the issue-opening preference by the name of its options", () => {
-    renderWithI18n(<SettingsPage />);
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "side preview" },
-    });
-    const results = screen.getByRole("listbox", { name: "Search settings" });
-    const option = within(results).getByRole("option", { name: /Opening issues/ });
-    expect(within(results).getAllByRole("option")).toHaveLength(1);
-    fireEvent.click(option);
-    expect(push).toHaveBeenCalledWith(
-      "/acme/settings?tab=preferences&section=issue-opening",
-    );
   });
 
   it("does not offer pages hidden by feature flags", () => {

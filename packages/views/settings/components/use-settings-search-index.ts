@@ -53,41 +53,9 @@ export function useSettingsSearchIndex(
       { tab: "preferences", anchor: "theme", title: t(($) => $.preferences.theme.title) },
       {
         tab: "preferences",
-        anchor: "sticky-comment-bar",
-        title: t(($) => $.preferences.sticky_comment_bar.title),
-      },
-      {
-        tab: "preferences",
-        anchor: "running-agent-reply",
-        title: t(($) => $.preferences.running_agent_reply.title),
-        description: t(($) => $.preferences.running_agent_reply.hint),
-      },
-      {
-        tab: "preferences",
         anchor: "chat",
         title: t(($) => $.chat.floating_label),
         description: t(($) => $.chat.floating_hint),
-      },
-      {
-        tab: "preferences",
-        anchor: "issue-opening",
-        title: t(($) => $.issue.opening.click),
-        description: t(($) => $.issue.opening.hint),
-      },
-      // Same row, found by its section title or its options: someone looking
-      // for "side preview" searches for the choice, not the row's label. Only
-      // consulted when the entry above did not match (results dedupe by anchor).
-      {
-        tab: "preferences",
-        anchor: "issue-opening",
-        title: t(($) => $.issue.opening.title),
-        description: `${t(($) => $.issue.opening.page)} · ${t(($) => $.issue.opening.peek)}`,
-      },
-      {
-        tab: "preferences",
-        anchor: "issue",
-        title: t(($) => $.preferences.issue_fields_title),
-        description: t(($) => $.issue.description),
       },
       ...NOTIFICATION_GROUPS.map((group) => ({
         tab: "notifications",
@@ -138,29 +106,6 @@ export function useSettingsSearchIndex(
       },
       { tab: "workspace", anchor: "leave", title: t(($) => $.workspace.leave_title) },
       { tab: "workspace", anchor: "delete", title: t(($) => $.workspace.delete_title) },
-      { tab: "members", anchor: "invitations", title: t(($) => $.members.pending_label) },
-      { tab: "members", anchor: "links", title: t(($) => $.members.share_links_label) },
-      {
-        tab: "wakeups",
-        anchor: "child-done",
-        title: t(($) => $.wakeups.child_done_title),
-        description: t(($) => $.wakeups.child_done_description),
-      },
-      {
-        tab: "labels",
-        title: t(($) => $.page.tabs.labels),
-        description: t(($) => $.labels.description),
-      },
-      {
-        tab: "properties",
-        title: t(($) => $.page.tabs.properties),
-        description: t(($) => $.properties.description),
-      },
-      {
-        tab: "quick-actions",
-        title: t(($) => $.page.tabs.quick_actions),
-        description: t(($) => $.quick_actions.description),
-      },
       { tab: "code", anchor: "code-hosting", title: t(($) => $.code.hosting_title) },
       { tab: "code", anchor: "github", title: t(($) => $.page.tabs.github) },
       { tab: "code", anchor: "vcs", title: t(($) => $.vcs.section_title) },

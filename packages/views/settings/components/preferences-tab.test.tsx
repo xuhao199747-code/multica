@@ -104,13 +104,6 @@ vi.mock("@multica/core/auth", async () => {
 });
 
 import { PreferencesTab } from "./preferences-tab";
-import { useCommentComposerStore } from "@multica/core/issues/stores";
-import { useIssueOpeningStore } from "@multica/core/issues/stores/issue-opening-store";
-import {
-  DEFAULT_MANUAL_CREATE_FIELDS,
-  DEFAULT_QUICK_CREATE_FIELDS,
-  useIssueCreateSettingsStore,
-} from "@multica/core/issues/stores/issue-create-settings-store";
 
 
 const TEST_RESOURCES = {
@@ -334,7 +327,6 @@ describe("PreferencesTab — Comments & chat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     userRef.current = null;
-    useCommentComposerStore.setState({ runningAgentReply: "steer", sticky: true });
     chatState.floatingChatEnabled = true;
   });
 
@@ -342,83 +334,31 @@ describe("PreferencesTab — Comments & chat", () => {
     cleanup();
   });
 
-  it("defaults to adding the reply to the current run and saves starting after it", async () => {
+  it("toggles floating chat silently", async () => {
     const user = userEvent.setup();
     render(<PreferencesTab />, { wrapper: I18nWrapper });
-
-    const select = screen.getByRole("combobox", { name: "When replying to a running agent" });
-    expect(select).toHaveTextContent("Add to current run");
-
-    await user.click(select);
-    await user.click(await screen.findByRole("option", { name: "Start after this run" }));
-
-    expect(useCommentComposerStore.getState().runningAgentReply).toBe("after_run");
-    expect(select).toHaveTextContent("Start after this run");
-    expect(mockToastSuccess).not.toHaveBeenCalled();
-  });
-
-  it("toggles the sticky comment bar and the floating chat silently", async () => {
-    const user = userEvent.setup();
-    render(<PreferencesTab />, { wrapper: I18nWrapper });
-
-    const sticky = screen.getByRole("switch", { name: "Pin comment bar to bottom" });
-    expect(sticky).toHaveAttribute("aria-checked", "true");
-    await user.click(sticky);
-    expect(useCommentComposerStore.getState().sticky).toBe(false);
 
     await user.click(screen.getByRole("switch", { name: enSettings.chat.floating_label }));
     expect(chatState.setFloatingChatEnabled).toHaveBeenCalledWith(false);
     expect(mockToastSuccess).not.toHaveBeenCalled();
   });
-});
 
-describe("PreferencesTab — Create-issue fields", () => {
-  function resetStore() {
-    useIssueCreateSettingsStore.setState({
-      quickCreateFields: DEFAULT_QUICK_CREATE_FIELDS,
-      manualCreateFields: DEFAULT_MANUAL_CREATE_FIELDS,
-    });
-  }
-  beforeEach(resetStore);
-  afterEach(() => {
-    cleanup();
-    resetStore();
-  });
-
-  it("shows one row per field with a column per create dialog", () => {
-    render(<PreferencesTab />, { wrapper: I18nWrapper });
-    const table = screen.getByRole("table");
-    // 7 fields; quick create supports 3 of them, manual create all 7.
-    expect(within(table).getAllByRole("checkbox")).toHaveLength(10);
-    expect(
-      within(table).getByRole("checkbox", { name: "Project · Create with agent" }),
-    ).toBeChecked();
-    expect(
-      within(table).getByRole("checkbox", { name: "Due date · Manual create" }),
-    ).not.toBeChecked();
-    // Unsupported cells explain themselves instead of rendering a dead box.
-    expect(
-      within(table).getAllByLabelText(enSettings.preferences.issue_fields.unsupported),
-    ).toHaveLength(4);
-  });
-
-  it("persists each dialog's fields independently", async () => {
-    const user = userEvent.setup();
+  it("keeps only floating chat from the retired task preferences", () => {
     render(<PreferencesTab />, { wrapper: I18nWrapper });
 
-    await user.click(screen.getByRole("checkbox", { name: "Priority · Create with agent" }));
-    await user.click(screen.getByRole("checkbox", { name: "Labels · Manual create" }));
-
-    expect(useIssueCreateSettingsStore.getState().quickCreateFields).toEqual([
-      "project",
-      "priority",
-    ]);
-    expect(useIssueCreateSettingsStore.getState().manualCreateFields).toEqual([
-      "status",
-      "priority",
-      "assignee",
-      "project",
-    ]);
+    expect(
+      screen.getByRole("switch", { name: enSettings.chat.floating_label }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Pin comment bar to bottom" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: "When replying to a running agent" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Clicking a card or row opens" }),
+    ).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
   });
 });
 
@@ -430,23 +370,7 @@ describe("PreferencesTab — Scope", () => {
   it("labels where each group of settings is stored", () => {
     render(<PreferencesTab />, { wrapper: I18nWrapper });
     expect(screen.getByText("Account · synced")).toBeInTheDocument();
-    // Appearance, opening issues, comments & chat.
-    expect(screen.getAllByText("This device only")).toHaveLength(3);
-  });
-
-  it("switches what clicking a card or row opens, and says what Shift does", async () => {
-    useIssueOpeningStore.setState({ openMode: "page" });
-    const user = userEvent.setup();
-    render(<PreferencesTab />, { wrapper: I18nWrapper });
-    const group = screen.getByRole("group", { name: "Clicking a card or row opens" });
-    const fullPage = within(group).getByRole("button", { name: "Full page" });
-    const preview = within(group).getByRole("button", { name: "Side preview" });
-    expect(fullPage).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Shift+Click opens the other one.")).toBeInTheDocument();
-
-    await user.click(preview);
-    expect(useIssueOpeningStore.getState().openMode).toBe("peek");
-    expect(preview).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByText("This device only")).toHaveLength(2);
   });
 });
 
