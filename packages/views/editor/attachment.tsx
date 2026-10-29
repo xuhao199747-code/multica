@@ -32,6 +32,7 @@ import {
   Link as LinkIcon,
   Maximize2,
   Trash2,
+  X,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
@@ -99,6 +100,8 @@ export interface AttachmentProps {
   selected?: boolean;
   /** Editor hint — wired to Tiptap deleteNode(). */
   onDelete?: () => void;
+  /** Editor hint — chat composers expose only a compact remove control. */
+  imageToolbar?: "default" | "delete-only";
   /**
    * "block" (default) renders each kind at full width, as a body renders it.
    * "card" is the form a list of standalone attachments lays out: an image
@@ -331,6 +334,7 @@ export function Attachment({
   editable,
   selected,
   onDelete,
+  imageToolbar = "default",
   layout = "block",
   badge,
   className,
@@ -425,6 +429,7 @@ export function Attachment({
           onView={openPreview}
           onDownload={handleDownload}
           onDelete={onDelete}
+          imageToolbar={imageToolbar}
           className={cn(
             (layout === "card" || layout === "thumb") && "image-thumb",
             className,
@@ -500,6 +505,7 @@ interface ImageAttachmentViewProps {
   onView: () => void;
   onDownload: () => void;
   onDelete?: () => void;
+  imageToolbar: "default" | "delete-only";
   className?: string;
 }
 
@@ -515,6 +521,7 @@ function ImageAttachmentView({
   onView,
   onDownload,
   onDelete,
+  imageToolbar,
   className,
 }: ImageAttachmentViewProps) {
   const { t } = useT("editor");
@@ -533,6 +540,8 @@ function ImageAttachmentView({
   // Maximize button. The CSS rule `.image-figure[data-clickable="true"] {
   // cursor: zoom-in }` keys off this same flag for the cursor affordance.
   const clickable = !editable && !uploading;
+  const deleteOnly = imageToolbar === "delete-only";
+  const showToolbar = !uploading && src && (!deleteOnly || (editable && onDelete));
 
   // DOM mirrors the original ReadonlyImage (span-only chain so it stays
   // valid HTML5 when rendered inside a markdown <p>). In editor surfaces
@@ -558,25 +567,33 @@ function ImageAttachmentView({
           className={cn("image-content", uploading && "image-uploading")}
           draggable={false}
         />
-        {!uploading && src && (
+        {showToolbar && (
           <span
-            className="image-toolbar"
+            className={cn("image-toolbar", deleteOnly && "image-toolbar-compact")}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            <button type="button" onClick={onView} title={t(($) => $.image.view)}>
-              <Maximize2 className="size-3.5" />
-            </button>
-            <button type="button" onClick={onDownload} title={t(($) => $.image.download)}>
-              <Download className="size-3.5" />
-            </button>
-            <button type="button" onClick={handleCopyLink} title={t(($) => $.image.copy_link)}>
-              <LinkIcon className="size-3.5" />
-            </button>
-            {editable && onDelete && (
+            {deleteOnly ? (
               <button type="button" onClick={onDelete} title={t(($) => $.image.delete)}>
-                <Trash2 className="size-3.5" />
+                <X className="size-3.5" />
               </button>
+            ) : (
+              <>
+                <button type="button" onClick={onView} title={t(($) => $.image.view)}>
+                  <Maximize2 className="size-3.5" />
+                </button>
+                <button type="button" onClick={onDownload} title={t(($) => $.image.download)}>
+                  <Download className="size-3.5" />
+                </button>
+                <button type="button" onClick={handleCopyLink} title={t(($) => $.image.copy_link)}>
+                  <LinkIcon className="size-3.5" />
+                </button>
+                {editable && onDelete && (
+                  <button type="button" onClick={onDelete} title={t(($) => $.image.delete)}>
+                    <Trash2 className="size-3.5" />
+                  </button>
+                )}
+              </>
             )}
           </span>
         )}

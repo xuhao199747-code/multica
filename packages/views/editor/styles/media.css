@@ -30,10 +30,33 @@
  * visible while the user writes. This scope deliberately does not affect
  * message bodies or the issue editors, where full-size images remain useful.
  */
-.rich-text-editor.chat-composer-editor [data-node-view-wrapper]:has(.image-node) {
-  display: inline-block;
-  margin: 0.25rem 0.5rem 0.25rem 0;
-  vertical-align: top;
+.rich-text-editor.chat-composer-editor {
+  --chat-image-size: 6rem;
+}
+
+.rich-text-editor.chat-composer-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.rich-text-editor.chat-composer-editor > [data-node-view-wrapper]:has(.image-node) {
+  flex: 0 0 var(--chat-image-size);
+  margin: 0;
+}
+
+/* The upload command inserts an empty paragraph after every block image to
+ * keep the caret reachable. Hide only paragraphs between adjacent images so
+ * those image nodes share one compact row; the last paragraph remains where
+ * the user continues typing. */
+.rich-text-editor.chat-composer-editor > [data-node-view-wrapper]:has(.image-node) + p:has(+ [data-node-view-wrapper]:has(.image-node)) {
+  display: none;
+}
+
+.rich-text-editor.chat-composer-editor > p {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .rich-text-editor.chat-composer-editor .image-node {
@@ -42,8 +65,8 @@
 }
 
 .rich-text-editor.chat-composer-editor .image-figure {
-  width: clamp(9rem, 20vw, 15rem);
-  max-width: calc(100vw - 5rem);
+  width: var(--chat-image-size);
+  max-width: 100%;
   aspect-ratio: 1;
   margin: 0;
 }
@@ -55,23 +78,27 @@
   object-fit: cover;
 }
 
-/* Keep the single remove action visible; preview/download/copy stay available
- * after send, where they do not compete with composing. */
-.rich-text-editor.chat-composer-editor .image-toolbar {
-  top: -0.5rem;
-  right: -0.5rem;
+/* The composer keeps a single compact remove affordance. It appears on
+ * hover/focus like Codex's attachment strip, while coarse-pointer users keep
+ * a visible control because hover is unavailable. */
+.rich-text-editor.chat-composer-editor .image-toolbar-compact {
+  top: -0.375rem;
+  right: -0.375rem;
   padding: 0;
   background: transparent;
+  border-radius: 9999px;
+  pointer-events: none;
+}
+
+.rich-text-editor.chat-composer-editor .image-figure:hover .image-toolbar-compact,
+.rich-text-editor.chat-composer-editor .image-figure:focus-within .image-toolbar-compact {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.rich-text-editor.chat-composer-editor .image-toolbar button:not(:last-child) {
-  display: none;
-}
-
-.rich-text-editor.chat-composer-editor .image-toolbar button:last-child {
-  width: 2.75rem;
-  height: 2.75rem;
+.rich-text-editor.chat-composer-editor .image-toolbar-compact button {
+  width: 1.75rem;
+  height: 1.75rem;
   border: 1px solid var(--border);
   border-radius: 9999px;
   background: var(--surface);
@@ -79,11 +106,18 @@
   box-shadow: 0 1px 3px color-mix(in srgb, black 20%, transparent);
 }
 
-.rich-text-editor.chat-composer-editor .image-toolbar button:last-child:hover {
+.rich-text-editor.chat-composer-editor .image-toolbar-compact button:hover {
   background: var(--surface-raised);
 }
 
-.rich-text-editor.chat-composer-editor .image-toolbar button:last-child:focus-visible {
+.rich-text-editor.chat-composer-editor .image-toolbar-compact button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .rich-text-editor.chat-composer-editor .image-toolbar-compact {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

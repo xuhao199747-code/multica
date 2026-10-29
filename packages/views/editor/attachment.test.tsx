@@ -254,6 +254,23 @@ describe("Attachment — image dispatch", () => {
     expect(onDelete).toHaveBeenCalled();
   });
 
+  it("compact image editor mode exposes only a close control", () => {
+    const onDelete = vi.fn();
+    renderWithQuery(
+      <Attachment
+        attachment={{ kind: "record", attachment: makeRecord() }}
+        editable
+        imageToolbar="delete-only"
+        onDelete={onDelete}
+      />,
+    );
+
+    expect(screen.getByTitle("Delete")).toBeTruthy();
+    expect(screen.queryByTitle("View")).toBeNull();
+    expect(screen.queryByTitle("Download")).toBeNull();
+    expect(screen.queryByTitle("Copy link")).toBeNull();
+  });
+
   it("url-only image resolves to a record via context and uses its id for download", () => {
     const att = makeRecord({
       filename: "from-resolver.png",

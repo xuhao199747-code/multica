@@ -18,6 +18,9 @@ function ImageView({ node, editor, selected, deleteNode }: NodeViewProps) {
   const uploading = node.attrs.uploading as boolean;
   const width = (node.attrs.width as number | null) ?? undefined;
   const height = (node.attrs.height as number | null) ?? undefined;
+  const imageToolbar = editor.view.dom.classList.contains("chat-composer-editor")
+    ? "delete-only"
+    : "default";
 
   // <Attachment> emits its own .image-node wrapper, so the NodeViewWrapper
   // stays unclassed — no double image-node.
@@ -38,6 +41,7 @@ function ImageView({ node, editor, selected, deleteNode }: NodeViewProps) {
         editable={editor.isEditable}
         selected={selected}
         onDelete={() => deleteNode()}
+        imageToolbar={imageToolbar}
       />
     </NodeViewWrapper>
   );
