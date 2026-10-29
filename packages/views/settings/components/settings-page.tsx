@@ -2,16 +2,13 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlarmClock,
   Bell,
   Blocks,
-  CircleDot,
   CreditCard,
   FolderGit2,
   Keyboard,
   KeyRound,
   Laptop,
-  ListPlus,
   Lock,
   MessagesSquare,
   Plug,
@@ -19,11 +16,8 @@ import {
   Server,
   Settings,
   SlidersHorizontal,
-  Tags,
   User,
-  Users,
   X,
-  Zap,
 } from "lucide-react";
 import { useAuthStore } from "@multica/core/auth";
 import { useCurrentWorkspace } from "@multica/core/paths";
@@ -43,15 +37,10 @@ import { AccountTab } from "./account-tab";
 import { PreferencesTab } from "./preferences-tab";
 import { TokensTab } from "./tokens-tab";
 import { WorkspaceTab } from "./workspace-tab";
-import { MembersTab } from "./members-tab";
 import { CodeTab } from "./code-tab";
 import { ChannelsTab } from "./channels-tab";
 import { ConnectedAppsTab, useComposioAvailable } from "./connected-apps-tab";
 import { NotificationsTab } from "./notifications-tab";
-import { LabelsTab } from "./labels-tab";
-import { IssueStatusesTab } from "./issue-statuses-tab";
-import { PropertiesTab } from "./properties-tab";
-import { QuickActionsTab } from "./quick-actions-tab";
 import { KeyboardShortcutsTab } from "./keyboard-shortcuts-tab";
 import { PluginsTab } from "./plugins-tab";
 import { McpTab } from "./mcp-tab";
@@ -60,7 +49,6 @@ import { SETTINGS_ANCHOR_ATTR } from "./settings-layout";
 import { searchSettings } from "./settings-search";
 import { HighlightText } from "../../search/highlight-text";
 import { useSettingsSearchIndex } from "./use-settings-search-index";
-import { WakeupsTab } from "./wakeups-tab";
 import { CollapsedNavTrigger } from "../../layout/page-header";
 import { useT } from "../../i18n";
 
@@ -191,9 +179,6 @@ export function SettingsPage({
             entry("workspace", t(($) => $.page.tabs.general), Settings, <WorkspaceTab />, {
               adminOnly: true,
             }),
-            entry("members", t(($) => $.page.tabs.members), Users, <MembersTab />, {
-              adminOnly: true,
-            }),
             ...(billingEnabled
               ? [
                   entry(
@@ -204,40 +189,6 @@ export function SettingsPage({
                   ),
                 ]
               : []),
-          ],
-        },
-        {
-          key: "issues",
-          label: t(($) => $.page.groups.issues),
-          entries: [
-            entry(
-              "issue-statuses",
-              t(($) => $.page.tabs.issue_statuses),
-              CircleDot,
-              <IssueStatusesTab />,
-              { wide: true, adminOnly: true },
-            ),
-            entry("wakeups", t(($) => $.page.tabs.wakeups), AlarmClock, <WakeupsTab />, {
-              wide: true,
-              adminOnly: true,
-            }),
-            entry("labels", t(($) => $.page.tabs.labels), Tags, <LabelsTab />, {
-              wide: true,
-            }),
-            entry(
-              "properties",
-              t(($) => $.page.tabs.properties),
-              ListPlus,
-              <PropertiesTab />,
-              { wide: true, adminOnly: true },
-            ),
-            entry(
-              "quick-actions",
-              t(($) => $.page.tabs.quick_actions),
-              Zap,
-              <QuickActionsTab />,
-              { wide: true },
-            ),
           ],
         },
         {
