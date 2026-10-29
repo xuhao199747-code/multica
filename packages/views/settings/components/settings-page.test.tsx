@@ -200,6 +200,27 @@ describe("SettingsPage workspace subscription feature flag", () => {
 });
 
 describe("SettingsPage information architecture", () => {
+  it("keeps task-management and member pages out of navigation and search", () => {
+    renderWithI18n(<SettingsPage />);
+
+    for (const name of [
+      "Members",
+      "Issue Statuses",
+      "Wakeups",
+      "Labels",
+      "Properties",
+      "Quick actions",
+    ]) {
+      expect(screen.queryByRole("link", { name })).toBeNull();
+    }
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
+      target: { value: "side preview" },
+    });
+
+    expect(screen.getByText("No matching settings")).toBeInTheDocument();
+  });
+
   it("groups pages by who they affect, then by topic", () => {
     renderWithI18n(<SettingsPage />);
     const personal = within(nav()).getByRole("region", { name: /Personal/ });
