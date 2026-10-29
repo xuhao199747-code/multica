@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent, ChatMessage, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
 import { api } from "@multica/core/api";
+import { chatKeys } from "@multica/core/chat/queries";
 import { useAgentHandoff } from "./use-agent-handoff";
 
 const h = vi.hoisted(() => ({
@@ -96,6 +97,16 @@ describe("useAgentHandoff", () => {
     });
     expect(result.current.dialog).toBeNull();
 
+    rerender({
+      wsId: "ws-1",
+      activeSessionId: "a-chat",
+      messages: [assistant({ chat_session_id: "other-chat", content: "ignore" })],
+      sessions: [],
+      pendingTasks: { tasks: [] },
+      eligibleAgents: [sourceAgent, codeAgent],
+    });
+    expect(result.current.dialog).toBeNull();
+
     const draft = "目标：\n交给 Code 实现。";
     rerender({
       wsId: "ws-1",
@@ -170,7 +181,7 @@ describe("useAgentHandoff", () => {
       pendingTasks: { tasks: [{ task_id: "busy-task", status: "running", chat_session_id: "b-chat" }] },
       eligibleAgents: [sourceAgent, codeAgent],
     });
-    await waitFor(() => expect(result.current.dialog?.sessions).toEqual([session()]));
+    await waitFor(() => expect(result.current.dialog?.availableSessions).toEqual([session()]));
     expect(result.current.dialog?.busySessionIds).toEqual(new Set(["b-chat"]));
   });
 
@@ -190,10 +201,12 @@ describe("useAgentHandoff", () => {
     rerender({ wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [], pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent] });
     await waitFor(() => expect(result.current.dialog).not.toBeNull());
 
-    await act(async () => result.current.deliver("edited handoff", { kind: "new" }));
+    expect(result.current.dialog?.destination).toEqual({ kind: "new" });
+    act(() => result.current.setDraft("edited handoff"));
+    await act(async () => result.current.deliver());
     expect(h.createSession).toHaveBeenCalledWith({ agent_id: codeAgent.id, title: "edited handoff" });
     expect(api.sendChatMessage).toHaveBeenCalledWith("new-b-chat", "edited handoff");
-    expect(invalidate).toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.session("ws-1", "new-b-chat") });
     expect(result.current.dialog).toBeNull();
   });
 
@@ -204,7 +217,11 @@ describe("useAgentHandoff", () => {
     rerender({ wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [session()], pendingTasks: { tasks: [] }, eligibleAgents: [sourceAgent, codeAgent] });
     await waitFor(() => expect(result.current.dialog).not.toBeNull());
 
-    await act(async () => result.current.deliver("edited handoff", { kind: "existing", sessionId: "b-chat" }));
+    act(() => {
+      result.current.setDraft("edited handoff");
+      result.current.setDestination({ kind: "existing", sessionId: "b-chat" });
+    });
+    await act(async () => result.current.deliver());
     expect(h.createSession).not.toHaveBeenCalled();
     expect(api.sendChatMessage).toHaveBeenCalledWith("b-chat", "edited handoff");
   });
@@ -217,10 +234,42 @@ describe("useAgentHandoff", () => {
     await waitFor(() => expect(result.current.dialog).not.toBeNull());
 
     await act(async () => {
-      await expect(result.current.deliver("   ", { kind: "existing", sessionId: "b-chat" })).rejects.toThrow("blank");
-      await expect(result.current.deliver("edited handoff", { kind: "existing", sessionId: "b-chat" })).rejects.toThrow("network down");
+      result.current.setDestination({ kind: "existing", sessionId: "b-chat" });
+      result.current.setDraft("   ");
     });
-    expect(result.current.dialog?.draft).toBe("目标：\n交给 Code 实现。");
+    await act(async () => {
+      await expect(result.current.deliver()).rejects.toThrow("blank");
+      result.current.setDraft("edited handoff");
+    });
+    await act(async () => {
+      await expect(result.current.deliver()).rejects.toThrow("network down");
+    });
+    expect(result.current.dialog?.draft).toBe("edited handoff");
+    expect(result.current.dialog?.destination).toEqual({ kind: "existing", sessionId: "b-chat" });
     expect(result.current.dialog?.error).toBe("network down");
+  });
+
+  it("rejects an unavailable or busy existing destination without sending", async () => {
+    const { result, rerender } = renderAgentHandoff({
+      sessions: [session()],
+      pendingTasks: { tasks: [{ task_id: "busy-task", status: "running", chat_session_id: "b-chat" }] },
+    });
+    act(() => result.current.registerAcceptedSource({ sessionId: "a-chat", taskId: "task-a", target: codeAgent }));
+    rerender({
+      wsId: "ws-1", activeSessionId: "a-chat", messages: [assistant()], sessions: [session()],
+      pendingTasks: { tasks: [{ task_id: "busy-task", status: "running", chat_session_id: "b-chat" }] },
+      eligibleAgents: [sourceAgent, codeAgent],
+    });
+    await waitFor(() => expect(result.current.dialog).not.toBeNull());
+
+    act(() => result.current.setDestination({ kind: "existing", sessionId: "other-agent-chat" }));
+    await act(async () => expect(result.current.deliver()).rejects.toThrow("unavailable"));
+    expect(api.sendChatMessage).not.toHaveBeenCalled();
+    expect(result.current.dialog?.error).toContain("unavailable");
+
+    act(() => result.current.setDestination({ kind: "existing", sessionId: "b-chat" }));
+    await act(async () => expect(result.current.deliver()).rejects.toThrow("busy"));
+    expect(api.sendChatMessage).not.toHaveBeenCalled();
+    expect(result.current.dialog?.error).toContain("busy");
   });
 });

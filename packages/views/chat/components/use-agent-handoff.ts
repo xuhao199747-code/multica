@@ -29,11 +29,12 @@ type HandoffDialogState = {
   sourceSessionId: string;
   target: Agent;
   draft: string;
+  destination: AgentHandoffDestination;
   error: string | null;
 };
 
 export type AgentHandoffDialog = HandoffDialogState & {
-  sessions: ChatSession[];
+  availableSessions: ChatSession[];
   busySessionIds: Set<string>;
 };
 
@@ -90,7 +91,10 @@ export function useAgentHandoff({
   useEffect(() => {
     if (!pendingSource || activeSessionId !== pendingSource.sessionId) return;
     const response = messages.find(
-      (message) => message.role === "assistant" && message.task_id === pendingSource.taskId,
+      (message) =>
+        message.role === "assistant" &&
+        message.task_id === pendingSource.taskId &&
+        message.chat_session_id === pendingSource.sessionId,
     );
     if (!response) return;
 
@@ -107,47 +111,73 @@ export function useAgentHandoff({
       sourceSessionId: pendingSource.sessionId,
       target: pendingSource.target,
       draft: response.content,
+      destination: { kind: "new" },
       error: null,
     });
   }, [activeSessionId, messages, pendingSource]);
 
+  const availableSessions = useMemo(
+    () => !dialogState ? [] : sessions.filter(
+      (session) => session.status === "active" && session.agent_id === dialogState.target.id,
+    ),
+    [dialogState, sessions],
+  );
+  const busySessionIds = useMemo(
+    () => new Set((pendingTasks?.tasks ?? []).map((task) => task.chat_session_id)),
+    [pendingTasks],
+  );
   const dialog = useMemo<AgentHandoffDialog | null>(() => {
     if (!dialogState) return null;
-    const destinationSessions = sessions.filter(
-      (session) => session.status === "active" && session.agent_id === dialogState.target.id,
-    );
     return {
       ...dialogState,
-      sessions: destinationSessions,
-      busySessionIds: new Set(
-        (pendingTasks?.tasks ?? []).map((task) => task.chat_session_id),
-      ),
+      availableSessions,
+      busySessionIds,
     };
-  }, [dialogState, pendingTasks, sessions]);
+  }, [availableSessions, busySessionIds, dialogState]);
 
   const closeDialog = useCallback(() => {
     setDialogState(null);
     setError(null);
   }, []);
 
-  const deliver = useCallback(async (
-    content: string,
-    destination: AgentHandoffDestination,
-  ) => {
-    if (!content.trim()) throw new Error("Handoff content cannot be blank");
+  const setDraft = useCallback((draft: string) => {
+    setDialogState((current) => current ? { ...current, draft, error: null } : current);
+  }, []);
+
+  const setDestination = useCallback((destination: AgentHandoffDestination) => {
+    setDialogState((current) => current ? { ...current, destination, error: null } : current);
+  }, []);
+
+  const deliver = useCallback(async () => {
     if (!dialogState) throw new Error("No handoff is ready for delivery");
+    const destination = dialogState.destination;
+    const failDelivery = (message: string): never => {
+      setDialogState((current) => current ? { ...current, error: message } : current);
+      throw new Error(message);
+    };
+    if (!dialogState.draft.trim()) failDelivery("Handoff content cannot be blank");
+    if (destination.kind === "existing") {
+      const isAvailable = availableSessions.some(
+        (session) => session.id === destination.sessionId,
+      );
+      if (!isAvailable) failDelivery("Selected handoff destination is unavailable");
+      if (busySessionIds.has(destination.sessionId)) {
+        failDelivery("Selected handoff destination is busy");
+      }
+    }
 
     setIsDelivering(true);
     try {
       const sessionId = destination.kind === "new"
         ? (await createChatSession.mutateAsync({
           agent_id: dialogState.target.id,
-          title: deriveChatTitle(content),
+          title: deriveChatTitle(dialogState.draft),
         })).id
         : destination.sessionId;
-      await api.sendChatMessage(sessionId, content);
+      await api.sendChatMessage(sessionId, dialogState.draft);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: chatKeys.sessions(wsId) }),
+        queryClient.invalidateQueries({ queryKey: chatKeys.session(wsId, sessionId) }),
         queryClient.invalidateQueries({ queryKey: chatKeys.messages(sessionId) }),
         queryClient.invalidateQueries({ queryKey: chatKeys.messagesPage(sessionId) }),
         queryClient.invalidateQueries({ queryKey: chatKeys.pendingTask(sessionId) }),
@@ -162,13 +192,15 @@ export function useAgentHandoff({
     } finally {
       setIsDelivering(false);
     }
-  }, [createChatSession, dialogState, queryClient, wsId]);
+  }, [availableSessions, busySessionIds, createChatSession, dialogState, queryClient, wsId]);
 
   return {
     prepareOutgoing,
     registerAcceptedSource,
     dialog,
     closeDialog,
+    setDraft,
+    setDestination,
     deliver,
     error,
     isDelivering,
