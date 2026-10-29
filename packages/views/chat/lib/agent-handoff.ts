@@ -1,6 +1,6 @@
 import type { Agent } from "@multica/core/types";
 
-type HandoffAgent = Pick<Agent, "id" | "name">;
+export type HandoffAgent = Pick<Agent, "id" | "name">;
 
 export type AgentHandoff =
   | { kind: "none" }

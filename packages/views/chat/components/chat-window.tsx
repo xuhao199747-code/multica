@@ -290,7 +290,7 @@ export function ChatWindow() {
   }, [activeAgent?.name, handoff, t]);
 
   useEffect(() => {
-    if (!handoff.feedback) return;
+    if (handoff.feedback?.kind !== "delivered") return;
     toast.success(t(($) => $.handoff.delivered, {
       name: handoff.feedback.targetName,
       conversation: handoff.feedback.conversationTitle,

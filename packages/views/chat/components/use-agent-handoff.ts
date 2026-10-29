@@ -13,12 +13,13 @@ import {
   buildAgentHandoffRequest,
   resolveAgentHandoff,
 } from "../lib/agent-handoff";
+import type { HandoffAgent } from "../lib/agent-handoff";
 import { deriveChatTitle } from "./use-chat-controller";
 
 type PendingSource = {
   sessionId: string;
   taskId: string;
-  target: Agent;
+  target: HandoffAgent;
 };
 
 export type AgentHandoffDestination =
@@ -27,7 +28,7 @@ export type AgentHandoffDestination =
 
 type HandoffDialogState = {
   sourceSessionId: string;
-  target: Agent;
+  target: HandoffAgent;
   draft: string;
   destination: AgentHandoffDestination;
   error: AgentHandoffDeliveryError | null;
