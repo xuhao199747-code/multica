@@ -32,21 +32,20 @@
  */
 .rich-text-editor.chat-composer-editor {
   --chat-image-size: 6rem;
-}
-
-.rich-text-editor.chat-composer-editor {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
 
 .rich-text-editor.chat-composer-editor > [data-node-view-wrapper]:has(.image-node) {
-  flex: 0 0 var(--chat-image-size);
   /* Attachments form a dedicated strip above the editable text, regardless of
-   * whether the document's text nodes were created before or after uploads. */
-  order: -1;
-  margin: 0;
+   * whether the document's text nodes were created before or after uploads.
+   * They are inserted at the document start; keeping them inline lets excess
+   * thumbnails scroll horizontally instead of starting a second row. */
+  display: inline-block;
+  width: var(--chat-image-size);
+  margin: 0 0.5rem 0 0;
+  vertical-align: top;
 }
 
 /* The upload command inserts an empty paragraph after every block image to
@@ -58,7 +57,7 @@
 }
 
 .rich-text-editor.chat-composer-editor > p {
-  flex-basis: 100%;
+  white-space: normal;
   margin: 0;
 }
 
