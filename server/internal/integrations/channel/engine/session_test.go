@@ -230,6 +230,15 @@ func (f *fakeSessionQueries) InitializeChatSessionTitle(_ context.Context, arg d
 	return db.ChatSession{ID: arg.ID, Title: arg.Title}, nil
 }
 
+func (f *fakeSessionQueries) UpdateChatSessionTitleIfCurrent(_ context.Context, arg db.UpdateChatSessionTitleIfCurrentParams) (db.ChatSession, error) {
+	if f.sessionTitle != arg.ExpectedTitle {
+		return db.ChatSession{}, pgx.ErrNoRows
+	}
+	f.initializedTitle = arg.NewTitle
+	f.sessionTitle = arg.NewTitle
+	return db.ChatSession{ID: arg.ID, Title: arg.NewTitle}, nil
+}
+
 func (f *fakeSessionQueries) ReplaceImplicitChatSessionTitle(_ context.Context, arg db.ReplaceImplicitChatSessionTitleParams) (db.ChatSession, error) {
 	f.initializedTitle = arg.Title
 	f.sessionTitle = arg.Title

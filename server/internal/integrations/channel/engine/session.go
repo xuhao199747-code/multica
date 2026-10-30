@@ -56,6 +56,7 @@ type SessionQueries interface {
 	ChatSessionHasPublicUserMessage(ctx context.Context, id pgtype.UUID) (bool, error)
 	MarkChatSessionExplicitlyCreated(ctx context.Context, id pgtype.UUID) (db.ChatSession, error)
 	InitializeChatSessionTitle(ctx context.Context, arg db.InitializeChatSessionTitleParams) (db.ChatSession, error)
+	UpdateChatSessionTitleIfCurrent(ctx context.Context, arg db.UpdateChatSessionTitleIfCurrentParams) (db.ChatSession, error)
 	ReplaceImplicitChatSessionTitle(ctx context.Context, arg db.ReplaceImplicitChatSessionTitleParams) (db.ChatSession, error)
 	CreateChatMessage(ctx context.Context, arg db.CreateChatMessageParams) (db.ChatMessage, error)
 	ListUnownedChannelChatContextRevisions(ctx context.Context, chatSessionID pgtype.UUID) ([]PendingContext, error)
@@ -138,6 +139,9 @@ func (a dbSessionQueries) MarkChatSessionExplicitlyCreated(ctx context.Context, 
 }
 func (a dbSessionQueries) InitializeChatSessionTitle(ctx context.Context, arg db.InitializeChatSessionTitleParams) (db.ChatSession, error) {
 	return a.q.InitializeChatSessionTitle(ctx, arg)
+}
+func (a dbSessionQueries) UpdateChatSessionTitleIfCurrent(ctx context.Context, arg db.UpdateChatSessionTitleIfCurrentParams) (db.ChatSession, error) {
+	return a.q.UpdateChatSessionTitleIfCurrent(ctx, arg)
 }
 func (a dbSessionQueries) ReplaceImplicitChatSessionTitle(ctx context.Context, arg db.ReplaceImplicitChatSessionTitleParams) (db.ChatSession, error) {
 	return a.q.ReplaceImplicitChatSessionTitle(ctx, arg)
@@ -689,6 +693,16 @@ func (s *ChatSession) AppendUserMessage(ctx context.Context, in AppendInput) (Ap
 				initializedTitle = title
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return AppendResult{}, fmt.Errorf("initialize chat title: %w", err)
+			} else if currentSession.Title == "" {
+				if _, err := qtx.UpdateChatSessionTitleIfCurrent(ctx, db.UpdateChatSessionTitleIfCurrentParams{
+					ID:           in.SessionID,
+					ExpectedTitle: "",
+					NewTitle:      title,
+				}); err == nil {
+					initializedTitle = title
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return AppendResult{}, fmt.Errorf("update chat title: %w", err)
+				}
 			}
 		}
 	}

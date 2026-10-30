@@ -2436,6 +2436,14 @@ func (s *TaskService) SendDirectChatMessage(
 				out.InitialTitle = title
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("initialize direct chat title: %w", err)
+			} else if _, err := qtx.UpdateChatSessionTitleIfCurrent(ctx, db.UpdateChatSessionTitleIfCurrentParams{
+				ID:            session.ID,
+				ExpectedTitle: "",
+				NewTitle:      title,
+			}); err == nil {
+				out.InitialTitle = title
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("update direct chat title: %w", err)
 			}
 		}
 
