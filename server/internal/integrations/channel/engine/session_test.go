@@ -104,7 +104,6 @@ type fakeSessionQueries struct {
 	issueMediaDescription string
 	reconcilerOwnedKeys   map[string]bool
 	issueLookupErr        error
-	initializedMediaTitle string
 	initializedTitle      string
 	explicitlyCreated     bool
 	hasPublicUserMessage  bool
@@ -234,11 +233,6 @@ func (f *fakeSessionQueries) InitializeChatSessionTitle(_ context.Context, arg d
 func (f *fakeSessionQueries) ReplaceImplicitChatSessionTitle(_ context.Context, arg db.ReplaceImplicitChatSessionTitleParams) (db.ChatSession, error) {
 	f.initializedTitle = arg.Title
 	f.sessionTitle = arg.Title
-	return db.ChatSession{ID: arg.ID, Title: arg.Title}, nil
-}
-
-func (f *fakeSessionQueries) InitializeChatSessionMediaTitle(_ context.Context, arg db.InitializeChatSessionMediaTitleParams) (db.ChatSession, error) {
-	f.initializedMediaTitle = arg.Title
 	return db.ChatSession{ID: arg.ID, Title: arg.Title}, nil
 }
 
@@ -930,7 +924,7 @@ func TestBindMediaRefs_CreatesAndLinksChatAttachments(t *testing.T) {
 	}
 }
 
-func TestBindMediaRefs_InitializesPlaceholderOnlyFirstMessageFromFilename(t *testing.T) {
+func TestBindMediaRefs_DoesNotNamePlaceholderOnlyFirstMessageFromFilename(t *testing.T) {
 	f := newFake()
 	s := newTestSession(f)
 	res, err := s.AppendUserMessage(context.Background(), AppendInput{
@@ -953,8 +947,8 @@ func TestBindMediaRefs_InitializesPlaceholderOnlyFirstMessageFromFilename(t *tes
 	if err != nil {
 		t.Fatalf("BindMediaRefs: %v", err)
 	}
-	if f.initializedMediaTitle != "incident screenshot.png" {
-		t.Fatalf("media title = %q, want attachment filename", f.initializedMediaTitle)
+	if f.sessionTitle != "" {
+		t.Fatalf("media title = %q, want no title for attachment-only message", f.sessionTitle)
 	}
 }
 

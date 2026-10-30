@@ -377,8 +377,8 @@ func TestChannelChatCommandE2ERotatesRouteAndFreezesTaskDelivery(t *testing.T) {
 		t.Fatalf("direct continuation title=%q initial=%q delivery=%d", directTitle, direct.InitialTitle, deliveryCount)
 	}
 
-	// The same cross-client path must also title an attachment-only first
-	// message from the first file that was actually bound.
+	// The same cross-client path must leave an attachment-only first message
+	// untitled until a later text message provides a title source.
 	send("event-attachment-chat", "message-attachment-chat", "/new")
 	var attachmentSessionID string
 	if err := testPool.QueryRow(ctx, `
@@ -412,7 +412,7 @@ func TestChannelChatCommandE2ERotatesRouteAndFreezesTaskDelivery(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `SELECT title FROM chat_session WHERE id = $1`, attachmentSessionID).Scan(&attachmentTitle); err != nil {
 		t.Fatalf("load attachment-only title: %v", err)
 	}
-	if attachmentTitle != "quarterly-plan.pdf" || attachmentSend.InitialTitle != attachmentTitle {
+	if attachmentTitle != "" || attachmentSend.InitialTitle != "" {
 		t.Fatalf("attachment-only title=%q initial=%q", attachmentTitle, attachmentSend.InitialTitle)
 	}
 }

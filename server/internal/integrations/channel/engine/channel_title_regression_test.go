@@ -37,7 +37,7 @@ func TestRouterTitleUsesCurrentInstruction(t *testing.T) {
 	}
 }
 
-func TestContextualMediaOpeningWaitsForFilenameTitle(t *testing.T) {
+func TestContextualMediaOpeningRemainsUntitled(t *testing.T) {
 	f := newFake()
 	session := newTestSession(f)
 	body := "<quoted_message>\nHistorical subject\n</quoted_message>\n\n[Image]"
@@ -52,7 +52,7 @@ func TestContextualMediaOpeningWaitsForFilenameTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.initializedMediaTitle != "incident screenshot.png" || bound.InitialTitle != "incident screenshot.png" || bound.TitleSource != "incident screenshot.png" {
-		t.Fatalf("media title stored=%q result=%+v", f.initializedMediaTitle, bound)
+	if f.sessionTitle != "" || bound.InitialTitle != "" || bound.TitleSource != "" {
+		t.Fatalf("media title stored=%q result=%+v", f.sessionTitle, bound)
 	}
 }

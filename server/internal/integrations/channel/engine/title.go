@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/multica-ai/multica/server/internal/chattitle"
-	"github.com/multica-ai/multica/server/internal/integrations/channel"
 )
 
 // DeriveChatTitle is the deterministic fallback shared by channel-created
@@ -47,17 +46,4 @@ func withoutMediaPlaceholderLines(body string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-func mediaTypeTitle(kind channel.MsgType) string {
-	switch kind {
-	case channel.MsgTypeImage:
-		return "Image chat"
-	case channel.MsgTypeAudio:
-		return "Audio chat"
-	case channel.MsgTypeVideo:
-		return "Video chat"
-	default:
-		return "File chat"
-	}
 }

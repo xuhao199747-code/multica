@@ -57,7 +57,6 @@ type SessionQueries interface {
 	MarkChatSessionExplicitlyCreated(ctx context.Context, id pgtype.UUID) (db.ChatSession, error)
 	InitializeChatSessionTitle(ctx context.Context, arg db.InitializeChatSessionTitleParams) (db.ChatSession, error)
 	ReplaceImplicitChatSessionTitle(ctx context.Context, arg db.ReplaceImplicitChatSessionTitleParams) (db.ChatSession, error)
-	InitializeChatSessionMediaTitle(ctx context.Context, arg db.InitializeChatSessionMediaTitleParams) (db.ChatSession, error)
 	CreateChatMessage(ctx context.Context, arg db.CreateChatMessageParams) (db.ChatMessage, error)
 	ListUnownedChannelChatContextRevisions(ctx context.Context, chatSessionID pgtype.UUID) ([]PendingContext, error)
 	ClearChatMessageChannelMediaPending(ctx context.Context, arg db.ClearChatMessageChannelMediaPendingParams) error
@@ -142,9 +141,6 @@ func (a dbSessionQueries) InitializeChatSessionTitle(ctx context.Context, arg db
 }
 func (a dbSessionQueries) ReplaceImplicitChatSessionTitle(ctx context.Context, arg db.ReplaceImplicitChatSessionTitleParams) (db.ChatSession, error) {
 	return a.q.ReplaceImplicitChatSessionTitle(ctx, arg)
-}
-func (a dbSessionQueries) InitializeChatSessionMediaTitle(ctx context.Context, arg db.InitializeChatSessionMediaTitleParams) (db.ChatSession, error) {
-	return a.q.InitializeChatSessionMediaTitle(ctx, arg)
 }
 func (a dbSessionQueries) CreateChatMessage(ctx context.Context, arg db.CreateChatMessageParams) (db.ChatMessage, error) {
 	return a.q.CreateChatMessage(ctx, arg)
@@ -1032,29 +1028,6 @@ func (s *ChatSession) bindMediaRefs(ctx context.Context, qtx SessionQueries, in 
 	}
 	if len(ids) == 0 {
 		return nil
-	}
-	if !in.IssueID.Valid {
-		for _, media := range created {
-			source := media.ref.Filename
-			if strings.TrimSpace(source) == "" {
-				source = mediaTypeTitle(media.ref.Type)
-			}
-			title := DeriveChatTitle(source)
-			if title == "" {
-				continue
-			}
-			if _, err := qtx.InitializeChatSessionMediaTitle(ctx, db.InitializeChatSessionMediaTitleParams{
-				ID: in.SessionID, MessageID: in.MessageID, Title: title,
-			}); err != nil {
-				if !errors.Is(err, pgx.ErrNoRows) {
-					return fmt.Errorf("initialize media chat title: %w", err)
-				}
-			} else {
-				result.InitialTitle = title
-				result.TitleSource = source
-			}
-			break
-		}
 	}
 	if in.IssueID.Valid {
 		issueMarkdown := make([]string, 0, len(created))

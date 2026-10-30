@@ -2467,33 +2467,6 @@ func (s *TaskService) SendDirectChatMessage(
 				return fmt.Errorf("link chat attachments: %w", err)
 			}
 			out.BoundAttachmentIDs = bound
-
-			// An explicitly empty /new Chat can receive its first turn from a
-			// first-party client. For an attachment-only turn, initialize the
-			// title from the first attachment that was actually bound. The media
-			// title CAS runs after the message insert by design and still refuses
-			// to overwrite a manual rename or a competing first message.
-			if out.InitialTitle == "" && strings.TrimSpace(content) == "" && len(bound) > 0 {
-				attachments, err := qtx.ListAttachmentsByChatMessage(ctx, db.ListAttachmentsByChatMessageParams{
-					ChatMessageID: msg.ID,
-					WorkspaceID:   session.WorkspaceID,
-				})
-				if err != nil {
-					return fmt.Errorf("list bound chat attachments for title: %w", err)
-				}
-				if len(attachments) > 0 {
-					title := chattitle.Derive(attachments[0].Filename)
-					if title != "" {
-						if _, err := qtx.InitializeChatSessionMediaTitle(ctx, db.InitializeChatSessionMediaTitleParams{
-							ID: session.ID, MessageID: msg.ID, Title: title,
-						}); err == nil {
-							out.InitialTitle = title
-						} else if !errors.Is(err, pgx.ErrNoRows) {
-							return fmt.Errorf("initialize direct attachment chat title: %w", err)
-						}
-					}
-				}
-			}
 		}
 
 		if err := qtx.TouchChatSession(ctx, session.ID); err != nil {
