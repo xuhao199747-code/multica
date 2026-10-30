@@ -17,6 +17,10 @@ function launch(cookies: Record<string, string>, host = "www.multica.ai") {
 
 describe("web app manifest", () => {
 
+  it("requests portrait orientation for installed web apps", () => {
+    expect(manifest().orientation).toBe("portrait");
+  });
+
   it("does not launch at the root path", () => {
     // The official marketing hosts keep "/" on the public site even for a
     // signed-in session, so an installed app pointed there opens the landing

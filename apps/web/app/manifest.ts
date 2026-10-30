@@ -40,6 +40,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: PWA_START_URL,
     scope: "/",
     display: "standalone",
+    orientation: "portrait",
     // Splash-screen colours. The runtime status bar is driven by the
     // per-scheme `<meta name="theme-color">` pair in app/layout.tsx, which the
     // manifest cannot express — these are the pre-launch fallback only.
