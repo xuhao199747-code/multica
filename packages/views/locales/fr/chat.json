@@ -241,6 +241,7 @@
     "archive": "Archiver",
     "unarchive": "Désarchiver",
     "archived_title": "Archivées",
+    "project_context": "Projet : {{name}}",
     "row_actions_aria": "Actions de discussion"
   },
   "header": {

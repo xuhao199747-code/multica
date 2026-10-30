@@ -237,6 +237,7 @@
     "archive": "归档",
     "unarchive": "取消归档",
     "archived_title": "已归档",
+    "project_context": "项目：{{name}}",
     "row_actions_aria": "聊天操作"
   },
   "header": {

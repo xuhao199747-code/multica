@@ -241,6 +241,7 @@
     "archive": "Archive",
     "unarchive": "Unarchive",
     "archived_title": "Archived",
+    "project_context": "Project: {{name}}",
     "row_actions_aria": "Chat actions"
   },
   "header": {

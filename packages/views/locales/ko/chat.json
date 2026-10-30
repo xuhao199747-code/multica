@@ -237,6 +237,7 @@
     "archive": "보관",
     "unarchive": "보관 해제",
     "archived_title": "보관됨",
+    "project_context": "프로젝트: {{name}}",
     "row_actions_aria": "채팅 작업"
   },
   "header": {
