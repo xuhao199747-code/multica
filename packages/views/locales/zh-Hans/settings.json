@@ -160,7 +160,9 @@
     },
     "orientation": {
       "title": "禁止横屏",
-      "hint": "开启后，支持屏幕方向锁定的浏览器和已安装 Web 应用会保持竖屏。"
+      "hint": "保持 Multica 竖屏使用。支持的浏览器和已安装 Web 应用也会锁定屏幕方向。",
+      "rotate_title": "请旋转手机",
+      "rotate_hint": "此工作区已设为仅竖屏使用。"
     },
     "language": {
       "title": "语言",

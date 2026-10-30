@@ -135,7 +135,7 @@ export default async function RootLayout({
       suppressHydrationWarning
       className={cn("antialiased font-sans h-full", inter.variable, geistMono.variable, sourceSerif.variable)}
     >
-      <body className="h-full overflow-hidden">
+      <body className="h-full overflow-hidden bg-app-shell">
         {/*
           react-grab: dev-only element inspector. Hold ⌘C (Mac) / Ctrl+C and click
           any element to copy its source path + line + component stack for pasting

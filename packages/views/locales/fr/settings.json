@@ -161,7 +161,9 @@
     },
     "orientation": {
       "title": "Bloquer le mode paysage",
-      "hint": "Lorsque cette option est activée, les navigateurs compatibles et les applications Web installées restent en portrait."
+      "hint": "Conservez Multica en portrait. Les navigateurs compatibles et les applications Web installées verrouillent aussi l’écran.",
+      "rotate_title": "Tournez votre téléphone",
+      "rotate_hint": "Cet espace de travail est configuré pour rester en portrait."
     },
     "language": {
       "title": "Langue",

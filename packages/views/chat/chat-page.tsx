@@ -70,6 +70,7 @@ import { ArchivedAgentBanner } from "./components/archived-agent-banner";
 import { AgentAccessRevokedBanner } from "./components/agent-access-revoked-banner";
 import { RuntimeRequiredBanner } from "./components/runtime-required-banner";
 import { AgentHandoffDialog } from "./components/agent-handoff-dialog";
+import { useVisualViewportKeyboard } from "./components/use-visual-viewport-keyboard";
 
 /**
  * Chat tab — the first-class two-pane surface (thread list on the left,
@@ -110,6 +111,7 @@ export function ChatPage() {
   // can rehydrate the store before this page observes the destination URL.
   const isCurrentChatRoute = pathname === wsPaths.chat();
   const isCompact = useIsCompact();
+  const keyboard = useVisualViewportKeyboard(isCurrentChatRoute);
 
   const c = useChatController({
     isActive: isCurrentChatRoute && getCurrentSlug() === workspaceSlug,
@@ -817,7 +819,10 @@ export function ChatPage() {
   if (isCompact) {
     if (c.activeSessionId || composingNew) {
       pageContent = (
-        <div className="flex flex-1 flex-col min-h-0">
+        <div
+          className="flex flex-1 flex-col min-h-0"
+          style={keyboard ? { flex: "none", height: keyboard.viewportHeight } : undefined}
+        >
           <div className="flex h-12 shrink-0 items-center border-b px-2">
             <Button
               variant="ghost"

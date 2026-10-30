@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Geometry of the visual viewport while the mobile soft keyboard is up. */
 export interface VisualViewportKeyboard {
@@ -38,16 +38,25 @@ const KEYBOARD_MIN_PX = 100;
  * 17.5), which would make an innerHeight-based keyboard measure read near
  * zero exactly when the keyboard is up.
  */
-export function useVisualViewportKeyboard(): VisualViewportKeyboard | null {
+export function useVisualViewportKeyboard(enabled = true): VisualViewportKeyboard | null {
   const [keyboard, setKeyboard] = useState<VisualViewportKeyboard | null>(null);
+  const layoutHeightRef = useRef(0);
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
+    if (!enabled) {
+      setKeyboard(null);
+      return;
+    }
 
     const update = () => {
       const zoomed = Math.abs(vv.scale - 1) > 0.01;
-      const layoutHeight = document.documentElement.clientHeight;
+      layoutHeightRef.current = Math.max(
+        layoutHeightRef.current,
+        document.documentElement.clientHeight,
+      );
+      const layoutHeight = layoutHeightRef.current;
       const keyboardHeight = layoutHeight - vv.height;
       const next: VisualViewportKeyboard | null =
         zoomed || keyboardHeight < KEYBOARD_MIN_PX
@@ -74,7 +83,7 @@ export function useVisualViewportKeyboard(): VisualViewportKeyboard | null {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
     };
-  }, []);
+  }, [enabled]);
 
   return keyboard;
 }
