@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { SettingsRow } from "@multica/views/settings";
 import { useT } from "@multica/views/i18n";
@@ -80,6 +80,49 @@ function usePortraitLockPreference() {
   return { lockPortrait, setLockPortrait };
 }
 
+function useLandscape() {
+  const [landscape, setLandscape] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(orientation: landscape)");
+    const update = () => setLandscape(query.matches);
+    update();
+    if (query.addEventListener) {
+      query.addEventListener("change", update);
+      return () => query.removeEventListener("change", update);
+    }
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, []);
+
+  return landscape;
+}
+
+function PortraitOnlyOverlay() {
+  const { t } = useT("settings");
+  const landscape = useLandscape();
+
+  if (!landscape) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-app-shell p-6 text-center"
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={t(($) => $.preferences.orientation.rotate_title)}
+    >
+      <div className="max-w-xs space-y-2">
+        <p className="text-title text-foreground">
+          {t(($) => $.preferences.orientation.rotate_title)}
+        </p>
+        <p className="text-body text-muted-foreground">
+          {t(($) => $.preferences.orientation.rotate_hint)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Applies a previously saved portrait lock as soon as the web app loads. */
 export function MobileOrientationPreferenceSync() {
   const { lockPortrait } = usePortraitLockPreference();
@@ -88,7 +131,7 @@ export function MobileOrientationPreferenceSync() {
     void applyPortraitLock(getScreenOrientation(), lockPortrait);
   }, [lockPortrait]);
 
-  return null;
+  return lockPortrait ? <PortraitOnlyOverlay /> : null;
 }
 
 /** Web-only setting: desktop has no meaningful browser orientation to manage. */

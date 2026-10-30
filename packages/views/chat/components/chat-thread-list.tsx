@@ -133,6 +133,7 @@ export function ChatThreadList({
   const openInNewTab = navigation?.openInNewTab;
   const getShareableUrl = navigation?.getShareableUrl;
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
 
   // Split the flat cache locally: active chats fill the default history view,
   // archived chats fill the "Archived" view. Both sorted pinned-first (then by
@@ -243,6 +244,9 @@ export function ChatThreadList({
     const isCurrent = session.id === activeSessionId;
     const agent = agentById.get(session.agent_id) ?? null;
     const agentName = agent?.name.trim() || null;
+    const projectName = session.project_id
+      ? projectById.get(session.project_id)?.title.trim() || null
+      : null;
     const pendingTask = pendingTaskBySessionId.get(session.id);
     const isRunning = !!pendingTask;
     // Only "offline" (definitively long-offline) downgrades typing → waiting.
@@ -405,7 +409,8 @@ export function ChatThreadList({
         className={cn(
           // Fixed height so nothing (hover actions, confirm prompts) can change
           // the row size and make the list jump. Content is vertically centered.
-          "group/row relative flex h-14 min-w-0 cursor-default items-center gap-3 rounded-md px-2 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring",
+          "group/row relative flex min-w-0 cursor-default items-center gap-3 rounded-md px-2 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring",
+          view === "archived" && projectName ? "h-[72px]" : "h-14",
           isCurrent ? "bg-accent" : "hover:bg-accent/50",
           isConfirmingAction && "bg-destructive/5 hover:bg-destructive/5",
         )}
@@ -432,6 +437,12 @@ export function ChatThreadList({
             </span>
             <span className="ml-auto shrink-0 text-micro text-muted-foreground">{timeText}</span>
           </div>
+
+          {view === "archived" && projectName && (
+            <span className="mt-0.5 block truncate text-micro text-muted-foreground">
+              {t(($) => $.list.project_context, { name: projectName })}
+            </span>
+          )}
 
           {/* Line 2: preview + unread badge, or an inline confirm prompt */}
           <div className="mt-0.5 flex items-center gap-2">

@@ -161,7 +161,9 @@
     },
     "orientation": {
       "title": "Block landscape",
-      "hint": "When enabled, supported browsers and installed web apps stay in portrait."
+      "hint": "Keep Multica in portrait. Supported browsers and installed web apps also lock the screen.",
+      "rotate_title": "Rotate your phone",
+      "rotate_hint": "This workspace is set to stay in portrait."
     },
     "language": {
       "title": "Language",

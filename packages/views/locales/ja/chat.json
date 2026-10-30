@@ -237,6 +237,7 @@
     "archive": "アーカイブ",
     "unarchive": "アーカイブ解除",
     "archived_title": "アーカイブ済み",
+    "project_context": "プロジェクト：{{name}}",
     "row_actions_aria": "チャットの操作"
   },
   "header": {

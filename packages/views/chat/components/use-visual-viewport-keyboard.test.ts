@@ -18,15 +18,17 @@ class FakeVisualViewport extends EventTarget {
 
 describe("useVisualViewportKeyboard", () => {
   let vv: FakeVisualViewport;
+  let layoutHeight: number;
 
   beforeEach(() => {
     // iOS Safari shrinks window.innerHeight together with the visual
     // viewport when the keyboard opens, so the hook must key off the stable
     // documentElement.clientHeight. Model that worst case: innerHeight
     // always mirrors the visual viewport height.
+    layoutHeight = 800;
     Object.defineProperty(document.documentElement, "clientHeight", {
       configurable: true,
-      value: 800,
+      get: () => layoutHeight,
     });
     vv = new FakeVisualViewport(800);
     Object.defineProperty(window, "innerHeight", {
@@ -59,6 +61,15 @@ describe("useVisualViewportKeyboard", () => {
   it("reports geometry when the keyboard shrinks the visual viewport", () => {
     const { result } = renderHook(() => useVisualViewportKeyboard());
     act(() => vv.resize({ height: 500 }));
+    expect(result.current).toEqual({ occludedBottom: 300, viewportHeight: 500 });
+  });
+
+  it("keeps using the original layout height when iOS shrinks it with the keyboard", () => {
+    const { result } = renderHook(() => useVisualViewportKeyboard());
+    layoutHeight = 500;
+
+    act(() => vv.resize({ height: 500 }));
+
     expect(result.current).toEqual({ occludedBottom: 300, viewportHeight: 500 });
   });
 

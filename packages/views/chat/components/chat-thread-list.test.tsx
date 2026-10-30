@@ -244,6 +244,26 @@ describe("ChatThreadList archive delegation", () => {
   });
 });
 
+describe("ChatThreadList archived project context", () => {
+  it("shows the project name beneath an archived chat title", () => {
+    const project = {
+      id: "project-1",
+      title: "论文助手",
+      workspace_id: "ws-1",
+    } as Project;
+    const archivedSession = makeSession({
+      id: "archived-project-chat",
+      status: "archived",
+      project_id: project.id,
+    });
+    renderList(null, { renderedSessions: [archivedSession], projects: [project] });
+
+    fireEvent.click(screen.getByText(enChat.list.archived_title).closest("button")!);
+
+    expect(screen.getByText(`Project: ${project.title}`)).toBeInTheDocument();
+  });
+});
+
 describe("ChatThreadList no_response preview (MUL-4351)", () => {
   it("shows a localized 'no text reply' preview instead of the fallback body", () => {
     const session = makeSession({

@@ -861,7 +861,7 @@ export function ChatWindow() {
   // applies styles imperatively and never unsets a key that merely
   // disappears from the style prop, so a conditional spread here would
   // leave the keyboard geometry stuck on the DOM after the keyboard closes.
-  const keyboard = useVisualViewportKeyboard();
+  const keyboard = useVisualViewportKeyboard(isOpen);
   const containerStyle: React.CSSProperties = {
     transformOrigin: "bottom right",
     pointerEvents: isOpen ? "auto" : "none",

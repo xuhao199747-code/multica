@@ -7,6 +7,7 @@ import enSettings from "@multica/views/locales/en/settings.json";
 import {
   applyPortraitLock,
   LandscapePreferenceRow,
+  MobileOrientationPreferenceSync,
 } from "./mobile-orientation";
 
 const TEST_RESOURCES = {
@@ -19,6 +20,8 @@ const TEST_RESOURCES = {
         orientation: {
           title: "Block landscape",
           hint: "When enabled, supported browsers and installed web apps stay in portrait.",
+          rotate_title: "Rotate your phone",
+          rotate_hint: "This workspace is set to stay in portrait.",
         },
       },
     },
@@ -81,5 +84,31 @@ describe("LandscapePreferenceRow", () => {
 
     expect(localStorage.getItem("multica_lock_portrait")).toBe("true");
     expect(lock).toHaveBeenCalledWith("portrait");
+  });
+});
+
+describe("MobileOrientationPreferenceSync", () => {
+  const matchMedia = vi.fn();
+
+  beforeEach(() => {
+    localStorage.clear();
+    matchMedia.mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal("matchMedia", matchMedia);
+  });
+
+  it("blocks workspace content while a portrait-locked phone is horizontal", () => {
+    localStorage.setItem("multica_lock_portrait", "true");
+
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <MobileOrientationPreferenceSync />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("alertdialog", { name: "Rotate your phone" })).toBeVisible();
   });
 });
