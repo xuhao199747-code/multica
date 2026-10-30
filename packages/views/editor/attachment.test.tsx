@@ -271,6 +271,22 @@ describe("Attachment — image dispatch", () => {
     expect(screen.queryByTitle("Copy link")).toBeNull();
   });
 
+  it("compact image editor mode opens the image when its thumbnail is clicked", () => {
+    renderWithQuery(
+      <Attachment
+        attachment={{ kind: "record", attachment: makeRecord() }}
+        editable
+        imageToolbar="delete-only"
+        onDelete={vi.fn()}
+      />,
+    );
+
+    const figure = screen.getByAltText("shot.png").closest(".image-figure");
+    expect(figure).toHaveAttribute("data-clickable", "true");
+    fireEvent.click(figure!);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("url-only image resolves to a record via context and uses its id for download", () => {
     const att = makeRecord({
       filename: "from-resolver.png",

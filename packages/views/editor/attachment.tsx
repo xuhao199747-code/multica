@@ -534,12 +534,10 @@ function ImageAttachmentView({
     }
   };
 
-  // Click on figure opens the preview only in non-editor / non-uploading
-  // surfaces — inside the editor we let ProseMirror own the click for
-  // selection / cursor placement and route preview through the explicit
-  // Maximize button. The CSS rule `.image-figure[data-clickable="true"] {
-  // cursor: zoom-in }` keys off this same flag for the cursor affordance.
-  const clickable = !editable && !uploading;
+  // Chat's compact attachment strip uses its thumbnail as the explicit view
+  // affordance. Other editors keep their normal selection/cursor behavior and
+  // expose preview through the toolbar instead.
+  const clickable = !uploading && (!editable || imageToolbar === "delete-only");
   const deleteOnly = imageToolbar === "delete-only";
   const showToolbar = !uploading && src && (!deleteOnly || (editable && onDelete));
 
