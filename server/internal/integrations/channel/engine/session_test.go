@@ -856,6 +856,25 @@ func TestAppendUserMessageClearsLegacyTitleForImplicitMediaFirstTurn(t *testing.
 	}
 }
 
+func TestAppendUserMessageTitlesMediaOnlyChatFromLaterText(t *testing.T) {
+	f := newFake()
+	s := newTestSession(f)
+	if _, err := s.AppendUserMessage(context.Background(), AppendInput{
+		SessionID: uid(1), Body: "[Image]", MessageID: "m1", MediaPendingSeconds: 10,
+	}); err != nil {
+		t.Fatalf("AppendUserMessage media: %v", err)
+	}
+	result, err := s.AppendUserMessage(context.Background(), AppendInput{
+		SessionID: uid(1), Body: "Explain this chart", CommandText: "Explain this chart", MessageID: "m2",
+	})
+	if err != nil {
+		t.Fatalf("AppendUserMessage text: %v", err)
+	}
+	if result.InitialTitle != "Explain this chart" || f.sessionTitle != "Explain this chart" {
+		t.Fatalf("later text title result=%q stored=%q", result.InitialTitle, f.sessionTitle)
+	}
+}
+
 func TestBindMediaRefs_CreatesAndLinksChatAttachments(t *testing.T) {
 	f := newFake()
 	s := newTestSession(f)
